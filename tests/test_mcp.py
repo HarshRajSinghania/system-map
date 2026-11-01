@@ -74,10 +74,16 @@ class McpServerTests(unittest.TestCase):
     def test_unknown_node_is_an_error_result(self):
         self.assertTrue(self.tool("node", id="table:public.nope")["isError"])
 
-    def test_spike_payload_is_exact(self):
-        text = self.tool("spike_payload", chars=20000)["content"][0]["text"]
-        self.assertEqual(len(text), 20000)
-        self.assertTrue(text.endswith("END-OF-PAYLOAD"))
+    def test_export_all_returns_a_path_when_over_budget(self):
+        tables = 40
+        migration = self.repo / "supabase" / "migrations" / "002.sql"
+        migration.write_text(
+            "\n".join(f"CREATE TABLE public.t{i} (id uuid PRIMARY KEY, note text);" for i in range(tables))
+        )
+        store.build(self.repo, self.data)
+        value = json.loads(self.tool("export_all")["content"][0]["text"])
+        self.assertFalse(value["inline"])
+        self.assertTrue(Path(value["path"]).is_file())
 
 
 if __name__ == "__main__":

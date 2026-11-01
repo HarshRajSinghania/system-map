@@ -27,6 +27,14 @@ first install: boot rebuilds the spec, and new sessions then get the tools. Both
 and the fix were confirmed in a live gateway. Tools appear as
 `mcp__system-map_system-map__<tool>`.
 
+## Seen working in a live dashboard
+
+- The app opens from the sidebar as an installed app.
+- A `contributes.panelTabs` tab appears in the chat side panel and reads the same model.
+- `ChatEmbed` renders on a slot the app created with `POST /api/chat/slots`.
+
+An installed app's buttons get no default styling, so use the SDK's own controls.
+
 ## Reaching the backend
 
 - The page reaches the backend through `useAppApi` at `/apps/system-map/api/...`, with that

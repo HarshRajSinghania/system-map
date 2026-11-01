@@ -87,15 +87,6 @@ TOOLS = [
             "required": ["repo_path"],
         },
     },
-    {
-        "name": "spike_payload",
-        "description": "Spike only. Returns exactly `chars` chars, ending in END-OF-PAYLOAD, to find result limits.",
-        "inputSchema": {
-            "type": "object",
-            "properties": {"chars": {"type": "integer"}},
-            "required": ["chars"],
-        },
-    },
 ]
 
 
@@ -104,9 +95,6 @@ def call(name: str, args: dict) -> object:
     if name == "build":
         manifest = store.build(Path(args["repo_path"]).expanduser())
         return {k: manifest[k] for k in ("repo_key", "commit", "branch", "counts")}
-    if name == "spike_payload":
-        marker = "END-OF-PAYLOAD"
-        return "x" * max(0, int(args["chars"]) - len(marker)) + marker
 
     target = store.resolve_repo(args.get("repo"))
     if name == "overview":
