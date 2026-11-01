@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import risk, store  # noqa: E402
+from core import explore, risk, store  # noqa: E402
 
 PROTOCOL_VERSION = "2025-06-18"
 BUDGET = {"type": "integer", "description": f"Most chars to return inline. Default {store.DEFAULT_BUDGET_CHARS}."}
@@ -88,6 +88,99 @@ TOOLS = [
                 "commit": {"type": "string", "description": "The commit the tests ran on."},
                 "repo": REPO,
             },
+        },
+    },
+    {
+        "name": "propose",
+        "description": (
+            "Save a what-if as a draft, or test one with dry_run. It never touches the repo. Returns "
+            "a diff against today, its limits and its SQL. Each change has an op: add_table, add_column, "
+            "change_column, drop_column, drop_table, add_index, add_enum_value, add_module, add_route, "
+            "add_job, add_service. A column is {name, type, nullable, default, primary, unique, "
+            "references, on_delete, index}. Only a person can accept a draft."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "why": {"type": "string"},
+                "changes": {"type": "array", "items": {"type": "object"}},
+                "id": {"type": "string", "description": "Update this draft instead of making a new one."},
+                "dry_run": {"type": "boolean", "description": "Check it and save nothing."},
+                "repo": REPO,
+                "budget_chars": BUDGET,
+            },
+            "required": ["title", "changes"],
+        },
+    },
+    {
+        "name": "proposals",
+        "description": "List what-if proposals, or read one by id with its diff, limits and SQL.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}, "repo": REPO, "budget_chars": BUDGET},
+        },
+    },
+    {
+        "name": "use_case",
+        "description": (
+            "Save what someone needs to do, mapped to its routes, tables and modules, and get its gaps "
+            "back. A part that does not exist yet is a gap, so name it anyway. needs tests the schema: "
+            "{need: field|optional, table, column}, {need: value, table, column, value}, "
+            "{need: duplicate, table, columns}, {need: has_many, parent, child}. tables takes a name, "
+            "or {table, access: write}."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "actor": {"type": "string"},
+                "goal": {"type": "string"},
+                "routes": {"type": "array", "items": {"type": "string"}},
+                "tables": {"type": "array"},
+                "modules": {"type": "array", "items": {"type": "string"}},
+                "needs": {"type": "array", "items": {"type": "object"}},
+                "evidence": {"type": "array", "items": {"type": "string"}},
+                "id": {"type": "string", "description": "Update this use case."},
+                "repo": REPO,
+            },
+            "required": ["title"],
+        },
+    },
+    {
+        "name": "use_cases",
+        "description": "List use cases with their parts and gaps: what is missing, untested or not supported.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}, "repo": REPO, "budget_chars": BUDGET},
+        },
+    },
+    {
+        "name": "save_view",
+        "description": (
+            "Save a view the app can draw, when someone asks for a picture. It filters the model, so "
+            "unknown ids are refused. Filter with nodes, around (a node and its neighbours), area, kinds "
+            "or risk (hot, hot_untested). level is map or data. overlays can switch on risk, worktrees and "
+            "plans. proposal lays a proposal over it. layout is left-right or top-down."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "note": {"type": "string"},
+                "level": {"type": "string", "enum": ["map", "data"]},
+                "layout": {"type": "string", "enum": ["left-right", "top-down"]},
+                "nodes": {"type": "array", "items": {"type": "string"}},
+                "around": {"type": "string"},
+                "area": {"type": "string"},
+                "kinds": {"type": "array", "items": {"type": "string"}},
+                "risk": {"type": "string", "enum": ["hot", "hot_untested"]},
+                "overlays": {"type": "object"},
+                "proposal": {"type": "string"},
+                "id": {"type": "string", "description": "Update this view."},
+                "repo": REPO,
+            },
+            "required": ["title"],
         },
     },
     {
@@ -220,6 +313,25 @@ def call(name: str, args: dict) -> object:
         return store.fit(target, "worktrees", compact(body), budget)
     if name == "coverage":
         return store.set_coverage(target, args.get("report"), args.get("commit"))
+    if name == "propose":
+        found = explore.save_proposal(target, args["title"], args.get("why", ""), args["changes"], args.get("id"), bool(args.get("dry_run")))
+        return store.fit(target, "proposal", compact(found), budget)
+    if name == "proposals":
+        if args.get("id"):
+            found = explore.read_proposal(target, args["id"])
+            keep = ("id", "title", "why", "status", "changes", "diff", "limits", "counts", "sql")
+            return store.fit(target, "proposal", compact({key: found[key] for key in keep}), budget)
+        return store.fit(target, "proposals", compact(explore.proposal_rows(target)), budget)
+    if name == "use_case":
+        body = {key: value for key, value in args.items() if key not in ("id", "repo")}
+        return store.fit(target, "use-case", compact(explore.save_use_case(target, body, args.get("id"))), budget)
+    if name == "use_cases":
+        rows = explore.use_case_rows(target)
+        chosen = [row for row in rows if row["id"] == args["id"]] if args.get("id") else rows
+        return store.fit(target, "use-cases", compact(chosen), budget)
+    if name == "save_view":
+        body = {key: value for key, value in args.items() if key not in ("id", "repo")}
+        return store.fit(target, "view", compact(explore.save_view(target, body, args.get("id"))), budget)
     if name == "findings":
         found = [
             finding
@@ -265,7 +377,7 @@ def respond(request: dict) -> dict | None:
         result: dict = {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "system-map", "version": "0.3.0"},
+            "serverInfo": {"name": "system-map", "version": "0.4.0"},
         }
     elif method == "ping":
         result = {}

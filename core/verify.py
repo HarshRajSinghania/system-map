@@ -10,42 +10,12 @@ import re
 from pathlib import Path
 
 from . import store
+from .extractors.postgres import normal_type
 from .sources import run_git
 
 DELETE_RULES = {"a": "no action", "r": "restrict", "c": "cascade", "n": "set null", "d": "set default"}
 COMMANDS = {"r": "select", "a": "insert", "w": "update", "d": "delete", "*": "all"}
 CONSTRAINT_KINDS = {"p": "primary_key", "u": "unique", "f": "foreign_key", "c": "check", "x": "exclude"}
-TYPE_ALIASES = {
-    "int": "integer",
-    "int4": "integer",
-    "int8": "bigint",
-    "int2": "smallint",
-    "bool": "boolean",
-    "timestamptz": "timestamp with time zone",
-    "timestamp": "timestamp without time zone",
-    "timetz": "time with time zone",
-    "time": "time without time zone",
-    "varchar": "character varying",
-    "decimal": "numeric",
-    "float8": "double precision",
-    "float4": "real",
-    "serial": "integer",
-    "bigserial": "bigint",
-}
-
-
-def normal_type(text: str) -> str:
-    value = " ".join(text.lower().replace('"', "").split())
-    value = value.replace("public.", "").replace("extensions.", "")
-    value = re.sub(r"\s*,\s*", ",", value)
-    array = value.endswith("[]")
-    base = value[:-2] if array else value
-    match = re.fullmatch(r"([a-z0-9_ ]+?)\s*(\(.*\))?", base)
-    if match:
-        base = TYPE_ALIASES.get(match.group(1), match.group(1)) + (match.group(2) or "")
-    return base + ("[]" if array else "")
-
-
 def _index_column(text: str) -> str:
     value = text.lower().replace('"', "").replace(" ", "")
     value = re.sub(r"::[a-z_ ]+(\[\])?", "", value)

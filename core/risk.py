@@ -83,6 +83,24 @@ def test_reach(imports: dict[str, list[str]]) -> tuple[Counter, Counter]:
     return direct, reached
 
 
+def tests_by_file(imports: dict[str, list[str]]) -> dict[str, list[str]]:
+    """For each file, the test files that reach it through imports."""
+    found: dict[str, list[str]] = defaultdict(list)
+    for test in sorted(imports):
+        if not typescript.TEST_FILE.search(test):
+            continue
+        seen: set[str] = set()
+        stack = list(imports[test])
+        while stack:
+            path = stack.pop()
+            if path not in seen:
+                seen.add(path)
+                stack += imports.get(path, [])
+        for path in seen:
+            found[path].append(test)
+    return found
+
+
 def build(source, joined: dict) -> dict:
     """The Facts behind every risk view. They are per file, so nothing here needs a rerun."""
     root = joined["code_root"]

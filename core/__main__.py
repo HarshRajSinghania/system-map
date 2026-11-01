@@ -8,6 +8,8 @@
     python3 -m core risk <repo>
     python3 -m core worktrees <repo>
     python3 -m core verify-risk <repo> <truth.json> <coverage-summary.json>
+    python3 -m core proposal-sql <changes.json> <folder>
+    python3 -m core verify-proposal <repo> <changes.json> <results.json>
 """
 from __future__ import annotations
 
@@ -16,7 +18,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import risk, store, verify
+from . import explore, proposals, risk, store, verify
 from .sources import open_source
 
 
@@ -133,7 +135,43 @@ def check_risk(repo_root: Path, truth_path: Path, summary_path: Path) -> int:
     return 1 if churn or tested or not complexity["summary"]["close_enough"] else 0
 
 
+def proposal_sql(changes_path: Path, folder: Path) -> int:
+    """Write one SQL file per change, for `scripts/try_proposal.sh` to run."""
+    folder.mkdir(parents=True, exist_ok=True)
+    changes = [proposals.validate(change) for change in json.loads(changes_path.read_text(encoding="utf-8"))]
+    written = 0
+    for index, change in enumerate(changes):
+        statements = proposals.to_sql(change)
+        if statements:
+            (folder / f"{index:03}.sql").write_text("\n".join(statements) + "\n", encoding="utf-8")
+            written += 1
+    print(f"wrote {written} files to {folder}")
+    return 0
+
+
+def check_proposal(repo_root: Path, changes_path: Path, results_path: Path) -> int:
+    """Compare each change's verdict with what a real Postgres did."""
+    target = store.repo_dir(repo_root)
+    changes = [proposals.validate(change) for change in json.loads(changes_path.read_text(encoding="utf-8"))]
+    found = explore.evaluate(target, {"changes": changes}, live=False)["limits"]
+    refused = {limit["change"] for limit in found if limit["kind"] == "refused"}
+    results = json.loads(results_path.read_text(encoding="utf-8"))
+    diffs = [
+        {"change": row["change"], "op": changes[row["change"]]["op"], "model": "refused" if row["change"] in refused else "accepted", "postgres": row["error"] or "accepted"}
+        for row in results
+        if (row["change"] in refused) == row["accepted"]
+    ]
+    print(json.dumps({"changes": len(results), "refused_by_postgres": sum(1 for row in results if not row["accepted"]), "differences": len(diffs)}, indent=2))
+    for diff in diffs:
+        print(json.dumps(diff))
+    return 1 if diffs else 0
+
+
 def main(argv: list[str]) -> int:
+    if len(argv) == 3 and argv[0] == "proposal-sql":
+        return proposal_sql(Path(argv[1]), Path(argv[2]))
+    if len(argv) == 4 and argv[0] == "verify-proposal":
+        return check_proposal(Path(argv[1]).expanduser(), Path(argv[2]), Path(argv[3]))
     if len(argv) >= 2 and argv[0] == "build":
         return build(Path(argv[1]).expanduser(), argv[2] if len(argv) > 2 else None)
     if len(argv) == 2 and argv[0] == "stats":

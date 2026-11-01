@@ -24,6 +24,37 @@ IGNORED = re.compile(
 )
 
 
+TYPE_ALIASES = {
+    "int": "integer",
+    "int4": "integer",
+    "int8": "bigint",
+    "int2": "smallint",
+    "bool": "boolean",
+    "timestamptz": "timestamp with time zone",
+    "timestamp": "timestamp without time zone",
+    "timetz": "time with time zone",
+    "time": "time without time zone",
+    "varchar": "character varying",
+    "decimal": "numeric",
+    "float8": "double precision",
+    "float4": "real",
+    "serial": "integer",
+    "bigserial": "bigint",
+}
+
+
+def normal_type(text: str) -> str:
+    value = " ".join(text.lower().replace('"', "").split())
+    value = value.replace("public.", "").replace("extensions.", "")
+    value = re.sub(r"\s*,\s*", ",", value)
+    array = value.endswith("[]")
+    base = value[:-2] if array else value
+    match = re.fullmatch(r"([a-z0-9_ ]+?)\s*(\(.*\))?", base)
+    if match:
+        base = TYPE_ALIASES.get(match.group(1), match.group(1)) + (match.group(2) or "")
+    return base + ("[]" if array else "")
+
+
 def bare(name: str) -> str:
     """Drop the schema and quotes from a name: public."Users" -> Users."""
     return re.split(r"\s*\.\s*(?=[^.]*$)", name)[-1].strip('"')
@@ -596,11 +627,16 @@ def _create_trigger(schema: Schema, stmt: Stmt, match: re.Match) -> None:
         return
     function = re.search(rf"\bexecute\s+(?:function|procedure)\s+({QUALIFIED})", match.group(5), re.I)
     name = bare(match.group(1))
+    update_of = re.search(r"\bupdate\s+of\s+(.*?)(?:\s+or\s+|$)", match.group(3), re.I | re.S)
+    when = re.search(r"\bwhen\s*\((.*)\)\s*execute\b", match.group(5), re.I | re.S)
     table.triggers[name] = {
         "name": name,
         "timing": " ".join(match.group(2).lower().split()),
         "events": sorted(e.split()[0].lower() for e in re.split(r"\s+or\s+", match.group(3), flags=re.I)),
         "function": qualified(function.group(1)) if function else None,
+        # Postgres ties a trigger to these columns, so it stops them being dropped or retyped.
+        "columns": [bare(item) for item in update_of.group(1).split(",")] if update_of else [],
+        "when": when.group(1).strip() if when else None,
         "source": stmt.at(0),
     }
 

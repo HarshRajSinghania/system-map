@@ -16,6 +16,9 @@ through a chat. The layout is:
       coverage.json                  the last coverage report loaded; it outlives a rebuild
       reads/<node>/<id>.json         agent notes; each one cites evidence
       intent/plan_status.json        statuses a person set; these beat derived ones
+      intent/proposals/<id>.json     what-ifs. Agents write drafts, and a person accepts them
+      intent/use_cases/<id>.json     what someone needs to do, mapped to its parts
+      intent/views/<id>.json         saved filters that the app draws
       slices/<hash>.md               answers too large to return inline
 
 A build writes a new version, then swaps `manifest.json`. That swap is one atomic file
@@ -101,6 +104,7 @@ def _map_inputs(source) -> dict[str, str]:
     read = set(findings.code_files(source)) | set(typescript.code_files(source)) | set(plans.plan_files(source))
     read |= {path for root in system.SQL_ROOTS for path in source.list_files(root, (".sql",))}
     read |= {path for path in ("tsconfig.json", "package.json") if path in source.blobs}
+    read |= set(typescript.browser_files(source))
     return {path: source.blobs[path] for path in read}
 
 
@@ -361,9 +365,13 @@ def table_index(target: Path) -> list[dict]:
 def graph(target: Path) -> dict:
     """Everything the diagram draws: tables, outside stubs, and foreign key lines."""
     folder = current(target)
+    shards = [json.loads(path.read_text(encoding="utf-8")) for path in sorted((folder / "tables").glob("*.json"))]
+    return graph_of(shards, json.loads((folder / "externals.json").read_text(encoding="utf-8")))
+
+
+def graph_of(shards: list[dict], externals: list[dict]) -> dict:
     tables, edges = [], []
-    for path in sorted((folder / "tables").glob("*.json")):
-        shard = json.loads(path.read_text(encoding="utf-8"))
+    for shard in shards:
         foreign = {c for k in shard["constraints"] if k["kind"] == "foreign_key" for c in k["columns"]}
         primary = {c for k in shard["constraints"] if k["kind"] == "primary_key" for c in k["columns"]}
         tables.append(
@@ -395,7 +403,6 @@ def graph(target: Path) -> dict:
                         "on_delete": constraint["on_delete"],
                     }
                 )
-    externals = json.loads((folder / "externals.json").read_text(encoding="utf-8"))
     for external in externals:
         tables.append(
             {"id": external["id"], "name": f"{external['schema']}.{external['name']}", "status": "external", "rls": None, "columns": []}

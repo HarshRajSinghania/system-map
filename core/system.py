@@ -77,6 +77,10 @@ def build(source, tables: list[dict]) -> dict:
         stats = project.nodes.pop("stats")
         nodes += list(project.nodes.values())
         edges += list(project.edges.values())
+        visits = typescript.browser_visits(source)
+        for node in nodes:
+            if node["kind"] == "route":
+                node["browser_tests"] = sorted(path for path, urls in visits.items() if any(typescript.route_matches(node["path"], url) for url in urls))
         modules = {node["path"]: node["id"] for node in nodes if node["kind"] == "module"}
         root = project.code_root
 

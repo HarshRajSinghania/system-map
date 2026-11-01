@@ -113,6 +113,22 @@ class BackendTests(unittest.TestCase):
         self.assertEqual((reply["lines_hit"], reply["lines_total"]), (1, 2))
         self.assertEqual(self.get("/risk")["coverage"]["commit"], "abc")
 
+    def test_explore_starts_empty_and_a_status_needs_a_real_proposal(self):
+        self.assertEqual(sorted(self.get("/explore")), ["proposals", "use_cases", "views"])
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/proposal-status", {"id": "ghost", "status": "accepted"})
+        self.assertEqual(caught.exception.code, 404)
+
+    def test_a_missing_proposal_is_a_404(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.get("/proposal?id=ghost")
+        self.assertEqual(caught.exception.code, 404)
+
+    def test_a_delete_needs_a_real_kind(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/intent-delete", {"kind": "tables", "id": "x"})
+        self.assertEqual(caught.exception.code, 400)
+
     def test_build_refuses_a_folder_without_migrations(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.post("/build", {"repo_path": str(self.data)})

@@ -1,8 +1,8 @@
 """System Map's HTTP backend: serves the model to the dashboard pages.
 
 Stdlib only. The gateway starts it, binds it to loopback and proxies it at
-`/apps/system-map/api/...`. It reads the model. The only writes are to the app's own data,
-through `POST build`, `POST coverage` and `POST plan-status`. No route writes to a repo.
+`/apps/system-map/api/...`. It reads the model. Every POST writes only to the app's own data.
+No route writes to a repo.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import store  # noqa: E402
+from core import explore, store  # noqa: E402
 
 PORT = int(os.environ.get("PORT", 9100))
 #: The page and the side panel both poll, so one answer serves both for this long.
@@ -76,6 +76,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, worktree_state(store.resolve_repo(repo)))
             elif path.endswith("/risk"):
                 self._json(200, store.load_risk(store.resolve_repo(repo)))
+            elif path.endswith("/explore"):
+                self._json(200, explore.summary(store.resolve_repo(repo)))
+            elif path.endswith("/proposal"):
+                self._json(200, explore.read_proposal(store.resolve_repo(repo), query["id"][0]))
             else:
                 self._json(404, {"error": f"not found: {path}", "seen_path": self.path})
         except KeyError as error:
@@ -98,10 +102,15 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError as error:
                 self._json(400, {"error": str(error)})
             return
-        if route.endswith("/coverage"):
+        if route.endswith(("/coverage", "/proposal-status", "/intent-delete")):
             try:
                 target = store.resolve_repo(body.get("repo"))
-                self._json(200, store.set_coverage(target, body.get("report"), body.get("commit")))
+                if route.endswith("/coverage"):
+                    self._json(200, store.set_coverage(target, body.get("report"), body.get("commit")))
+                elif route.endswith("/proposal-status"):
+                    self._json(200, explore.set_status(target, str(body.get("id", "")), str(body.get("status", ""))))
+                else:
+                    self._json(200, explore.delete_item(target, str(body.get("kind", "")), str(body.get("id", ""))))
             except KeyError as error:
                 self._json(404, {"error": str(error).strip("'\"")})
             except (ValueError, OSError) as error:

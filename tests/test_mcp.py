@@ -144,6 +144,41 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual(value["hot_and_untested"], [])
         self.assertEqual(value["worktree_overlaps"], [])
 
+    def read(self, name, **arguments):
+        value = json.loads(self.tool(name, **arguments)["content"][0]["text"])
+        return json.loads(value["text"]) if value.get("inline") else value
+
+    def test_a_proposal_comes_back_with_its_diff_and_limits(self):
+        changes = [{"op": "add_table", "table": "orgs", "columns": [{"name": "id", "type": "uuid"}]}]
+        body = self.read("propose", title="Again", changes=changes, dry_run=True)
+        self.assertEqual(body["counts"]["refused"], 1)
+        self.assertEqual(self.read("proposals"), [])
+
+    def test_a_saved_proposal_can_be_read_back(self):
+        changes = [{"op": "add_column", "table": "orgs", "column": {"name": "tier", "type": "text"}}]
+        saved = self.read("propose", title="Tier", why="Sort them", changes=changes)
+        self.assertEqual(saved["id"], "tier")
+        self.assertEqual(self.read("proposals")[0]["diff"]["changed"], 1)
+        self.assertEqual(self.read("proposals", id="tier")["why"], "Sort them")
+
+    def test_an_agent_cannot_accept_a_proposal(self):
+        names = [tool["name"] for tool in self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]["result"]["tools"]]
+        self.assertFalse([name for name in names if "status" in name or "accept" in name])
+        schema = next(tool for tool in self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]["result"]["tools"] if tool["name"] == "propose")
+        self.assertNotIn("status", schema["inputSchema"]["properties"])
+
+    def test_a_malformed_proposal_is_an_error_result(self):
+        self.assertTrue(self.tool("propose", title="Bad", changes=[{"op": "nope"}])["isError"])
+
+    def test_a_use_case_comes_back_with_its_gaps(self):
+        body = self.read("use_case", title="Find a client", tables=["ghosts", "users"])
+        self.assertEqual(body["gaps"][0]["check"], "no_table")
+        self.assertEqual(self.read("use_cases")[0]["title"], "Find a client")
+
+    def test_a_view_refuses_what_the_model_does_not_hold(self):
+        self.assertTrue(self.tool("save_view", title="V", nodes=["table:public.ghosts"])["isError"])
+        self.assertEqual(self.read("save_view", title="V", nodes=["table:public.users"])["resolved"], ["table:public.users"])
+
     def test_results_are_compact(self):
         text = self.tool("node", id="table:public.users")["content"][0]["text"]
         self.assertNotIn('\\n  "', text)

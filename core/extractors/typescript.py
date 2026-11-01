@@ -23,6 +23,9 @@ EXPORT_FROM = re.compile(r"""(?:^|[\s;}])export\s+(?:type\s+)?(?:\*(?:\s+as\s+[\
 DYNAMIC_IMPORT = re.compile(r"""\bimport\(\s*(["'`])([^"'`\n$]+)\1\s*\)""")
 REQUIRE = re.compile(r"""\brequire\(\s*(["'])([^"'\n]+)\1\s*\)""")
 
+BROWSER_ROOTS = ("e2e/", "tests/e2e/", "playwright/")
+GOTO = re.compile(r"""\.goto\(\s*["'`](/[^"'`$]*)["'`]""")
+
 TABLE_FROM = re.compile(r"""\.from\(\s*["'`]([\w-]+)["'`]""")
 FIRST_VERB = re.compile(r"\.(select|insert|upsert|update|delete)\s*[(<]")
 WRITE_VERBS = {"insert", "upsert", "update", "delete"}
@@ -306,6 +309,29 @@ def code_files(source) -> list[str]:
 
 def detect(source) -> bool:
     return bool(code_files(source))
+
+
+def browser_files(source) -> list[str]:
+    """Browser test files, which sit outside the code root."""
+    return [path for root in BROWSER_ROOTS for path in source.list_files(root, CODE_SUFFIXES) if TEST_FILE.search(path)]
+
+
+def route_matches(route: str, url: str) -> bool:
+    """Does a URL land on this route? A `$name` part matches any one part."""
+    wanted = route.strip("/").split("/")
+    given = url.split("?")[0].split("#")[0].strip("/").split("/")
+    return len(wanted) == len(given) and all(part.startswith("$") or part == other for part, other in zip(wanted, given))
+
+
+def browser_visits(source) -> dict[str, list[str]]:
+    """Which URLs each browser test opens. A URL built at runtime can't be read here."""
+    visits: dict[str, list[str]] = {}
+    contents = source.read_many(browser_files(source))
+    for path, text in contents.items():
+        urls = sorted({match.group(1) for match in GOTO.finditer(mask_code(text))})
+        if urls:
+            visits[path] = urls
+    return visits
 
 
 def scan(source, known_tables: set[str]) -> Project:
