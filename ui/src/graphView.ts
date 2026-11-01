@@ -68,7 +68,7 @@ function groupCards(system: SystemGraph, tables: number): Card[] {
   const jobs = system.nodes.filter((node) => node.kind === 'job').length
   const cards: Card[] = []
   if (routes.length) cards.push({ id: GROUP_ROUTES, kind: 'group', title: 'Routes', subtitle: `${routes.length - api} pages, ${api} API` })
-  if (tables) cards.push({ id: GROUP_TABLES, kind: 'group', title: 'Database', subtitle: `${tables} tables` })
+  if (tables) cards.push({ id: GROUP_TABLES, kind: 'group', title: 'Database', subtitle: `${tables} ${tables === 1 ? 'table' : 'tables'}` })
   if (jobs) cards.push({ id: GROUP_JOBS, kind: 'group', title: 'Scheduled jobs', subtitle: `${jobs} jobs` })
   return cards
 }

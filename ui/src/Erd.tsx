@@ -13,7 +13,9 @@ import {
 } from '@xyflow/react'
 import type { Edge, Node, NodeProps } from '@xyflow/react'
 import { memo, useMemo } from 'react'
-import { INSPECTOR_ROOM, MIN_ZOOM, useFrame } from './flow'
+import type { ReactNode } from 'react'
+import { INSPECTOR_ROOM, MINIMAP_WIDTH, MIN_ZOOM, useCanvasWidth, useFrame } from './flow'
+import { CanvasTools } from './Layers'
 import type { Rect } from './flow'
 import type { Graph, GraphColumn, GraphTable } from './model'
 import { MONO, MUTED } from './parts'
@@ -161,9 +163,11 @@ function edgeColor(rule: string): string {
 function Legend() {
   return (
     <div
+      data-testid="legend"
       style={{
         display: 'flex',
-        gap: 10,
+        flexWrap: 'wrap',
+        gap: '2px 10px',
         padding: '4px 8px',
         fontSize: 11,
         borderRadius: 6,
@@ -189,6 +193,7 @@ function Diagram({
   flagged,
   working,
   density,
+  tools,
   onSelect,
 }: {
   graph: Graph
@@ -196,9 +201,11 @@ function Diagram({
   flagged: Map<string, number>
   working: Map<string, number>
   density: Density
+  tools?: ReactNode
   onSelect: (id: string | null) => void
 }) {
   const { mode } = useTheme()
+  const canvasWide = useCanvasWidth() >= MINIMAP_WIDTH
   // A selected table gets its own layout: it and its neighbors, large enough to read.
   const scope = useMemo(() => (selected ? neighborhood(graph, selected) : graph), [graph, selected])
   const shape: Density = selected && density === 'names' ? 'keys' : density
@@ -270,9 +277,12 @@ function Diagram({
     >
       <Background gap={24} size={1} />
       <Controls showInteractive={false} />
-      <MiniMap pannable zoomable style={{ width: 120, height: 80 }} />
+      {canvasWide && <MiniMap pannable zoomable style={{ width: 120, height: 80 }} />}
       <Panel position="top-left">
-        <Legend />
+        <CanvasTools>
+          {tools}
+          <Legend />
+        </CanvasTools>
       </Panel>
     </ReactFlow>
   )
@@ -284,6 +294,7 @@ export function Erd(props: {
   flagged: Map<string, number>
   working: Map<string, number>
   density: Density
+  tools?: ReactNode
   onSelect: (id: string | null) => void
 }) {
   return (

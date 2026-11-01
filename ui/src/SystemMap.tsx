@@ -3,7 +3,9 @@ import { useTheme } from '@kirocrew/app-sdk'
 import { Background, Controls, Handle, MarkerType, MiniMap, Panel, Position, ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import type { Edge, Node, NodeProps } from '@xyflow/react'
 import { memo, useMemo } from 'react'
-import { INSPECTOR_ROOM, MIN_ZOOM, useFrame } from './flow'
+import type { ReactNode } from 'react'
+import { INSPECTOR_ROOM, MINIMAP_WIDTH, MIN_ZOOM, useCanvasWidth, useFrame } from './flow'
+import { CanvasTools } from './Layers'
 import type { Rect } from './flow'
 import { GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, buildView, savedView, trailFor } from './graphView'
 import type { Card, Line, MapView } from './graphView'
@@ -146,11 +148,17 @@ function toEdge(line: Line): Edge {
 
 function Legend({ kinds, top, risk }: { kinds: Set<string>; top: boolean; risk: boolean }) {
   const shown = Object.entries(LINE_STYLE).filter(([kind]) => kinds.has(kind))
+  const canvas = useCanvasWidth()
   return (
     <div
+      data-testid="legend"
       style={{
         display: 'flex',
-        gap: 10,
+        flexWrap: 'wrap',
+        gap: '2px 10px',
+        width: 'max-content',
+        // Clear of the zoom buttons, and of the minimap when there is one.
+        maxWidth: Math.max(120, canvas - (canvas < MINIMAP_WIDTH ? 130 : 290)),
         whiteSpace: 'nowrap',
         padding: '4px 8px',
         fontSize: 11,
@@ -232,6 +240,7 @@ function Diagram({
   worktrees,
   only,
   layout,
+  tools,
   onFocus,
   onOpenTables,
 }: {
@@ -244,10 +253,12 @@ function Diagram({
   worktrees: WorktreeState | null
   only: string[] | null
   layout: 'left-right' | 'top-down'
+  tools?: ReactNode
   onFocus: (id: string | null) => void
   onOpenTables: () => void
 }) {
   const { mode } = useTheme()
+  const canvasWide = useCanvasWidth() >= MINIMAP_WIDTH
   const view = useMemo(() => (only ? savedView(system, only, tables) : buildView(system, focus, tables, showPlans)), [system, only, focus, tables, showPlans])
   const places = useMemo(() => place(view, layout === 'top-down' ? 'TB' : 'LR'), [view, layout])
   const rows = useMemo(() => riskIndex(risk), [risk])
@@ -292,9 +303,12 @@ function Diagram({
     >
       <Background gap={24} size={1} />
       <Controls showInteractive={false} />
-      <MiniMap pannable zoomable style={{ width: 120, height: 80 }} />
+      {canvasWide && <MiniMap pannable zoomable style={{ width: 120, height: 80 }} />}
       <Panel position="top-left">
-        <Trail system={system} focus={focus} onFocus={onFocus} />
+        <CanvasTools>
+          <Trail system={system} focus={focus} onFocus={onFocus} />
+          {tools}
+        </CanvasTools>
       </Panel>
       <Panel position="bottom-center">
         <Legend kinds={kinds} top={focus === null} risk={risk !== null} />
@@ -313,6 +327,7 @@ export function SystemMap(props: {
   worktrees: WorktreeState | null
   only: string[] | null
   layout: 'left-right' | 'top-down'
+  tools?: ReactNode
   onFocus: (id: string | null) => void
   onOpenTables: () => void
 }) {

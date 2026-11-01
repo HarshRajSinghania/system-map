@@ -4,6 +4,11 @@ import { useEffect, useRef } from 'react'
 
 export const MIN_ZOOM = 0.05
 export const INSPECTOR_ROOM = 370
+/** The tools over the top of a canvas, and the legend along its foot. */
+const TOP_ROOM = 88
+const BOTTOM_ROOM = 44
+/** Below this a canvas has no room for the minimap. */
+export const MINIMAP_WIDTH = 560
 
 const STYLE_ID = 'system-map-flow-css'
 const THEME_CSS = `
@@ -41,6 +46,11 @@ export interface Rect {
  * Frame these rects, using sizes we already know, so the camera never waits on a measure.
  * `room` keeps space free on the right for the inspector.
  */
+/** How wide the canvas is, for what it has room to show. */
+export function useCanvasWidth(): number {
+  return useStore((state) => state.width)
+}
+
 export function useFrame(rects: Rect[], room: number) {
   const flow = useReactFlow()
   const width = useStore((state) => state.width)
@@ -57,12 +67,12 @@ export function useFrame(rects: Rect[], room: number) {
     const view = getViewportForBounds(
       { x: left, y: top, width: right - left, height: bottom - top },
       width - free,
-      height,
+      Math.max(120, height - TOP_ROOM - BOTTOM_ROOM),
       MIN_ZOOM,
       1,
       0.05,
     )
-    void flow.setViewport(view, { duration: moved.current ? 200 : 0 })
+    void flow.setViewport({ ...view, y: view.y + TOP_ROOM }, { duration: moved.current ? 200 : 0 })
     moved.current = true
   }, [flow, rects, room, width, height])
 }

@@ -1,47 +1,65 @@
 import { ChatEmbed, useAppApi } from '@kirocrew/app-sdk'
-import { Badge, Btn, Card, CardTitle, Input, PageHeader } from '@kirocrew/app-sdk/ui'
+import { Btn, Card, CardTitle, ContentSkeleton, EmptyState, PageHeader, SegmentedControl } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
+import './chrome'
 import { Erd } from './Erd'
 import type { Density } from './Erd'
+import { plainError } from './errors'
 import { ExploreView } from './Explore'
 import type { Tab } from './Explore'
 import { Findings } from './Findings'
 import { Inspector } from './Inspector'
+import { Layers, Showing } from './Layers'
 import { PlanBoard, PlanHint } from './Plan'
+import { AddProject } from './ProjectDialogs'
+import { useProjectMenu } from './ProjectMenu'
+import { chatSlotName, readView, statusOf, statusView, writeView } from './projects'
+import type { Project, View } from './projects'
 import { RiskView } from './Risk'
+import { StatusChip } from './StatusChip'
 import { SystemMap } from './SystemMap'
+import { TAB_PANEL_ID, Tabs } from './Tabs'
+import type { TabItem } from './Tabs'
 import { WorktreesView } from './Worktrees'
-import { BASE, useActiveRepo, useLive, useNode, useOverview, useProposal, useVersioned, withRepo } from './model'
-import type { ExploreData, Finding, Graph, NodeInfo, Overlap, Overview, Plan, PlanStatus, Proposal, ProposalRow, Risk, SavedView, SystemGraph, WorktreeState } from './model'
+import { BASE, useActiveRepo, useLive, useNode, useOverview, useProposal, useVersioned } from './model'
+import type { ExploreData, Finding, Graph, NodeInfo, Overlap, Plan, PlanStatus, Proposal, ProposalRow, Risk, SavedView, SystemGraph, WorktreeState } from './model'
 import { graphOnly, overlapsOn, tablesAtWork, withProposal } from './overlay'
 import { MUTED, SystemTree, TableList } from './parts'
 
-const SLOT_NAME = 'system-map-design'
 const GAP = 12
 const CHECK_WORKTREES_MS = 20000
 const CHECK_EXPLORE_MS = 8000
-const DENSITIES: [Density, string][] = [
-  ['names', 'Names'],
-  ['keys', 'Keys'],
-  ['columns', 'Columns'],
+const RESULT_MS = 4000
+/** Below this the canvas needs the room, and the host's own side panel can hold a chat. */
+const SHOW_CHAT = 560
+const DENSITIES: { key: Density; label: string }[] = [
+  { key: 'names', label: 'Names' },
+  { key: 'keys', label: 'Keys' },
+  { key: 'columns', label: 'Columns' },
 ]
 const COLUMN: CSSProperties = { display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, overflow: 'hidden', padding: 12 }
 
-type View = 'map' | 'data' | 'plan' | 'risk' | 'worktrees' | 'findings' | 'explore'
-
-const VIEWS: [View, string][] = [
-  ['map', 'Map'],
-  ['data', 'Data model'],
-  ['plan', 'Plan'],
-  ['risk', 'Risk'],
-  ['worktrees', 'Worktrees'],
-  ['findings', 'Findings'],
-  ['explore', 'Explore'],
+const VIEW_TABS: { value: View; label: string; counts?: string }[] = [
+  { value: 'map', label: 'Map' },
+  { value: 'data', label: 'Data model' },
+  { value: 'plan', label: 'Plan', counts: 'unfinished plans' },
+  { value: 'risk', label: 'Risk', counts: 'hot and untested modules' },
+  { value: 'worktrees', label: 'Worktrees', counts: 'worktree collisions' },
+  { value: 'findings', label: 'Findings', counts: 'findings' },
+  { value: 'explore', label: 'Explore', counts: 'draft proposals' },
 ]
 
-/** Open the app's own chat, pointed at the repo the model was built from. */
-function useDesignSlot(repo: string | null) {
+/** Columns by the width the page really has, which depends on the host's sidebar and panel. */
+function columnsFor(width: number): string {
+  if (width >= 1100) return '220px minmax(0, 1fr) minmax(320px, 26%)'
+  if (width >= 760) return '170px minmax(0, 1fr) 260px'
+  if (width >= SHOW_CHAT) return 'minmax(0, 1fr) 240px'
+  return 'minmax(0, 1fr)'
+}
+
+/** Open this project's own chat, pointed at its folder. */
+function useDesignSlot(repo: string | null, repoKey: string) {
   const api = useAppApi()
   const [slot, setSlot] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -50,17 +68,17 @@ function useDesignSlot(repo: string | null) {
     if (!repo) return
     let live = true
     const open = async () => {
-      const created = await api.post<{ key: string }>('/api/chat/slots', { name: SLOT_NAME })
+      const created = await api.post<{ key: string }>('/api/chat/slots', { name: chatSlotName(repoKey) })
       await api.post(`/api/chat/slots/${encodeURIComponent(created.key)}/project`, { project: repo })
       if (live) setSlot(created.key)
     }
     open().catch((caught: unknown) => {
-      if (live) setError(String(caught))
+      if (live) setError(plainError(caught, 'open the design chat'))
     })
     return () => {
       live = false
     }
-  }, [api, repo])
+  }, [api, repo, repoKey])
 
   const send = useCallback(
     (message: string) => {
@@ -76,80 +94,118 @@ function useDesignSlot(repo: string | null) {
 function useFillHeight() {
   const ref = useRef<HTMLDivElement>(null)
   const [height, setHeight] = useState<number | undefined>(undefined)
+  const [width, setWidth] = useState(1400)
 
   useLayoutEffect(() => {
     const measure = () => {
-      const top = ref.current?.getBoundingClientRect().top ?? 0
-      setHeight(Math.max(420, window.innerHeight - top - 16))
+      const box = ref.current?.getBoundingClientRect()
+      setHeight(Math.max(420, window.innerHeight - (box?.top ?? 0) - 16))
+      if (box) setWidth(box.width)
     }
     measure()
+    const watcher = new ResizeObserver(measure)
+    if (ref.current) watcher.observe(ref.current)
     window.addEventListener('resize', measure)
-    return () => window.removeEventListener('resize', measure)
+    return () => {
+      watcher.disconnect()
+      window.removeEventListener('resize', measure)
+    }
   }, [])
 
-  return { ref, height }
+  return { ref, height, width }
 }
 
-function BuildModel({ message, onBuilt }: { message: string | null; onBuilt: (key: string) => void }) {
-  const api = useAppApi()
-  const [path, setPath] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const build = async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      const reply = await api.post<{ repo_key: string }>(`${BASE}/build`, { repo_path: path.trim() })
-      onBuilt(reply.repo_key)
-    } catch (caught) {
-      setError(String(caught))
-    } finally {
-      setBusy(false)
-    }
-  }
-
+function Notice({ children, onDismiss }: { children: ReactNode; onDismiss?: () => void }) {
   return (
-    <Card>
-      <CardTitle>Build a model</CardTitle>
-      {message && <p style={{ ...MUTED, fontSize: 13 }}>{message}</p>}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <Input
-          aria-label="Repo path"
-          placeholder="/path/to/repo"
-          value={path}
-          onChange={(event) => setPath(event.target.value)}
-          style={{ flex: 1 }}
-        />
-        <Btn primary disabled={busy || !path.trim()} onClick={() => void build()}>
-          {busy ? 'Building' : 'Build'}
-        </Btn>
-      </div>
-      {error && <p style={{ fontSize: 13 }}>{error}</p>}
-    </Card>
+    <div className="sm-notice" role="alert" data-testid="notice">
+      <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{children}</span>
+      {onDismiss && <Btn onClick={onDismiss}>Dismiss</Btn>}
+    </div>
   )
 }
 
-function FreshnessBadge({ overview }: { overview: Overview }) {
-  const { stale, map_stale: mapStale, commits_behind: behind, ref, changed_inputs: changed = [] } = overview.freshness
-  if (stale) return <Badge variant="warn">{changed.length} schema files changed on {ref}</Badge>
-  if (mapStale) return <Badge variant="warn">Code changed on {ref}. Rebuild to update.</Badge>
-  if (behind > 0) return <Badge variant="muted">Current, {behind} commits behind {ref}</Badge>
-  return <Badge variant="ok">Current with {ref}</Badge>
+function Mark() {
+  return (
+    <svg width="40" height="40" viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">
+      <rect x="10" y="10" width="44" height="12" rx="3" />
+      <rect x="10" y="26" width="20" height="12" rx="3" />
+      <rect x="34" y="26" width="20" height="12" rx="3" />
+      <rect x="10" y="42" width="12" height="12" rx="3" />
+      <rect x="26" y="42" width="12" height="12" rx="3" />
+      <rect x="42" y="42" width="12" height="12" rx="3" />
+    </svg>
+  )
+}
+
+function FirstRun({ onBuilt }: { onBuilt: (key: string) => void }) {
+  const [adding, setAdding] = useState(false)
+  return (
+    <>
+      <PageHeader title="System Map" />
+      <div className="sm-page">
+        <EmptyState
+          testId="first-run"
+          icon={<Mark />}
+          title="See your system in one place"
+          subtitle="Add a project to map its code, data model, risk and plans."
+          action={
+            <Btn primary onClick={() => setAdding(true)}>
+              Add project
+            </Btn>
+          }
+        />
+      </div>
+      <AddProject open={adding} projects={[]} onClose={() => setAdding(false)} onBuilt={onBuilt} />
+    </>
+  )
 }
 
 export default function SystemMapApp() {
+  const { repos, active, loaded, choose, reload } = useActiveRepo()
+
+  if (!loaded) {
+    return (
+      <>
+        <PageHeader title="System Map" />
+        <div className="sm-page">
+          <ContentSkeleton rows={6} />
+        </div>
+      </>
+    )
+  }
+  if (!active) return <FirstRun onBuilt={choose} />
+  // Everything held on the page belongs to one project, so a new project starts clean.
+  return <ProjectPage key={active} repo={active} projects={repos} choose={choose} reload={reload} />
+}
+
+function ProjectPage({
+  repo,
+  projects,
+  choose,
+  reload,
+}: {
+  repo: string
+  projects: Project[]
+  choose: (key: string) => void
+  reload: () => Promise<void>
+}) {
   const api = useAppApi()
-  const { repos, active: repo, loaded, choose, reload } = useActiveRepo()
   const { overview, error, refresh } = useOverview(repo)
   const version = overview?.manifest.version
   const [tick, setTick] = useState(0)
   const stamp = version ? `${version}:${tick}` : undefined
-  const graph = useVersioned<Graph>('/graph', repo, stamp)
-  const system = useVersioned<SystemGraph>('/system', repo, stamp)
-  const plans = useVersioned<{ plans: Plan[] }>('/plan', repo, stamp)?.plans ?? []
-  const findings = useVersioned<{ findings: Finding[] }>('/findings', repo, stamp)?.findings ?? []
-  const risk = useVersioned<Risk>('/risk', repo, stamp)
+  const graphLoad = useVersioned<Graph>('/graph', repo, stamp)
+  const systemLoad = useVersioned<SystemGraph>('/system', repo, stamp)
+  const planLoad = useVersioned<{ plans: Plan[] }>('/plan', repo, stamp)
+  const findingLoad = useVersioned<{ findings: Finding[] }>('/findings', repo, stamp)
+  const riskLoad = useVersioned<Risk>('/risk', repo, stamp)
+  const graph = graphLoad.value
+  const system = systemLoad.value
+  const planList = planLoad.value
+  const findingList = findingLoad.value
+  const risk = riskLoad.value
+  const plans = useMemo(() => planList?.plans ?? [], [planList])
+  const findings = useMemo(() => findingList?.findings ?? [], [findingList])
   const live = useLive<WorktreeState>('/worktrees', repo, CHECK_WORKTREES_MS)
   const worktrees = live.value
   const explore = useLive<ExploreData>('/explore', repo, CHECK_EXPLORE_MS)
@@ -159,18 +215,34 @@ export default function SystemMapApp() {
   const proposal = useProposal(openProposal, repo, proposalTick)
   const [drawn, setDrawn] = useState(false)
   const [savedView, setSavedView] = useState<SavedView | null>(null)
-  const [view, setView] = useState<View>('map')
+  const [view, setViewState] = useState<View>(() => readView(localStorage, repo))
   const [selected, setSelected] = useState<string | null>(null)
   const [focus, setFocus] = useState<string | null>(null)
   const [showPlans, setShowPlans] = useState(true)
   const [showRisk, setShowRisk] = useState(false)
   const [showWork, setShowWork] = useState(true)
   const [coverageError, setCoverageError] = useState<string | null>(null)
+  const [failure, setFailure] = useState<string | null>(null)
   const [density, setDensity] = useState<Density>('names')
-  const [adding, setAdding] = useState(false)
+  const [rebuilding, setRebuilding] = useState(false)
   const [rebuilt, setRebuilt] = useState<string | null>(null)
-  const { ref, height } = useFillHeight()
-  const chat = useDesignSlot(overview ? overview.manifest.repo : null)
+  const { ref, height, width } = useFillHeight()
+  const missing = overview?.freshness.missing === true
+  const chat = useDesignSlot(overview && !missing ? overview.manifest.repo : null, repo)
+
+  const setView = useCallback(
+    (next: View) => {
+      writeView(localStorage, repo, next)
+      setViewState(next)
+    },
+    [repo],
+  )
+
+  useEffect(() => {
+    if (!rebuilt) return
+    const timer = window.setTimeout(() => setRebuilt(null), RESULT_MS)
+    return () => window.clearTimeout(timer)
+  }, [rebuilt])
 
   // The map inspects a single thing, not a whole area or group.
   const picked = view === 'map' ? (focus && !/^(area|group):/.test(focus) ? focus : null) : view === 'data' ? selected : null
@@ -200,13 +272,28 @@ export default function SystemMapApp() {
   }, [graph, overlaid, savedView])
 
   const rebuild = async () => {
-    setRebuilt('Checking')
+    setRebuilding(true)
+    setRebuilt(null)
+    setFailure(null)
     try {
-      const reply = await api.post<{ unchanged?: boolean }>(withRepo('/build', null), { repo: overview?.manifest.repo_key })
-      setRebuilt(reply.unchanged ? 'No changes' : 'Rebuilt')
+      const reply = await api.post<{ unchanged?: boolean }>(`${BASE}/build`, { repo })
       await refresh()
+      await reload()
+      setRebuilt(reply.unchanged ? 'No changes' : 'Rebuilt')
     } catch (caught) {
-      setRebuilt(String(caught))
+      setFailure(plainError(caught, 'rebuild this project'))
+    } finally {
+      setRebuilding(false)
+    }
+  }
+
+  /** Run a change, and say so plainly if it fails. */
+  const attempt = async (doing: string, change: () => Promise<unknown>) => {
+    setFailure(null)
+    try {
+      await change()
+    } catch (caught) {
+      setFailure(plainError(caught, doing))
     }
   }
 
@@ -231,10 +318,10 @@ export default function SystemMapApp() {
   const loadCoverage = async () => {
     setCoverageError(null)
     try {
-      await api.post(`${BASE}/coverage`, { repo: overview?.manifest.repo_key })
+      await api.post(`${BASE}/coverage`, { repo })
       setTick((value) => value + 1)
     } catch (caught) {
-      setCoverageError(String(caught))
+      setCoverageError(plainError(caught, 'load the coverage report'))
     }
   }
   const drawProposal = (level: 'map' | 'data') => {
@@ -246,19 +333,21 @@ export default function SystemMapApp() {
     setSelected(level === 'data' ? (first?.id ?? null) : null)
     setView(level)
   }
-  const setProposalStatus = async (id: string, status: ProposalRow['status']) => {
-    await api.post(`${BASE}/proposal-status`, { repo: overview?.manifest.repo_key, id, status })
-    setProposalTick((value) => value + 1)
-    await explore.refresh()
-  }
-  const deleteIntent = async (kind: 'proposals' | 'use_cases' | 'views', id: string) => {
-    await api.post(`${BASE}/intent-delete`, { repo: overview?.manifest.repo_key, kind, id })
-    if (kind === 'proposals') {
-      setOpenProposal(null)
-      setDrawn(false)
-    }
-    await explore.refresh()
-  }
+  const setProposalStatus = (id: string, status: ProposalRow['status']) =>
+    attempt('change this proposal', async () => {
+      await api.post(`${BASE}/proposal-status`, { repo, id, status })
+      setProposalTick((value) => value + 1)
+      await explore.refresh()
+    })
+  const deleteIntent = (kind: 'proposals' | 'use_cases' | 'views', id: string) =>
+    attempt('delete this', async () => {
+      await api.post(`${BASE}/intent-delete`, { repo, kind, id })
+      if (kind === 'proposals') {
+        setOpenProposal(null)
+        setDrawn(false)
+      }
+      await explore.refresh()
+    })
   const openSavedView = (saved: SavedView) => {
     setSavedView(saved)
     setShowRisk(saved.overlays.risk)
@@ -277,10 +366,11 @@ export default function SystemMapApp() {
     setSelected(null)
     setFocus(null)
   }
-  const setPlanStatus = async (id: string, status: PlanStatus | null) => {
-    await api.post(`${BASE}/plan-status`, { repo: overview?.manifest.repo_key, id, status })
-    setTick((value) => value + 1)
-  }
+  const setPlanStatus = (id: string, status: PlanStatus | null) =>
+    attempt('change this plan', async () => {
+      await api.post(`${BASE}/plan-status`, { repo, id, status })
+      setTick((value) => value + 1)
+    })
 
   const showTable = (id: string) => {
     setView('data')
@@ -300,112 +390,149 @@ export default function SystemMapApp() {
     if (id.startsWith('table:')) showTable(id)
     else showOnMap(id)
   }
-  /** A selection belongs to one repo, so changing repo clears it. */
-  const openRepo = (next: string) => {
-    setSelected(null)
-    setFocus(null)
-    setRebuilt(null)
-    setOpenProposal(null)
-    clearOverlays()
-    choose(next)
-  }
 
-  const actions = (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      {rebuilt && <span style={{ ...MUTED, fontSize: 13 }}>{rebuilt}</span>}
-      {repos.length > 1 && (
-        <select
-          aria-label="Repo"
-          value={overview?.manifest.repo_key ?? ''}
-          onChange={(event) => openRepo(event.target.value)}
-          style={{ fontSize: 13, background: 'transparent', color: 'var(--text, inherit)' }}
-        >
-          {repos.map((item) => (
-            <option key={item.repo_key} value={item.repo_key}>
-              {item.repo.split('/').pop()}
-            </option>
-          ))}
-        </select>
-      )}
-      <Btn onClick={() => setAdding((value) => !value)}>Add repo</Btn>
-      {overview && <Btn onClick={() => void rebuild()}>Rebuild</Btn>}
-    </div>
-  )
-
-  const nothingBuilt = loaded && repos.length === 0
-  const showBuild = adding || nothingBuilt || (!overview && error !== null)
   const onLeftOfTree = view === 'map' || view === 'plan'
   const showing = overlaid?.title ?? savedView?.title
+  const banner = showing ? <Showing title={showing} onBack={clearOverlays} /> : null
+  // A zero says nothing, so it doesn't earn a badge.
+  const tabs: TabItem<View>[] = VIEW_TABS.map((item) => ({ ...item, count: viewCounts[item.value] || undefined }))
+  const fresh = overview?.freshness
+  const status = fresh ? statusView(statusOf(fresh), fresh.commits_behind, fresh.ref) : null
+  const changed = fresh?.changed_inputs?.length ?? 0
+
+  const mapTools = (
+    <>
+      <Layers
+        layers={[
+          PlanHint(unbuilt, showPlans, () => setShowPlans((value) => !value)),
+          { key: 'risk', label: 'Risk', on: showRisk, title: 'Mark hot and untested code on the map', onToggle: () => setShowRisk((value) => !value) },
+          { key: 'work', label: 'Worktrees', on: showWork, title: 'Show what each worktree is changing', onToggle: () => setShowWork((value) => !value) },
+        ]}
+      />
+      {banner}
+    </>
+  )
+  const dataTools = (
+    <>
+      <SegmentedControl
+        ariaLabel="How much of each table to show"
+        layoutId="system-map-density"
+        collapse={false}
+        segments={DENSITIES}
+        value={density}
+        onChange={(key) => setDensity(key as Density)}
+      />
+      {banner}
+    </>
+  )
+
+  const ready: Record<View, boolean> = {
+    map: shownSystem !== null,
+    data: Boolean(shownGraph),
+    plan: planList !== null,
+    risk: risk !== null,
+    worktrees: worktrees !== null,
+    findings: findingList !== null,
+    explore: explore.value !== null,
+  }
+  const stuck: Record<View, boolean> = {
+    map: systemLoad.failed,
+    data: graphLoad.failed,
+    plan: planLoad.failed,
+    risk: riskLoad.failed,
+    worktrees: live.failed,
+    findings: findingLoad.failed,
+    explore: explore.failed,
+  }
+  const retryView = () => {
+    setTick((value) => value + 1)
+    void live.refresh()
+    void explore.refresh()
+  }
+
+  const projectMenu = useProjectMenu({ projects, activeKey: repo, onPick: choose, onReload: () => void reload() })
+
+  const title = (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minWidth: 0, maxWidth: '100%' }}>
+      <span style={{ whiteSpace: 'nowrap' }}>System Map</span>
+      <span aria-hidden="true" style={{ ...MUTED, fontWeight: 400 }}>
+        /
+      </span>
+      {projectMenu.menu}
+    </span>
+  )
 
   return (
     <>
-      <PageHeader title="System Map" subtitle={overview ? overview.manifest.repo : 'One model of your system'} actions={actions} />
-      <div ref={ref} style={{ height, display: 'flex', flexDirection: 'column', gap: GAP, padding: '0 16px', minHeight: 0 }}>
-        {showBuild && (
-          <BuildModel
-            message={overview ? null : nothingBuilt ? 'Point System Map at a repo.' : error}
-            onBuilt={(key) => {
-              setAdding(false)
-              openRepo(key)
-              void reload()
-            }}
-          />
+      {projectMenu.dialogs}
+      <PageHeader
+        title={title}
+        actions={
+          overview && status ? (
+            <StatusChip
+              status={status}
+              detail={fresh?.stale ? `${changed} schema ${changed === 1 ? 'file' : 'files'} changed on ${fresh.ref}` : undefined}
+              commit={overview.manifest.commit}
+              builtAt={overview.manifest.built_at}
+              busy={rebuilding}
+              result={rebuilt}
+              onRebuild={() => void rebuild()}
+            />
+          ) : undefined
+        }
+      />
+      <div ref={ref} className="sm-page" style={{ height, display: 'flex', flexDirection: 'column', gap: GAP, minHeight: 0 }}>
+        {error && !overview && (
+          <Notice>
+            {error} <Btn onClick={() => void refresh()}>Try again</Btn>
+          </Notice>
+        )}
+        {!overview && !error && <ContentSkeleton rows={6} />}
+        {failure && <Notice onDismiss={() => setFailure(null)}>{failure}</Notice>}
+        {missing && overview && (
+          <Notice>
+            The folder for this project is gone: <span className="sm-mono">{overview.manifest.repo}</span>. You can still read the last model. To go on, move the folder back, or
+            remove the project from the project menu.
+          </Notice>
         )}
         {overview && (
           <>
-            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
-              <FreshnessBadge overview={overview} />
-              <Badge variant="muted">{overview.manifest.commit.slice(0, 7)}</Badge>
-              {showing && (view === 'map' || view === 'data') && (
-                <span style={{ display: 'flex', gap: 6, alignItems: 'center' }} data-testid="showing">
-                  <Badge variant="aim">Showing: {showing}</Badge>
-                  <Btn onClick={clearOverlays}>Back to today</Btn>
-                </span>
-              )}
-              <span style={{ flex: 1 }} />
-              {view === 'data' &&
-                DENSITIES.map(([value, label]) => (
-                  <Btn key={value} primary={density === value} onClick={() => setDensity(value)}>
-                    {label}
-                  </Btn>
-                ))}
-              {view === 'map' && (
-                <>
-                  <PlanHint count={unbuilt} on={showPlans} onToggle={() => setShowPlans((value) => !value)} />
-                  <Btn primary={showRisk} onClick={() => setShowRisk((value) => !value)} title="Mark hot and untested code on the map">
-                    Risk on map
-                  </Btn>
-                  <Btn primary={showWork} onClick={() => setShowWork((value) => !value)} title="Show what each worktree is changing">
-                    Worktrees on map
-                  </Btn>
-                </>
-              )}
-              <span style={{ width: 8 }} />
-              {VIEWS.map(([value, label]) => (
-                <Btn key={value} primary={view === value} onClick={() => setView(value)}>
-                  {viewCounts[value] === undefined ? label : `${label} ${viewCounts[value]}`}
-                </Btn>
-              ))}
-            </div>
+            <Tabs items={tabs} value={view} onChange={setView} label="System Map views" />
             <div
               style={{
                 flex: 1,
                 minHeight: 0,
                 display: 'grid',
                 gap: GAP,
-                gridTemplateColumns: '220px minmax(0, 1fr) minmax(320px, 26%)',
+                gridTemplateColumns: columnsFor(width),
                 gridTemplateRows: 'minmax(0, 1fr)',
               }}
             >
-              <Card style={COLUMN}>
-                <CardTitle>{onLeftOfTree ? 'Modules' : 'Tables'}</CardTitle>
-                {onLeftOfTree ? (
-                  <SystemTree nodes={system?.nodes ?? []} focus={focus} onSelect={showOnMap} />
-                ) : (
-                  <TableList tables={overview.tables} selected={selected} flagged={flagged} working={atWork} onSelect={showTable} />
+              {width >= 760 && (
+                <Card style={COLUMN}>
+                  <CardTitle>{onLeftOfTree ? 'Modules' : 'Tables'}</CardTitle>
+                  {onLeftOfTree ? (
+                    <SystemTree nodes={system?.nodes ?? []} focus={focus} onSelect={showOnMap} />
+                  ) : (
+                    <TableList tables={overview.tables} selected={selected} flagged={flagged} working={atWork} onSelect={showTable} />
+                  )}
+                </Card>
+              )}
+              <Card
+                style={{ ...COLUMN, padding: 0, position: 'relative' }}
+                data-testid="canvas"
+                id={TAB_PANEL_ID}
+                role="tabpanel"
+                aria-labelledby={`system-map-tab-${view}`}
+              >
+                {!ready[view] && !stuck[view] && <ContentSkeleton rows={6} />}
+                {!ready[view] && stuck[view] && (
+                  <div style={{ padding: 12 }}>
+                    <Notice>
+                      Couldn't load this view. <Btn onClick={retryView}>Try again</Btn>
+                    </Notice>
+                  </div>
                 )}
-              </Card>
-              <Card style={{ ...COLUMN, padding: 0, position: 'relative' }} data-testid="canvas">
                 {view === 'map' && shownSystem && (
                   <SystemMap
                     system={shownSystem}
@@ -417,6 +544,7 @@ export default function SystemMapApp() {
                     worktrees={showWork ? worktrees : null}
                     only={savedView?.level === 'map' ? savedView.resolved : null}
                     layout={savedView?.layout ?? 'left-right'}
+                    tools={mapTools}
                     onFocus={(id) => {
                       setSavedView(null)
                       setFocus(id)
@@ -425,7 +553,7 @@ export default function SystemMapApp() {
                   />
                 )}
                 {view === 'data' && shownGraph && (
-                  <Erd graph={shownGraph} selected={selected} flagged={flagged} working={atWork} density={density} onSelect={setSelected} />
+                  <Erd graph={shownGraph} selected={selected} flagged={flagged} working={atWork} density={density} tools={dataTools} onSelect={setSelected} />
                 )}
                 {view === 'explore' && explore.value && (
                   <ExploreView
@@ -438,13 +566,13 @@ export default function SystemMapApp() {
                     onSend={chat.send}
                     onOpenProposal={setOpenProposal}
                     onDrawProposal={drawProposal}
-                    onStatus={(id, status) => void setProposalStatus(id, status)}
+                    onStatus={(id, value) => void setProposalStatus(id, value)}
                     onDelete={(kind, id) => void deleteIntent(kind, id)}
                     onOpenView={openSavedView}
                     onNode={openNode}
                   />
                 )}
-                {view === 'plan' && <PlanBoard plans={plans} onShow={showOnMap} onAsk={askPlan} onStatus={(id, status) => void setPlanStatus(id, status)} />}
+                {view === 'plan' && planList && <PlanBoard plans={plans} onShow={showOnMap} onAsk={askPlan} onStatus={(id, value) => void setPlanStatus(id, value)} />}
                 {view === 'risk' && risk && (
                   <RiskView
                     risk={risk}
@@ -459,7 +587,7 @@ export default function SystemMapApp() {
                 {view === 'worktrees' && worktrees && (
                   <WorktreesView state={worktrees} checkedAt={live.checkedAt} canAsk={chat.slot !== null} onShow={openNode} onAsk={askOverlap} />
                 )}
-                {view === 'findings' && <Findings findings={findings} onShow={showTable} onAsk={askFinding} />}
+                {view === 'findings' && findingList && <Findings findings={findings} onShow={showTable} onAsk={askFinding} />}
                 {node && inspected && (
                   <Inspector
                     node={node}
@@ -473,9 +601,10 @@ export default function SystemMapApp() {
                   />
                 )}
               </Card>
-              <Card style={COLUMN}>
+              <Card style={width >= SHOW_CHAT ? COLUMN : { display: 'none' }}>
                 <CardTitle>Design chat</CardTitle>
-                {chat.error && <p style={{ fontSize: 13 }}>Chat is not available: {chat.error}</p>}
+                {chat.error && <p style={{ fontSize: 13 }}>{chat.error}</p>}
+                {missing && <p style={{ ...MUTED, fontSize: 13 }}>Chat needs this project's folder.</p>}
                 <div style={{ position: 'relative', flex: 1, minHeight: 0 }} data-testid="chat">
                   {chat.slot && (
                     <div style={{ position: 'absolute', inset: 0 }}>

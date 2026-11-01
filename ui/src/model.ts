@@ -361,6 +361,12 @@ export function withRepo(path: string, repo: string | null): string {
   return `${BASE}${path}${path.includes('?') ? '&' : '?'}repo=${encodeURIComponent(repo)}`
 }
 
+/** `failed` tells a load that went wrong from one that hasn't finished. */
+export interface Loaded<T> {
+  value: T | null
+  failed: boolean
+}
+
 const CHOSEN_REPO = 'system-map.repo'
 const CHOSEN_EVENT = 'system-map:project'
 
@@ -438,25 +444,25 @@ export function useOverview(repo: string | null) {
 }
 
 /** Load something that only changes when `version` does. */
-export function useVersioned<T>(path: string, repo: string | null, version: string | undefined): T | null {
+export function useVersioned<T>(path: string, repo: string | null, version: string | undefined): Loaded<T> {
   const api = useAppApi()
-  const [held, setHeld] = useState<{ repo: string | null; value: T | null }>({ repo, value: null })
+  const [held, setHeld] = useState<{ repo: string | null; value: T | null; failed: boolean }>({ repo, value: null, failed: false })
   useEffect(() => {
     if (!version) return
     let live = true
     api
       .get<T>(withRepo(path, repo))
       .then((reply) => {
-        if (live) setHeld({ repo, value: reply })
+        if (live) setHeld({ repo, value: reply, failed: false })
       })
       .catch(() => {
-        if (live) setHeld({ repo, value: null })
+        if (live) setHeld({ repo, value: null, failed: true })
       })
     return () => {
       live = false
     }
   }, [api, path, repo, version])
-  return held.repo === repo ? held.value : null
+  return held.repo === repo ? { value: held.value, failed: held.failed } : { value: null, failed: false }
 }
 
 /** Load one proposal with its diff and limits. Change `tick` to load it again. */
@@ -489,7 +495,7 @@ export function useProposal(id: string | null, repo: string | null, tick: number
 /** Load something that changes on its own, and keep it current while the page is in view. */
 export function useLive<T>(path: string, repo: string | null, everyMs: number) {
   const api = useAppApi()
-  const [held, setHeld] = useState<{ repo: string | null; value: T | null }>({ repo, value: null })
+  const [held, setHeld] = useState<{ repo: string | null; value: T | null; failed: boolean }>({ repo, value: null, failed: false })
   const [checkedAt, setCheckedAt] = useState<number | null>(null)
   const latest = useRef<string | null>(repo)
   latest.current = repo
@@ -499,10 +505,10 @@ export function useLive<T>(path: string, repo: string | null, everyMs: number) {
     try {
       const reply = await api.get<T>(withRepo(path, repo))
       if (latest.current !== repo) return
-      setHeld({ repo, value: reply })
+      setHeld({ repo, value: reply, failed: false })
       setCheckedAt(Date.now())
     } catch {
-      if (latest.current === repo) setHeld({ repo, value: null })
+      if (latest.current === repo) setHeld({ repo, value: null, failed: true })
     }
   }, [api, path, repo])
 
@@ -514,7 +520,8 @@ export function useLive<T>(path: string, repo: string | null, everyMs: number) {
     return () => window.clearInterval(timer)
   }, [refresh, everyMs])
 
-  return { value: held.repo === repo ? held.value : null, checkedAt, refresh }
+  const current = held.repo === repo
+  return { value: current ? held.value : null, failed: current && held.failed, checkedAt, refresh }
 }
 
 export function useNode<T = TableNode>(id: string | null, repo: string | null = null) {

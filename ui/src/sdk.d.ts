@@ -28,4 +28,26 @@ declare module '@kirocrew/app-sdk/ui' {
   export function SearchInput(props: InputHTMLAttributes<HTMLInputElement>): JSX.Element
   export function Input(props: InputHTMLAttributes<HTMLInputElement>): JSX.Element
   export function PageHeader(props: { title: ReactNode; subtitle?: string; actions?: ReactNode }): JSX.Element
+  export function Modal(props: {
+    open: boolean
+    onClose: () => void
+    title?: ReactNode
+    ariaLabel?: string
+    footer?: ReactNode
+    maxWidth?: number
+    dismissDisabled?: boolean
+    children?: ReactNode
+  }): JSX.Element
+  export function SegmentedControl(props: {
+    segments: { key: string; label: string; tooltip?: string }[]
+    value: string
+    onChange: (key: string) => void
+    ariaLabel?: string
+    layoutId?: string
+    collapse?: boolean
+    compact?: boolean
+  }): JSX.Element
+  export function EmptyState(props: { icon: ReactNode; title: ReactNode; subtitle?: ReactNode; action?: ReactNode; testId?: string }): JSX.Element
+  export function Skeleton(props: HTMLAttributes<HTMLDivElement>): JSX.Element
+  export function ContentSkeleton(props: { rows?: number }): JSX.Element
 }

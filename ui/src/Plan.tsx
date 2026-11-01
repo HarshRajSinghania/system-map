@@ -1,5 +1,6 @@
-import { Badge, Btn } from '@kirocrew/app-sdk/ui'
+import { Badge } from '@kirocrew/app-sdk/ui'
 import type { CSSProperties } from 'react'
+import type { Layer } from './Layers'
 import type { Plan, PlanStatus } from './model'
 import { ASK, MONO, MUTED } from './parts'
 
@@ -120,10 +121,7 @@ export function PlanBoard({
   )
 }
 
-export function PlanHint({ count, on, onToggle }: { count: number; on: boolean; onToggle: () => void }) {
-  return (
-    <Btn primary={on} onClick={onToggle} title="Show unfinished plans on the map">
-      Plans on map {count}
-    </Btn>
-  )
+/** The plans layer on the map, which counts what is left to build. */
+export function PlanHint(count: number, on: boolean, onToggle: () => void): Layer {
+  return { key: 'plans', label: count > 0 ? `Plans ${count}` : 'Plans', on, title: 'Show unfinished plans on the map', onToggle }
 }

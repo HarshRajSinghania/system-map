@@ -66,9 +66,13 @@ export function statusView(status: ProjectStatus, behind: number, ref: string): 
   }
 }
 
+export function countOf(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
+}
+
 /** The text a row shows beside its status dot. */
 export function rowStatus(project: Project): string {
-  return project.status === 'current' ? `${project.tables} tables` : statusView(project.status, project.behind, project.ref).label
+  return project.status === 'current' ? countOf(project.tables, 'table') : statusView(project.status, project.behind, project.ref).label
 }
 
 /** Two folders can share a name. Those rows also say which folder they sit in. */

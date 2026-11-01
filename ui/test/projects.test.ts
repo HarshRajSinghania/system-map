@@ -63,6 +63,7 @@ test('the chip says how far behind, in one or many commits', () => {
 
 test('a row shows tables when current, and its status when not', () => {
   assert.equal(rowStatus(project({})), '12 tables')
+  assert.equal(rowStatus(project({ tables: 1 })), '1 table')
   assert.equal(rowStatus(project({ status: 'stale' })), 'Out of date')
   assert.equal(rowStatus(project({ status: 'missing' })), 'Folder missing')
 })
