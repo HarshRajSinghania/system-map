@@ -1,7 +1,8 @@
 """Extractors turn a repo into Facts.
 
-Each one is a module with `detect(source)` and `extract(source)`. Adding a stack means
-adding a module here. The rest of the app reads only the `Extraction` it returns.
+Each schema extractor is a module with `detect(source)` and `extract(source)`, and the
+rest of the app reads only the `Extraction` it returns. Code and plans have their own
+readers in this package, joined by `core/system.py`.
 """
 from __future__ import annotations
 
@@ -32,4 +33,4 @@ def extract(source) -> Extraction:
     for extractor in EXTRACTORS:
         if extractor.detect(source):
             return Extraction(**extractor.extract(source))
-    raise ValueError(f"no extractor knows how to read {source.root}")
+    return Extraction()

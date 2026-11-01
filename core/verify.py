@@ -163,6 +163,43 @@ def compare(shards: list[dict], types: list[dict], catalog: dict, schemas: tuple
     return diffs
 
 
+def compare_imports(model: dict[str, list[str]], truth: dict[str, list[str]]) -> list[dict]:
+    """Every place the text reader and the compiler disagree about a file's imports."""
+    diffs = []
+    for path in sorted(set(model) | set(truth)):
+        ours, theirs = set(model.get(path, [])), set(truth.get(path, []))
+        for item in sorted(ours - theirs):
+            diffs.append({"file": path, "what": "import", "only_in": "model", "item": item})
+        for item in sorted(theirs - ours):
+            diffs.append({"file": path, "what": "import", "only_in": "compiler", "item": item})
+    return diffs
+
+
+def compare_table_calls(model: dict[str, list[dict]], truth: dict[str, list[dict]]) -> list[dict]:
+    """Compare which tables each file calls, and whether each call reads or writes."""
+    diffs = []
+    for path in sorted(set(model) | set(truth)):
+        ours = sorted((c["table"], c["access"]) for c in model.get(path, []))
+        theirs = sorted((c["table"], c["access"]) for c in truth.get(path, []))
+        if ours != theirs:
+            diffs.append({"file": path, "what": "table_call", "model": ours, "compiler": theirs})
+    return diffs
+
+
+def route_tree_paths(text: str) -> set[str]:
+    """Read every full path from a TanStack `routeTree.gen.ts`."""
+    block = re.search(r"interface FileRoutesByFullPath \{(.*?)\n\}", text, re.S)
+    keys = re.findall(r"""^\s*'([^']+)':""", block.group(1), re.M) if block else []
+    return {key.rstrip("/") or "/" for key in keys}
+
+
+def compare_routes(nodes: list[dict], tree: set[str]) -> list[dict]:
+    ours = {node["path"] for node in nodes if node["kind"] == "route"}
+    diffs: list[dict] = []
+    _compare_sets(diffs, "*", "route", ours, tree)
+    return diffs
+
+
 def verify(repo_root: Path, catalog_path: Path) -> list[dict]:
     target = store.repo_dir(repo_root)
     folder = store.current(target)

@@ -87,6 +87,18 @@ class McpServerTests(unittest.TestCase):
     def test_unknown_node_is_an_error_result(self):
         self.assertTrue(self.tool("node", id="table:public.nope")["isError"])
 
+    def test_plan_answers_what_is_not_built(self):
+        spec = self.repo / "docs" / "specs" / "next.md"
+        spec.parent.mkdir(parents=True)
+        spec.write_text("# Next\n`src/a/x.ts` `src/a/y.ts` `src/a/z.ts`\n")
+        (self.repo / "src" / "a").mkdir(parents=True)
+        (self.repo / "src" / "a" / "w.ts").write_text("export {}")
+        store.build(self.repo, self.data)
+        value = json.loads(self.tool("plan")["content"][0]["text"])
+        item = json.loads(value["text"])[0]
+        self.assertEqual((item["id"], item["status"], item["missing"]), ("plan:next", "planned", 3))
+        self.assertEqual(item["not_found"][0], "src/a/x.ts")
+
     def test_results_are_compact(self):
         text = self.tool("node", id="table:public.users")["content"][0]["text"]
         self.assertNotIn('\\n  "', text)

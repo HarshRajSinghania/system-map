@@ -54,18 +54,22 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"repos": store.repos(), "data_root": str(store.data_root())})
             elif path.endswith("/overview"):
                 target = store.resolve_repo(repo)
-                keep = ("repo", "repo_key", "ref", "commit", "version", "built_at", "counts", "stats")
+                keep = ("repo", "repo_key", "ref", "commit", "version", "built_at", "counts", "stats", "code_root")
                 manifest = store.read_manifest(target)
                 self._json(
                     200,
                     {
-                        "manifest": {k: manifest[k] for k in keep},
+                        "manifest": {k: manifest[k] for k in keep if k in manifest},
                         "freshness": store.freshness(target),
                         "tables": store.table_index(target),
                     },
                 )
             elif path.endswith("/graph"):
                 self._json(200, store.graph(store.resolve_repo(repo)))
+            elif path.endswith("/system"):
+                self._json(200, store.load_system(store.resolve_repo(repo)))
+            elif path.endswith("/plan"):
+                self._json(200, {"plans": store.plan_items(store.resolve_repo(repo))})
             elif path.endswith("/findings"):
                 self._json(200, {"findings": store.load_findings(store.resolve_repo(repo))})
             elif path.endswith("/node"):
@@ -87,7 +91,17 @@ class Handler(BaseHTTPRequestHandler):
         except json.JSONDecodeError:
             self._json(400, {"error": "bad JSON"})
             return
-        if not urlparse(self.path).path.endswith("/build"):
+        route = urlparse(self.path).path
+        if route.endswith("/plan-status"):
+            try:
+                target = store.resolve_repo(body.get("repo"))
+                self._json(200, store.set_plan_status(target, str(body.get("id", "")), body.get("status")))
+            except KeyError as error:
+                self._json(404, {"error": str(error).strip("'\"")})
+            except ValueError as error:
+                self._json(400, {"error": str(error)})
+            return
+        if not route.endswith("/build"):
             self._json(404, {"error": "not found"})
             return
         try:

@@ -27,8 +27,26 @@ TOOLS = [
         "inputSchema": {"type": "object", "properties": {"repo": REPO}},
     },
     {
+        "name": "plan",
+        "description": (
+            "Answer 'what is not built?'. Lists each plan from the repo's specs, worst first, with "
+            "its status and what it names that does not exist yet. Filter by status."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "enum": ["planned", "partial", "unclear", "built"]},
+                "repo": REPO,
+                "budget_chars": BUDGET,
+            },
+        },
+    },
+    {
         "name": "node",
-        "description": "Read one node, for example table:public.users, with any saved notes.",
+        "description": (
+            "Read one node with its links and notes. Ids look like table:public.users, "
+            "module:src/agents, area:src/agents, route:/desk, job:renewals, service:anthropic, plan:inbox."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {"id": {"type": "string"}, "repo": REPO, "budget_chars": BUDGET},
@@ -37,7 +55,7 @@ TOOLS = [
     },
     {
         "name": "neighbors",
-        "description": "List the tables a table references and the tables that reference it.",
+        "description": "List what a node links to and what links to it, for any kind of node.",
         "inputSchema": {
             "type": "object",
             "properties": {"id": {"type": "string"}, "repo": REPO, "budget_chars": BUDGET},
@@ -46,7 +64,7 @@ TOOLS = [
     },
     {
         "name": "search",
-        "description": "Find nodes by table name, column name or foreign key target. Returns ids only.",
+        "description": "Find nodes by name, column or foreign key target, across every kind. Returns ids only.",
         "inputSchema": {
             "type": "object",
             "properties": {"query": {"type": "string"}, "repo": REPO, "limit": {"type": "integer"}},
@@ -134,6 +152,21 @@ def call(name: str, args: dict) -> object:
             and (not args.get("severity") or finding["severity"] == args["severity"])
         ]
         return store.fit(target, "findings", compact(found), budget)
+    if name == "plan":
+        items = [
+            {
+                "id": plan["id"],
+                "name": plan["name"],
+                "status": plan["status"],
+                "status_source": plan["status_source"],
+                "found": plan["found"],
+                "missing": plan["missing"],
+                "not_found": [claim["claim"] for claim in plan["claims"] if not claim["found"]],
+                "spec": plan["path"],
+            }
+            for plan in store.plan_items(target, args.get("status"))
+        ]
+        return store.fit(target, "plan", compact(items), budget)
     if name == "node":
         return store.fit(target, "node", compact(store.load_node(target, args["id"])), budget)
     if name == "neighbors":

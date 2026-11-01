@@ -77,7 +77,8 @@ class Sources(Fixture):
 class Versions(Fixture):
     def test_one_file_per_table_with_a_hash(self):
         self.assertEqual(self.manifest["counts"]["tables"], 2)
-        self.assertEqual(len(self.manifest["facts"]), 2)
+        tables = [path for path in self.manifest["facts"] if "/tables/" in path]
+        self.assertEqual(len(tables), 2)
         self.assertEqual(store.verify_facts(self.target), [])
 
     def test_rebuilding_with_nothing_new_reports_unchanged(self):

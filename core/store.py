@@ -9,8 +9,11 @@ through a chat. The layout is:
         overview.md                  the one file meant to be read first
         tables/<schema>.<name>.json  one table each; parsers write these
         findings.json                rule checks over the tables
+        system.json                  areas, modules, routes, jobs, services, plans
+        imports.json                 file-level links, for checking against a compiler
         types.json, externals.json
       reads/<node>/<id>.json         agent notes; each one cites evidence
+      intent/plan_status.json        statuses a person set; these beat derived ones
       slices/<hash>.md               answers too large to return inline
 
 A build writes a new version, then swaps `manifest.json`. That swap is one atomic file
@@ -26,16 +29,18 @@ import shutil
 import time
 from pathlib import Path
 
-from . import extractors, findings
+from . import extractors, findings, system
+from .extractors import plans, postgres, typescript
 from .sources import canonical_root, git, open_source
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 #: The most a tool hands back inline. Larger answers go to a slice file. This fits any
 #: one table, and sits well under the 20,000 chars proven to reach a model whole.
 DEFAULT_BUDGET_CHARS = 12000
 #: Past this the overview stops being a cheap first read, so it is a hard limit.
 OVERVIEW_LIMIT_CHARS = 6000
 KEEP_VERSIONS = 5
+PLAN_STATUSES = ("built", "partial", "planned", "unclear")
 
 
 def data_root() -> Path:
@@ -89,15 +94,25 @@ def _builder_id() -> str:
     return digest.hexdigest()
 
 
-def _fingerprint(source) -> tuple[str, dict[str, str]]:
+def _map_inputs(source) -> dict[str, str]:
+    """Ids of everything the system map reads beyond the migrations."""
+    read = set(findings.code_files(source)) | set(typescript.code_files(source)) | set(plans.plan_files(source))
+    read |= {path for root in system.SQL_ROOTS for path in source.list_files(root, (".sql",))}
+    read |= {path for path in ("tsconfig.json", "package.json") if path in source.blobs}
+    return {path: source.blobs[path] for path in read}
+
+
+def _hash(value: object) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def _fingerprint(source) -> tuple[str, dict[str, str], str]:
     """Hash the ids of every input, without reading a single file."""
-    extractor = next((e for e in extractors.EXTRACTORS if e.detect(source)), None)
-    if extractor is None:
+    if not postgres.detect(source) and not typescript.detect(source):
         raise ValueError(f"no extractor knows how to read {source.root}")
-    inputs = extractor.inputs(source)
-    code = {path: source.blobs[path] for path in findings.code_files(source)}
-    payload = json.dumps([_builder_id(), inputs, code], sort_keys=True).encode()
-    return hashlib.sha256(payload).hexdigest()[:12], inputs
+    inputs = postgres.inputs(source) if postgres.detect(source) else {}
+    map_hash = _hash(_map_inputs(source))
+    return _hash([_builder_id(), inputs, map_hash]), inputs, map_hash
 
 
 def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> dict:
@@ -105,7 +120,7 @@ def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> 
     repo_root = canonical_root(repo_path)
     source = open_source(repo_root, ref)
     target = repo_dir(repo_root, root)
-    version, inputs = _fingerprint(source)
+    version, inputs, map_hash = _fingerprint(source)
 
     previous = read_manifest(target) if (target / "manifest.json").is_file() else None
     if previous and previous.get("version") == version and previous.get("schema_version") == SCHEMA_VERSION:
@@ -113,13 +128,14 @@ def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> 
         _write_json(target / "manifest.json", {k: v for k, v in previous.items() if k != "unchanged"})
         return previous
 
-    extraction = extractors.extract(source)
+    extraction = extractors.extract(source) if postgres.detect(source) else extractors.Extraction()
     found = findings.find(extraction.nodes, findings.code_tokens(source, extraction.usage_text))
+    joined = system.build(source, extraction.nodes)
     versions = target / "versions"
     staging = versions / f".staging-{os.getpid()}-{time.time_ns()}"
     try:
-        hashes = _write_version(staging, extraction, found)
-        counts = _counts(extraction, found)
+        hashes = _write_version(staging, extraction, found, joined)
+        counts = _counts(extraction, found, joined)
         manifest = {
             "schema_version": SCHEMA_VERSION,
             "repo": str(repo_root),
@@ -131,9 +147,10 @@ def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> 
             "counts": counts,
             "stats": extraction.stats,
             "inputs": inputs,
+            "map_inputs": map_hash,
             "facts": {f"versions/{version}/{relative}": digest for relative, digest in hashes.items()},
         }
-        overview = render_overview(manifest, extraction.nodes, found)
+        overview = render_overview(manifest, extraction.nodes, found, joined)
         (staging / "overview.md").write_text(overview, encoding="utf-8")
         final = versions / version
         if final.exists():
@@ -175,8 +192,9 @@ def refresh_all(root: Path | None = None) -> list[str]:
     return done
 
 
-def _write_version(folder: Path, extraction: extractors.Extraction, found: list[dict]) -> dict[str, str]:
+def _write_version(folder: Path, extraction: extractors.Extraction, found: list[dict], joined: dict) -> dict[str, str]:
     hashes: dict[str, str] = {}
+    folder.mkdir(parents=True, exist_ok=True)
     for node in extraction.nodes:
         path = folder / "tables" / f"{node['schema']}.{node['name']}.json"
         _write_json(path, node)
@@ -184,12 +202,20 @@ def _write_version(folder: Path, extraction: extractors.Extraction, found: list[
     _write_json(folder / "findings.json", found)
     _write_json(folder / "types.json", extraction.types)
     _write_json(folder / "externals.json", extraction.externals)
+    _write_json(folder / "system.json", {"nodes": joined["nodes"], "edges": joined["edges"]})
+    _write_json(folder / "imports.json", {"imports": joined["imports"], "table_calls": joined["table_calls"]})
+    path = folder / "system.json"
+    hashes["system.json"] = hashlib.sha256(path.read_bytes()).hexdigest()
     return hashes
 
 
-def _counts(extraction: extractors.Extraction, found: list[dict]) -> dict:
+def _counts(extraction: extractors.Extraction, found: list[dict], joined: dict) -> dict:
     nodes = extraction.nodes
+    kinds: dict[str, int] = {}
+    for node in joined["nodes"]:
+        kinds[node["kind"]] = kinds.get(node["kind"], 0) + 1
     return {
+        "system": kinds,
         "tables": len(nodes),
         "columns": sum(len(n["columns"]) for n in nodes),
         "constraints": sum(len(n["constraints"]) for n in nodes),
@@ -208,17 +234,25 @@ def _prune(versions: Path, keep: str) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
-def render_overview(manifest: dict, nodes: list[dict], found: list[dict]) -> str:
+def render_overview(manifest: dict, nodes: list[dict], found: list[dict], joined: dict | None = None) -> str:
     """One line per table: enough to choose what to open next, and no more."""
     counts = manifest["counts"]["findings"]
+    listed = (joined or {}).get("nodes", [])
+    largest = sorted((n for n in listed if n["kind"] == "area"), key=lambda n: -n["lines"])
+    areas = [f"{n['path']} ({n['files']} files)" for n in largest]
+    unbuilt = [f"{n['id']} ({n['status']})" for n in listed if n["kind"] == "plan" and n["status"] in ("planned", "partial")]
     head = [
         f"# System map: {Path(manifest['repo']).name}",
         "",
         f"{manifest['ref']} at {str(manifest['commit'])[:10]}. {manifest['counts']['tables']} tables. "
         f"Findings: {counts['high']} high, {counts['medium']} medium, {counts['low']} low, {counts['info']} info.",
-        "Open one with `node('table:<schema>.<name>')`. See rule checks with `findings`.",
+        "Open any id with `node`. See rule checks with `findings`, and what is not built with `plan`.",
         "",
     ]
+    if areas:
+        head += ["Areas: " + ", ".join(areas), ""]
+    if unbuilt:
+        head += ["Not fully built: " + ", ".join(unbuilt), ""]
     rows = ["name | cols | fk | idx | policies | rls"]
     names = []
     for node in sorted(nodes, key=lambda n: (n["schema"], n["name"])):
@@ -280,16 +314,16 @@ def freshness(target: Path) -> dict:
     repo = Path(manifest["repo"])
     try:
         source = open_source(repo, manifest["ref"] if manifest["commit"] else None)
-        extractor = next(e for e in extractors.EXTRACTORS if e.detect(source))
-    except (ValueError, StopIteration, OSError) as error:
-        return {"ref": manifest["ref"], "stale": False, "commits_behind": 0, "error": str(error)}
+    except (ValueError, OSError) as error:
+        return {"ref": manifest["ref"], "stale": False, "map_stale": False, "commits_behind": 0, "error": str(error)}
     behind = 0
     if source.commit and source.commit != manifest["commit"]:
         count = git(repo, "rev-list", "--count", f"{manifest['commit']}..{source.commit}")
         behind = int(count) if count and count.isdigit() else 0
-    now, then = extractor.inputs(source), manifest["inputs"]
+    now, then = (postgres.inputs(source) if postgres.detect(source) else {}), manifest["inputs"]
     changed = sorted(path for path in set(now) | set(then) if now.get(path) != then.get(path))
     return {
+        "map_stale": _hash(_map_inputs(source)) != manifest.get("map_inputs"),
         "ref": manifest["ref"],
         "model_commit": manifest["commit"],
         "tip_commit": source.commit,
@@ -362,6 +396,65 @@ def graph(target: Path) -> dict:
     return {"tables": tables, "edges": edges}
 
 
+def _plan_overrides(target: Path) -> dict[str, dict]:
+    path = target / "intent" / "plan_status.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
+def load_system(target: Path) -> dict:
+    """The system's nodes and edges, with any status a person has set."""
+    joined = json.loads((current(target) / "system.json").read_text(encoding="utf-8"))
+    overrides = _plan_overrides(target)
+    for node in joined["nodes"]:
+        override = overrides.get(node["id"])
+        if override:
+            node["derived_status"] = node["status"]
+            node["status"] = override["status"]
+            node["status_source"] = "you"
+    return joined
+
+
+def set_plan_status(target: Path, node_id: str, status: str | None) -> dict:
+    """Record a person's status for a plan, or clear it with None. Never touches the repo."""
+    if not any(n["id"] == node_id and n["kind"] == "plan" for n in load_system(target)["nodes"]):
+        raise KeyError(f"no plan {node_id!r}")
+    if status is not None and status not in PLAN_STATUSES:
+        raise ValueError(f"status must be one of {', '.join(PLAN_STATUSES)}")
+    overrides = _plan_overrides(target)
+    if status is None:
+        overrides.pop(node_id, None)
+    else:
+        overrides[node_id] = {"status": status, "set_at": int(time.time())}
+    _write_json(target / "intent" / "plan_status.json", overrides)
+    return {"id": node_id, "status": status}
+
+
+def plan_items(target: Path, status: str | None = None) -> list[dict]:
+    """Plans, worst first: what is left comes before what is done."""
+    order = {name: rank for rank, name in enumerate(("planned", "partial", "unclear", "built"))}
+    found = [n for n in load_system(target)["nodes"] if n["kind"] == "plan" and (not status or n["status"] == status)]
+    return sorted(found, key=lambda n: (order.get(n["status"], 9), n["name"]))
+
+
+def _links(joined: dict, node_id: str, limit: int = 40) -> dict:
+    """What a node connects to, by direction and kind, heaviest first."""
+    links: dict[str, list[dict]] = {}
+    for edge in sorted(joined["edges"], key=lambda e: -e["count"]):
+        if edge["source"] == node_id:
+            key, other = f"out_{edge['kind']}", edge["target"]
+        elif edge["target"] == node_id:
+            key, other = f"in_{edge['kind']}", edge["source"]
+        else:
+            continue
+        group = links.setdefault(key, [])
+        if len(group) < limit:
+            entry = {"node": other, "count": edge["count"], "evidence": edge["evidence"][:1]}
+            if "access" in edge:
+                entry["access"] = edge["access"]
+            group.append(entry)
+    return links
+
+
 def load_findings(target: Path) -> list[dict]:
     return json.loads((current(target) / "findings.json").read_text(encoding="utf-8"))
 
@@ -374,12 +467,19 @@ def _shard_path(target: Path, node_id: str) -> Path:
 
 
 def load_node(target: Path, node_id: str) -> dict:
+    joined = load_system(target)
+    if not node_id.startswith("table:"):
+        node = next((n for n in joined["nodes"] if n["id"] == node_id), None)
+        if node is None:
+            raise KeyError(f"no node {node_id!r}")
+        return {**node, "links": _links(joined, node_id), "reads": load_notes(target, node_id)}
     path = _shard_path(target, node_id)
     if not path.is_file():
         raise KeyError(f"no node {node_id!r}")
     shard = json.loads(path.read_text(encoding="utf-8"))
     shard["reads"] = load_notes(target, node_id)
     shard["findings"] = [f for f in load_findings(target) if f["node"] == node_id]
+    shard["links"] = _links(joined, node_id)
     return shard
 
 
@@ -396,8 +496,7 @@ def load_notes(target: Path, node_id: str) -> list[dict]:
 
 def add_note(target: Path, node_id: str, text: str, evidence: list[str]) -> dict:
     """Save an agent's note. Every evidence entry must name a file at the model's commit."""
-    if not _shard_path(target, node_id).is_file():
-        raise KeyError(f"no node {node_id!r}")
+    load_node(target, node_id)
     if not text.strip():
         raise ValueError("a note needs text")
     if not evidence:
@@ -449,11 +548,16 @@ def search(target: Path, query: str, limit: int = 20) -> list[dict]:
         ]
         if matched:
             hits.append({"id": shard["id"], "matched": matched[:5]})
+    for node in load_system(target)["nodes"]:
+        if needle in node["id"].lower() or needle in node["name"].lower():
+            hits.append({"id": node["id"], "matched": [node["kind"]]})
     return hits[:limit]
 
 
 def neighbors(target: Path, node_id: str) -> dict:
-    """Tables this one points at, and tables that point at it."""
+    """What a node links to. A table also lists its foreign keys both ways."""
+    if not node_id.startswith("table:"):
+        return {"id": node_id, "links": load_node(target, node_id)["links"]}
     shard = load_node(target, node_id)
     me = f"{shard['schema']}.{shard['name']}"
     incoming = []
@@ -469,7 +573,7 @@ def neighbors(target: Path, node_id: str) -> dict:
         for c in shard["constraints"]
         if c["kind"] == "foreign_key"
     ]
-    return {"id": node_id, "outgoing": outgoing, "incoming": incoming}
+    return {"id": node_id, "outgoing": outgoing, "incoming": incoming, "links": shard["links"]}
 
 
 def fit(target: Path, name: str, text: str, budget: int = DEFAULT_BUDGET_CHARS) -> dict:
