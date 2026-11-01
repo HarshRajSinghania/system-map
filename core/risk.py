@@ -182,7 +182,8 @@ def _judge(rows: list[dict]) -> list[dict]:
     line = _hot_line(rows)
     for row in rows:
         row["hot"] = row["commits"] >= line
-        row["untested"] = row["cover"] < TESTED_FROM
+        # Code with no paths, such as a file of re-exports, has nothing a test could miss.
+        row["untested"] = row["cover"] < TESTED_FROM and row["complexity"] > 0
         row["score"] = round(row["commits"] * row["complexity"] * (1 - row["cover"]), 1)
     return sorted(rows, key=lambda row: (-row["score"], -row["commits"], row.get("path") or row["id"]))
 

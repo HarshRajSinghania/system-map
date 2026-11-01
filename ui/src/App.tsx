@@ -7,13 +7,17 @@ import type { Density } from './Erd'
 import { Findings } from './Findings'
 import { Inspector } from './Inspector'
 import { PlanBoard, PlanHint } from './Plan'
+import { RiskView } from './Risk'
 import { SystemMap } from './SystemMap'
-import { BASE, useActiveRepo, useNode, useOverview, useVersioned, withRepo } from './model'
-import type { Finding, Graph, NodeInfo, Overview, Plan, PlanStatus, SystemGraph } from './model'
+import { WorktreesView } from './Worktrees'
+import { BASE, useActiveRepo, useLive, useNode, useOverview, useVersioned, withRepo } from './model'
+import type { Finding, Graph, NodeInfo, Overlap, Overview, Plan, PlanStatus, Risk, SystemGraph, WorktreeState } from './model'
+import { overlapsOn, tablesAtWork } from './overlay'
 import { MUTED, SystemTree, TableList } from './parts'
 
 const SLOT_NAME = 'system-map-design'
 const GAP = 12
+const CHECK_WORKTREES_MS = 20000
 const DENSITIES: [Density, string][] = [
   ['names', 'Names'],
   ['keys', 'Keys'],
@@ -21,12 +25,14 @@ const DENSITIES: [Density, string][] = [
 ]
 const COLUMN: CSSProperties = { display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, overflow: 'hidden', padding: 12 }
 
-type View = 'map' | 'data' | 'plan' | 'findings'
+type View = 'map' | 'data' | 'plan' | 'risk' | 'worktrees' | 'findings'
 
 const VIEWS: [View, string][] = [
   ['map', 'Map'],
   ['data', 'Data model'],
   ['plan', 'Plan'],
+  ['risk', 'Risk'],
+  ['worktrees', 'Worktrees'],
   ['findings', 'Findings'],
 ]
 
@@ -139,10 +145,16 @@ export default function SystemMapApp() {
   const system = useVersioned<SystemGraph>('/system', repo, stamp)
   const plans = useVersioned<{ plans: Plan[] }>('/plan', repo, stamp)?.plans ?? []
   const findings = useVersioned<{ findings: Finding[] }>('/findings', repo, stamp)?.findings ?? []
+  const risk = useVersioned<Risk>('/risk', repo, stamp)
+  const live = useLive<WorktreeState>('/worktrees', repo, CHECK_WORKTREES_MS)
+  const worktrees = live.value
   const [view, setView] = useState<View>('map')
   const [selected, setSelected] = useState<string | null>(null)
   const [focus, setFocus] = useState<string | null>(null)
   const [showPlans, setShowPlans] = useState(true)
+  const [showRisk, setShowRisk] = useState(false)
+  const [showWork, setShowWork] = useState(true)
+  const [coverageError, setCoverageError] = useState<string | null>(null)
   const [density, setDensity] = useState<Density>('names')
   const [adding, setAdding] = useState(false)
   const [rebuilt, setRebuilt] = useState<string | null>(null)
@@ -161,7 +173,11 @@ export default function SystemMapApp() {
     return counts
   }, [findings])
 
+  const atWork = useMemo(() => tablesAtWork(worktrees), [worktrees])
   const unbuilt = plans.filter((plan) => plan.status === 'planned' || plan.status === 'partial').length
+  const collisions = (worktrees?.counts.high ?? 0) + (worktrees?.counts.medium ?? 0)
+  const hotUntested = risk?.modules.filter((row) => row.hot && row.untested).length ?? 0
+  const viewCounts: Partial<Record<View, number>> = { findings: findings.length, plan: unbuilt, risk: hotUntested, worktrees: collisions }
 
   const rebuild = async () => {
     setRebuilt('Checking')
@@ -183,6 +199,24 @@ export default function SystemMapApp() {
   const askPlan = (plan: Plan) => {
     chat.send(`Use the system-map tools. Look at ${plan.id}, say what is left to build, and propose the next step.`)
   }
+  const askRisk = (id: string) => {
+    chat.send(`Use the system-map tools. Look at ${id} and its risk. Say what is most likely to break, and which tests would help most.`)
+  }
+  const askOverlap = (row: Overlap) => {
+    chat.send(`Use the system-map tools. Worktrees ${row.a} and ${row.b} overlap. Check \`worktrees\`, say what will collide, and how to avoid it.`)
+  }
+  const runCoverage = () => {
+    chat.send("Run this repo's tests with coverage, in a scratch copy so the repo does not change. Then load the report with the system-map `coverage` tool, giving the commit it ran on.")
+  }
+  const loadCoverage = async () => {
+    setCoverageError(null)
+    try {
+      await api.post(`${BASE}/coverage`, { repo: overview?.manifest.repo_key })
+      setTick((value) => value + 1)
+    } catch (caught) {
+      setCoverageError(String(caught))
+    }
+  }
   const setPlanStatus = async (id: string, status: PlanStatus | null) => {
     await api.post(`${BASE}/plan-status`, { repo: overview?.manifest.repo_key, id, status })
     setTick((value) => value + 1)
@@ -199,6 +233,11 @@ export default function SystemMapApp() {
   /** From the inspector, stay on the view you are on where you can. */
   const openLink = (id: string) => {
     if (view === 'data' && id.startsWith('table:')) setSelected(id)
+    else showOnMap(id)
+  }
+  /** From a list, a table opens in the data model and anything else on the map. */
+  const openNode = (id: string) => {
+    if (id.startsWith('table:')) showTable(id)
     else showOnMap(id)
   }
   /** A selection belongs to one repo, so changing repo clears it. */
@@ -261,11 +300,21 @@ export default function SystemMapApp() {
                     {label}
                   </Btn>
                 ))}
-              {view === 'map' && <PlanHint count={unbuilt} on={showPlans} onToggle={() => setShowPlans((value) => !value)} />}
+              {view === 'map' && (
+                <>
+                  <PlanHint count={unbuilt} on={showPlans} onToggle={() => setShowPlans((value) => !value)} />
+                  <Btn primary={showRisk} onClick={() => setShowRisk((value) => !value)} title="Mark hot and untested code on the map">
+                    Risk on map
+                  </Btn>
+                  <Btn primary={showWork} onClick={() => setShowWork((value) => !value)} title="Show what each worktree is changing">
+                    Worktrees on map
+                  </Btn>
+                </>
+              )}
               <span style={{ width: 8 }} />
               {VIEWS.map(([value, label]) => (
                 <Btn key={value} primary={view === value} onClick={() => setView(value)}>
-                  {value === 'findings' ? `${label} ${findings.length}` : value === 'plan' ? `${label} ${unbuilt}` : label}
+                  {viewCounts[value] === undefined ? label : `${label} ${viewCounts[value]}`}
                 </Btn>
               ))}
             </div>
@@ -284,7 +333,7 @@ export default function SystemMapApp() {
                 {onLeftOfTree ? (
                   <SystemTree nodes={system?.nodes ?? []} focus={focus} onSelect={showOnMap} />
                 ) : (
-                  <TableList tables={overview.tables} selected={selected} flagged={flagged} onSelect={showTable} />
+                  <TableList tables={overview.tables} selected={selected} flagged={flagged} working={atWork} onSelect={showTable} />
                 )}
               </Card>
               <Card style={{ ...COLUMN, padding: 0, position: 'relative' }} data-testid="canvas">
@@ -295,18 +344,36 @@ export default function SystemMapApp() {
                     tables={overview.manifest.counts.tables}
                     showPlans={showPlans}
                     inspecting={inspected !== null}
+                    risk={showRisk ? risk : null}
+                    worktrees={showWork ? worktrees : null}
                     onFocus={setFocus}
                     onOpenTables={() => setView('data')}
                   />
                 )}
                 {view === 'data' && graph && (
-                  <Erd graph={graph} selected={selected} flagged={flagged} density={density} onSelect={setSelected} />
+                  <Erd graph={graph} selected={selected} flagged={flagged} working={atWork} density={density} onSelect={setSelected} />
                 )}
                 {view === 'plan' && <PlanBoard plans={plans} onShow={showOnMap} onAsk={askPlan} onStatus={(id, status) => void setPlanStatus(id, status)} />}
+                {view === 'risk' && risk && (
+                  <RiskView
+                    risk={risk}
+                    canAsk={chat.slot !== null}
+                    error={coverageError}
+                    onShow={showOnMap}
+                    onAsk={askRisk}
+                    onLoad={() => void loadCoverage()}
+                    onRun={runCoverage}
+                  />
+                )}
+                {view === 'worktrees' && worktrees && (
+                  <WorktreesView state={worktrees} checkedAt={live.checkedAt} canAsk={chat.slot !== null} onShow={openNode} onAsk={askOverlap} />
+                )}
                 {view === 'findings' && <Findings findings={findings} onShow={showTable} onAsk={askFinding} />}
                 {node && inspected && (
                   <Inspector
                     node={node}
+                    work={worktrees?.by_node[inspected] ?? []}
+                    overlaps={overlapsOn(inspected, worktrees)}
                     canAsk={chat.slot !== null}
                     onAsk={askNode}
                     onAskFinding={askFinding}

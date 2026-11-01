@@ -167,7 +167,99 @@ export interface Link {
   evidence: string[]
 }
 
-export type NodeInfo = SystemNode & { links?: Record<string, Link[]> }
+export interface RiskRow {
+  id?: string
+  path: string
+  name?: string
+  module?: string
+  area?: string
+  files?: number
+  lines: number
+  complexity: number
+  commits: number
+  tests?: number
+  reached_files?: number
+  /** Share of lines the tests ran, from a report. Null when no report is loaded. */
+  covered: number | null
+  branches: number | null
+  /** The share used to judge it: `covered`, or how much tests reach with no report. */
+  cover: number
+  hot: boolean
+  untested: boolean
+  score: number
+  ui?: boolean
+  in_report?: boolean
+}
+
+export interface CoverageInfo {
+  report: string
+  commit: string | null
+  loaded_at: number
+  lines_total: number
+  lines_hit: number
+  branches_total: number
+  branches_hit: number
+  unmatched: number
+  files_changed_since: number | null
+}
+
+export interface Risk {
+  window_days: number
+  history_known: boolean
+  shallow: boolean
+  test_files: number
+  coverage: CoverageInfo | null
+  files: RiskRow[]
+  modules: RiskRow[]
+  areas: RiskRow[]
+}
+
+export interface NodeRisk extends RiskRow {
+  window_days: number
+  worst_files: Pick<RiskRow, 'path' | 'commits' | 'complexity' | 'tests' | 'covered' | 'score'>[]
+}
+
+export interface Worktree {
+  path: string
+  branch: string
+  name: string
+  head: string
+  readable: boolean
+  ahead: number
+  behind: number
+  uncommitted_files: number
+  files: string[]
+  modules: string[]
+  tables_schema: string[]
+  tables_code: string[]
+  other_nodes: string[]
+}
+
+export interface Overlap {
+  a: string
+  b: string
+  severity: Severity
+  summary: string
+  conflicts: string[]
+  merge: 'clean' | 'conflict' | 'uncommitted' | 'unknown' | 'not needed'
+  uncommitted: string[]
+  files: string[]
+  schema: string[]
+  schema_and_code: string[]
+  code: string[]
+  modules: string[]
+}
+
+export interface WorktreeState {
+  ref: string
+  commit: string
+  worktrees: Worktree[]
+  overlaps: Overlap[]
+  by_node: Record<string, string[]>
+  counts: Record<Severity, number>
+}
+
+export type NodeInfo = SystemNode & { links?: Record<string, Link[]>; risk?: NodeRisk }
 
 export function withRepo(path: string, repo: string | null): string {
   if (!repo) return `${BASE}${path}`
@@ -253,6 +345,33 @@ export function useVersioned<T>(path: string, repo: string | null, version: stri
     }
   }, [api, path, repo, version])
   return value
+}
+
+/** Load something that changes on its own, and keep it current while the page is in view. */
+export function useLive<T>(path: string, repo: string | null, everyMs: number) {
+  const api = useAppApi()
+  const [value, setValue] = useState<T | null>(null)
+  const [checkedAt, setCheckedAt] = useState<number | null>(null)
+
+  const refresh = useCallback(async () => {
+    if (!repo) return
+    try {
+      setValue(await api.get<T>(withRepo(path, repo)))
+      setCheckedAt(Date.now())
+    } catch {
+      setValue(null)
+    }
+  }, [api, path, repo])
+
+  useEffect(() => {
+    void refresh()
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void refresh()
+    }, everyMs)
+    return () => window.clearInterval(timer)
+  }, [refresh, everyMs])
+
+  return { value, checkedAt, refresh }
 }
 
 export function useNode<T = TableNode>(id: string | null, repo: string | null = null) {

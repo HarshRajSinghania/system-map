@@ -7,7 +7,9 @@ import { INSPECTOR_ROOM, MIN_ZOOM, useFrame } from './flow'
 import type { Rect } from './flow'
 import { GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, buildView, trailFor } from './graphView'
 import type { Card, Line, MapView } from './graphView'
-import type { SystemGraph } from './model'
+import type { Risk, SystemGraph, WorktreeState } from './model'
+import { bandOf, riskIndex, worktreesOn } from './overlay'
+import type { RiskBand } from './overlay'
 import { MUTED } from './parts'
 
 const WIDTH = 200
@@ -40,21 +42,30 @@ const LINE_STYLE: Record<string, { color: string; dashed?: boolean; label: strin
   touches: { color: 'var(--danger, #dc2626)', dashed: true, label: 'plan touches' },
 }
 
+const BAND: Record<RiskBand, { color: string; label: string }> = {
+  'hot-untested': { color: 'var(--danger, #dc2626)', label: 'hot, untested' },
+  hot: { color: 'var(--warn-text, #b45309)', label: 'hot' },
+}
+
 interface CardData extends Record<string, unknown> {
   card: Card
   focused: boolean
+  work: string[]
+  band: RiskBand | null
 }
 
 type CardNode = Node<CardData, 'card'>
 
 const SystemCard = memo(function SystemCard({ data }: NodeProps<CardNode>) {
-  const { card, focused } = data
+  const { card, focused, work, band } = data
   const planned = card.kind === 'plan'
   const outside = card.kind === 'service'
-  const accent = planned ? STATUS_COLOR[card.status ?? 'unclear'] : undefined
+  const crowded = work.length > 1
+  const accent = planned ? STATUS_COLOR[card.status ?? 'unclear'] : crowded ? 'var(--warn-text, #b45309)' : undefined
   const line = focused ? 'var(--accent, #2563eb)' : (accent ?? 'var(--border-strong, #a1a1aa)')
   return (
     <div
+      title={work.length ? `Worktrees here: ${work.join(', ')}` : undefined}
       style={{
         width: WIDTH,
         height: HEIGHT,
@@ -67,8 +78,8 @@ const SystemCard = memo(function SystemCard({ data }: NodeProps<CardNode>) {
         borderRadius: outside ? 29 : 8,
         background: card.kind === 'group' ? 'var(--bg-hover, #f4f4f5)' : 'var(--card, #fff)',
         color: 'var(--text, #18181b)',
-        border: `${focused ? 2 : 1}px ${planned || outside ? 'dashed' : 'solid'} ${line}`,
-        boxShadow: focused ? '0 0 0 3px var(--accent-subtle, rgba(37,99,235,.2))' : undefined,
+        border: `${focused || crowded ? 2 : 1}px ${planned || outside ? 'dashed' : 'solid'} ${line}`,
+        boxShadow: [band ? `inset 5px 0 0 ${BAND[band].color}` : '', focused ? '0 0 0 3px var(--accent-subtle, rgba(37,99,235,.2))' : ''].filter(Boolean).join(', ') || undefined,
       }}
     >
       <Handle type="target" position={Position.Left} isConnectable={false} />
@@ -76,10 +87,18 @@ const SystemCard = memo(function SystemCard({ data }: NodeProps<CardNode>) {
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, alignItems: 'baseline' }}>
         <span style={{ fontWeight: 600, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{card.title}</span>
         {planned && <span style={{ fontSize: 11, color: accent, flexShrink: 0 }}>{card.status}</span>}
+        {band && <span style={{ fontSize: 11, color: BAND[band].color, flexShrink: 0 }}>{BAND[band].label}</span>}
       </div>
-      <span style={{ ...MUTED, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {[KIND_LABEL[card.kind] && card.kind !== 'area' && card.kind !== 'plan' ? KIND_LABEL[card.kind] : '', card.subtitle].filter(Boolean).join(' · ')}
-      </span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, alignItems: 'baseline' }}>
+        <span style={{ ...MUTED, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {[KIND_LABEL[card.kind] && card.kind !== 'area' && card.kind !== 'plan' ? KIND_LABEL[card.kind] : '', card.subtitle].filter(Boolean).join(' · ')}
+        </span>
+        {work.length > 0 && (
+          <span style={{ fontSize: 11, flexShrink: 0, fontWeight: crowded ? 600 : 400, color: crowded ? 'var(--warn-text, #b45309)' : 'var(--accent, #2563eb)' }}>
+            {work.length} at work
+          </span>
+        )}
+      </div>
     </div>
   )
 })
@@ -124,7 +143,7 @@ function toEdge(line: Line): Edge {
   }
 }
 
-function Legend({ kinds, top }: { kinds: Set<string>; top: boolean }) {
+function Legend({ kinds, top, risk }: { kinds: Set<string>; top: boolean; risk: boolean }) {
   const shown = Object.entries(LINE_STYLE).filter(([kind]) => kinds.has(kind))
   return (
     <div
@@ -146,6 +165,13 @@ function Legend({ kinds, top }: { kinds: Set<string>; top: boolean }) {
           {style.label}
         </span>
       ))}
+      {risk &&
+        Object.values(BAND).map((band) => (
+          <span key={band.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 5, height: 12, background: band.color }} />
+            {band.label}
+          </span>
+        ))}
       {top && <span style={MUTED}>Thin links hidden</span>}
     </div>
   )
@@ -201,6 +227,8 @@ function Diagram({
   tables,
   showPlans,
   inspecting,
+  risk,
+  worktrees,
   onFocus,
   onOpenTables,
 }: {
@@ -209,12 +237,16 @@ function Diagram({
   tables: number
   showPlans: boolean
   inspecting: boolean
+  risk: Risk | null
+  worktrees: WorktreeState | null
   onFocus: (id: string | null) => void
   onOpenTables: () => void
 }) {
   const { mode } = useTheme()
   const view = useMemo(() => buildView(system, focus, tables, showPlans), [system, focus, tables, showPlans])
   const places = useMemo(() => place(view), [view])
+  const rows = useMemo(() => riskIndex(risk), [risk])
+  const byNode = worktrees?.by_node
 
   const nodes = useMemo<CardNode[]>(
     () =>
@@ -224,9 +256,9 @@ function Diagram({
         position: places.get(card.id) ?? { x: 0, y: 0 },
         width: WIDTH,
         height: HEIGHT,
-        data: { card, focused: card.id === focus },
+        data: { card, focused: card.id === focus, work: byNode ? worktreesOn(card.id, byNode) : [], band: bandOf(rows.get(card.id)) },
       })),
-    [view, places, focus],
+    [view, places, focus, rows, byNode],
   )
   const edges = useMemo(() => view.lines.map(toEdge), [view])
   const rects = useMemo<Rect[]>(
@@ -260,7 +292,7 @@ function Diagram({
         <Trail system={system} focus={focus} onFocus={onFocus} />
       </Panel>
       <Panel position="bottom-center">
-        <Legend kinds={kinds} top={focus === null} />
+        <Legend kinds={kinds} top={focus === null} risk={risk !== null} />
       </Panel>
     </ReactFlow>
   )
@@ -272,6 +304,8 @@ export function SystemMap(props: {
   tables: number
   showPlans: boolean
   inspecting: boolean
+  risk: Risk | null
+  worktrees: WorktreeState | null
   onFocus: (id: string | null) => void
   onOpenTables: () => void
 }) {

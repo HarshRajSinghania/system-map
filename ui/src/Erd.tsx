@@ -29,6 +29,7 @@ interface CardData extends Record<string, unknown> {
   columns: GraphColumn[]
   hidden: number
   flags: number
+  working: number
   focused: boolean
   width: number
   large: boolean
@@ -37,7 +38,7 @@ interface CardData extends Record<string, unknown> {
 type CardNode = Node<CardData, 'table'>
 
 const TableCard = memo(function TableCard({ data }: NodeProps<CardNode>) {
-  const { table, columns, hidden, flags, focused, width, large } = data
+  const { table, columns, hidden, flags, working, focused, width, large } = data
   const external = table.status === 'external'
   return (
     <div
@@ -70,6 +71,9 @@ const TableCard = memo(function TableCard({ data }: NodeProps<CardNode>) {
       >
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{table.name}</span>
         <span style={{ display: 'flex', gap: 6, fontWeight: 400, fontSize: 11, flexShrink: 0 }}>
+          {working > 0 && (
+            <span style={{ fontWeight: working > 1 ? 600 : 400, color: working > 1 ? 'var(--warn-text, #b45309)' : 'var(--accent, #2563eb)' }}>{working} at work</span>
+          )}
           {flags > 0 && <span style={{ color: 'var(--warn-text, #b45309)' }}>{flags}</span>}
           {table.rls === false && <span style={{ color: 'var(--danger, #dc2626)' }}>no RLS</span>}
           {external && <span style={MUTED}>outside</span>}
@@ -174,12 +178,14 @@ function Diagram({
   graph,
   selected,
   flagged,
+  working,
   density,
   onSelect,
 }: {
   graph: Graph
   selected: string | null
   flagged: Map<string, number>
+  working: Map<string, number>
   density: Density
   onSelect: (id: string | null) => void
 }) {
@@ -204,13 +210,14 @@ function Diagram({
             columns,
             hidden: shape === 'names' ? 0 : table.columns.length - columns.length,
             flags: flagged.get(table.id) ?? 0,
+            working: working.get(table.id) ?? 0,
             focused: table.id === selected,
             width: WIDTH[shape],
             large: shape === 'names',
           },
         }
       }),
-    [scope, shape, places, flagged, selected],
+    [scope, shape, places, flagged, working, selected],
   )
 
   const edges = useMemo<Edge[]>(
@@ -266,6 +273,7 @@ export function Erd(props: {
   graph: Graph
   selected: string | null
   flagged: Map<string, number>
+  working: Map<string, number>
   density: Density
   onSelect: (id: string | null) => void
 }) {

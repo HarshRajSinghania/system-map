@@ -157,6 +157,51 @@ class Reading(Repo):
         write(path, "src/lib/two/c.ts", 'export const c = (db) => db.from("notes").select("*")\n')
         self.assertEqual(self.state()["by_node"]["table:public.notes"], ["feat-a"])
 
+    def big_file(self) -> str:
+        filler = "".join(f"export const pad{n} = {n}\n" for n in range(40))
+        return f'export const a = (db) => db.from("clients").select("*")\n{filler}export const b = (db) => db.from("notes").select("*")\n{filler}'
+
+    def base_big_file(self) -> None:
+        write(self.repo, "src/lib/one/a.ts", self.big_file())
+        commit_all(self.repo)
+        store.build(self.repo, self.data, "main")
+
+    def test_an_edit_counts_only_for_the_query_it_is_near(self):
+        self.base_big_file()
+        path = self.worktree("feat-a")
+        write(path, "src/lib/one/a.ts", self.big_file().replace('"notes").select("*")', '"notes").select("id")'))
+        by_node = self.state()["by_node"]
+        self.assertEqual(by_node["table:public.notes"], ["feat-a"])
+        self.assertNotIn("table:public.clients", by_node)
+
+    def test_an_edit_far_from_any_query_touches_no_table(self):
+        self.base_big_file()
+        path = self.worktree("feat-a")
+        write(path, "src/lib/one/a.ts", self.big_file().replace("pad30 = 30", "pad30 = 99", 1))
+        by_node = self.state()["by_node"]
+        self.assertIn("module:src/lib/one", by_node)
+        self.assertFalse([node for node in by_node if node.startswith("table:")])
+
+    def test_a_committed_edit_counts_the_same_as_an_open_one(self):
+        self.base_big_file()
+        path = self.worktree("feat-a")
+        write(path, "src/lib/one/a.ts", self.big_file().replace('"notes").select("*")', '"notes").select("id")'))
+        commit_all(path)
+        self.assertEqual(self.state()["by_node"]["table:public.notes"], ["feat-a"])
+
+    def test_a_deleted_line_counts_where_it_was(self):
+        self.base_big_file()
+        path = self.worktree("feat-a")
+        text = self.big_file()
+        write(path, "src/lib/one/a.ts", text.replace("export const pad0 = 0\n", "", 1))
+        self.assertEqual(self.state()["by_node"]["table:public.clients"], ["feat-a"])
+
+    def test_every_query_in_a_new_file_counts(self):
+        path = self.worktree("feat-a")
+        write(path, "src/lib/two/new.ts", self.big_file())
+        by_node = self.state()["by_node"]
+        self.assertEqual((by_node["table:public.clients"], by_node["table:public.notes"]), (["feat-a"], ["feat-a"]))
+
     def test_a_from_call_on_something_else_is_not_a_table(self):
         path = self.worktree("feat-a")
         write(path, "src/lib/two/c.ts", 'export const c = Array.from("abc")\n')

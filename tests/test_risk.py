@@ -347,6 +347,10 @@ class Ranking(unittest.TestCase):
         self.assertEqual(ranked["files"][0]["score"], 0)
         self.assertFalse(ranked["files"][0]["untested"])
 
+    def test_a_file_with_no_paths_is_not_untested(self):
+        ranked = risk.rank(facts_for({"src/index.ts": {"commits": 9, "complexity": 0}}), self.report(src_index=(0, 5)))
+        self.assertFalse(ranked["files"][0]["untested"])
+
     def test_a_module_counts_each_commit_once(self):
         facts = facts_for({"src/a.ts": {"commits": 5}, "src/b.ts": {"commits": 5}}, {"module:src/m": 6})
         self.assertEqual(risk.rank(facts)["modules"][0]["commits"], 6)

@@ -1,8 +1,9 @@
 import { Badge, Btn } from '@kirocrew/app-sdk/ui'
 import type { ReactNode } from 'react'
 import { shortPath } from './graphView'
-import type { Link, NodeInfo, Plan, TableNode } from './model'
-import { MONO, MUTED, NodeDetail } from './parts'
+import type { Link, NodeInfo, NodeRisk, Overlap, Plan, TableNode } from './model'
+import { percent } from './overlay'
+import { MONO, MUTED, NodeDetail, SeverityBadge } from './parts'
 
 const SECTIONS: { key: string; title: string }[] = [
   { key: 'in_renders', title: 'Routes that render it' },
@@ -115,8 +116,50 @@ function PlanClaims({ node }: { node: NodeInfo }) {
   )
 }
 
+function RiskFacts({ risk }: { risk: NodeRisk }) {
+  const tested = risk.covered === null ? `${risk.reached_files ?? 0} of ${risk.files ?? 0} files reached` : `${percent(risk.covered)} of lines`
+  const flag = risk.hot && risk.untested ? 'Hot and untested' : risk.hot ? 'Hot' : risk.untested ? 'Untested' : null
+  return (
+    <Section title={flag ? `Risk: ${flag}` : 'Risk'}>
+      <p style={{ margin: '0 0 4px' }}>
+        {risk.commits} commits in {risk.window_days} days, {risk.complexity} paths, tests: {tested}.
+      </p>
+      {risk.worst_files.length > 0 && (
+        <ul style={{ ...MONO, margin: 0, paddingLeft: 14, fontSize: 11, overflowWrap: 'anywhere' }}>
+          {risk.worst_files.map((file) => (
+            <li key={file.path} title={`${file.commits} commits, ${file.complexity} paths`}>
+              {shortPath(file.path)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
+  )
+}
+
+function WorkOnIt({ names, overlaps }: { names: string[]; overlaps: Overlap[] }) {
+  if (names.length === 0) return null
+  return (
+    <Section title={`Worktrees on it (${names.length})`}>
+      <ul style={{ margin: 0, paddingLeft: 14, overflowWrap: 'anywhere' }}>
+        {names.map((name) => (
+          <li key={name}>{name}</li>
+        ))}
+      </ul>
+      {overlaps.map((row) => (
+        <p key={`${row.a}|${row.b}`} style={{ display: 'flex', gap: 6, alignItems: 'flex-start', margin: '6px 0 0' }}>
+          <SeverityBadge severity={row.severity} />
+          <span>{row.summary}</span>
+        </p>
+      ))}
+    </Section>
+  )
+}
+
 export function Inspector({
   node,
+  work,
+  overlaps,
   onAsk,
   onOpen,
   onClose,
@@ -124,6 +167,8 @@ export function Inspector({
   onAskFinding,
 }: {
   node: NodeInfo
+  work: string[]
+  overlaps: Overlap[]
   onAsk: () => void
   onOpen: (id: string) => void
   onClose: () => void
@@ -164,6 +209,8 @@ export function Inspector({
         </Btn>
       </div>
       <div style={{ overflowY: 'auto', minHeight: 0, flex: 1, fontSize: 13, color: 'var(--text, inherit)' }}>
+        <WorkOnIt names={work} overlaps={overlaps} />
+        {node.risk && <RiskFacts risk={node.risk} />}
         {isTable ? <NodeDetail node={node as unknown as TableNode} onAsk={onAskFinding} /> : <Facts node={node} />}
         {!isTable && <PlanClaims node={node} />}
         <Links node={node} onOpen={onOpen} />

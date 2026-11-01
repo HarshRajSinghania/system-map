@@ -14,18 +14,24 @@ const SEVERITY_BADGE: Record<Severity, 'err' | 'warn' | 'muted' | 'aim'> = {
 }
 
 export function SeverityBadge({ severity }: { severity: Severity }) {
-  return <Badge variant={SEVERITY_BADGE[severity]}>{severity}</Badge>
+  return (
+    <span style={{ flexShrink: 0 }}>
+      <Badge variant={SEVERITY_BADGE[severity]}>{severity}</Badge>
+    </span>
+  )
 }
 
 export function TableList({
   tables,
   selected,
   flagged,
+  working,
   onSelect,
 }: {
   tables: TableRow[]
   selected: string | null
   flagged?: Map<string, number>
+  working?: Map<string, number>
   onSelect: (id: string) => void
 }) {
   const [filter, setFilter] = useState('')
@@ -48,6 +54,7 @@ export function TableList({
               justifyContent: 'space-between',
               gap: 8,
               width: '100%',
+              boxSizing: 'border-box',
               padding: '4px 8px',
               border: 0,
               borderRadius: 6,
@@ -60,6 +67,14 @@ export function TableList({
           >
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{table.name}</span>
             <span style={{ ...MUTED, display: 'flex', gap: 6, flexShrink: 0 }}>
+              {working?.get(table.id) ? (
+                <span
+                  title="Worktrees changing this table or its code"
+                  style={{ color: (working.get(table.id) ?? 0) > 1 ? 'var(--warn-text, #b45309)' : 'var(--accent, #2563eb)' }}
+                >
+                  {working.get(table.id)} at work
+                </span>
+              ) : null}
               {flagged?.get(table.id) ? (
                 <span title={`${flagged.get(table.id)} findings`} style={{ color: 'var(--warn-text, #b45309)' }}>
                   {flagged.get(table.id)}

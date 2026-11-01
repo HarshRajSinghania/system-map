@@ -9,6 +9,7 @@ Nothing here writes to the repo. The trial merge writes its objects to a tempora
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -17,6 +18,9 @@ from .extractors import postgres, typescript
 from .sources import git, run_git
 
 SEVERITIES = ("high", "medium", "low", "info")
+#: A query runs on below its `.from("x")` line, so an edit this close is an edit to the query.
+QUERY_REACH_LINES = 12
+HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.M)
 
 
 def listing(repo_root: Path) -> list[dict]:
@@ -50,21 +54,49 @@ def uncommitted(path: str) -> set[str]:
     return found
 
 
-def committed(path: str, commit: str) -> tuple[set[str], int, int]:
+def committed(path: str, commit: str) -> tuple[set[str], int, int, str]:
     """Files this branch changed that the main branch does not have yet.
 
     A file that now matches the main branch is left out, so a squash-merged branch counts
-    as finished and not as a change. Returns the files, then commits ahead and behind.
+    as finished and not as a change. Returns the files, commits ahead and behind, and the
+    commit the branch started from.
     """
     folder = Path(path)
     base = git(folder, "merge-base", "HEAD", commit)
     if not base:
-        return set(), 0, 0
+        return set(), 0, 0, ""
     since_base = _names(run_git(folder, "diff", "--name-only", "--no-renames", "-z", base, "HEAD"))
     differs = _names(run_git(folder, "diff", "--name-only", "--no-renames", "-z", commit, "HEAD"))
     ahead = git(folder, "rev-list", "--count", f"{base}..HEAD") or "0"
     behind = git(folder, "rev-list", "--count", f"{base}..{commit}") or "0"
-    return since_base & differs, int(ahead), int(behind)
+    return since_base & differs, int(ahead), int(behind), base
+
+
+def changed_lines(folder: str, base: str, path: str) -> set[int] | None:
+    """Lines of a file that differ from `base`. None means all of them, as in a new file."""
+    done = run_git(Path(folder), "diff", "-U0", "--no-color", "--no-ext-diff", base, "--", path) if base else None
+    if done is None or done.returncode != 0 or not done.stdout or "\nnew file mode" in done.stdout:
+        return None
+    lines: set[int] = set()
+    for match in HUNK.finditer(done.stdout):
+        start = int(match.group(1))
+        count = int(match.group(2) or 1)
+        # With nothing added, the edit sits between this line and the next.
+        lines |= set(range(start, start + count)) if count else {start, start + 1}
+    return lines
+
+
+def tables_touched(text: str, lines: set[int] | None) -> set[str]:
+    """Tables whose queries sit near a changed line.
+
+    A file can call dozens of tables, so a change to the file is not a change to each.
+    """
+    found = set()
+    for use in typescript.table_uses(typescript.mask_code(text)):
+        reach = range(use["line"] - 1, use["line"] + QUERY_REACH_LINES + 1)
+        if lines is None or not lines.isdisjoint(reach):
+            found.add(f"table:public.{use['table']}")
+    return found
 
 
 def trial_merge(repo_root: Path, left: str, right: str) -> list[str] | None:
@@ -111,6 +143,7 @@ class Model:
 @dataclass
 class Changes:
     name: str
+    base: str = ""
     files: set[str] = field(default_factory=set)
     open_files: set[str] = field(default_factory=set)
     modules: set[str] = field(default_factory=set)
@@ -150,8 +183,7 @@ def join(changes: Changes, folder: str, model: Model) -> None:
             changes.modules |= {f"module:{module}", f"area:{area}"}
             if not typescript.TEST_FILE.search(path):
                 text = _read(folder, path) or ""
-                used = {f"table:public.{use['table']}" for use in typescript.table_uses(typescript.mask_code(text))}
-                changes.code |= used & model.nodes
+                changes.code |= tables_touched(text, changed_lines(folder, changes.base, path)) & model.nodes
 
 
 def _count(number: int, word: str) -> str:
@@ -231,9 +263,9 @@ def snapshot(repo_root: Path, commit: str, ref: str, model: Model) -> dict:
     worktrees, states = [], []
     for item in listing(repo_root):
         readable = git(Path(item["path"]), "rev-parse", "HEAD") is not None
-        changed, ahead, behind = committed(item["path"], commit) if readable else (set(), 0, 0)
+        changed, ahead, behind, base = committed(item["path"], commit) if readable else (set(), 0, 0, "")
         open_files = uncommitted(item["path"]) if readable else set()
-        state = Changes(item["name"], changed | open_files, open_files)
+        state = Changes(item["name"], base, changed | open_files, open_files)
         join(state, item["path"], model)
         states.append(state)
         worktrees.append(
