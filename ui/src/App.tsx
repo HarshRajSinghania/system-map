@@ -1,34 +1,78 @@
 import { ChatEmbed, useAppApi, useChatLauncher } from '@kirocrew/app-sdk'
 import { Card, CardTitle, PageHeader, StatCard } from '@kirocrew/app-sdk/ui'
 import { useEffect, useState } from 'react'
-import { NodeDetail, TableList, useNode, useOverview } from './model'
+import { BASE, NodeDetail, TableList, useNode, useOverview } from './model'
 
 const SLOT_NAME = 'system-map-design'
 
-function useDesignSlot() {
+/** Open the app's own chat, pointed at the repo the model was built from. */
+function useDesignSlot(repo: string | null) {
   const api = useAppApi()
   const [slot, setSlot] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api
-      .post<{ key?: string; slot_key?: string; slot?: string; sid?: string; id?: string }>('/api/chat/slots', {
-        name: SLOT_NAME,
-      })
-      .then((created: Record<string, string | undefined>) =>
-        setSlot(created.key ?? created.slot_key ?? created.slot ?? created.sid ?? created.id ?? null),
-      )
-      .catch((caught: unknown) => setError(String(caught)))
-  }, [api])
+    if (!repo) return
+    let live = true
+    const open = async () => {
+      const created = await api.post<{ key: string }>('/api/chat/slots', { name: SLOT_NAME })
+      await api.post(`/api/chat/slots/${encodeURIComponent(created.key)}/project`, { project: repo })
+      if (live) setSlot(created.key)
+    }
+    open().catch((caught: unknown) => live && setError(String(caught)))
+    return () => {
+      live = false
+    }
+  }, [api, repo])
 
   return { slot, error }
+}
+
+function BuildModel({ message, onBuilt }: { message: string; onBuilt: () => void }) {
+  const api = useAppApi()
+  const [path, setPath] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const build = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await api.post(`${BASE}/build`, { repo_path: path.trim() })
+      onBuilt()
+    } catch (caught) {
+      setError(String(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Card>
+      <CardTitle>Build a model</CardTitle>
+      <p style={{ fontSize: 13, opacity: 0.7 }}>{message}</p>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          aria-label="Repo path"
+          placeholder="/path/to/repo"
+          value={path}
+          onChange={(event) => setPath(event.target.value)}
+          style={{ flex: 1, padding: '4px 8px', fontSize: 13, background: 'transparent', color: 'inherit', border: '1px solid currentColor', borderRadius: 4 }}
+        />
+        <button disabled={busy || !path.trim()} onClick={() => void build()}>
+          {busy ? 'Building' : 'Build'}
+        </button>
+      </div>
+      {error && <p style={{ fontSize: 13 }}>{error}</p>}
+    </Card>
+  )
 }
 
 export default function SystemMap() {
   const { overview, error, refresh } = useOverview()
   const [selected, setSelected] = useState<string | null>(null)
   const node = useNode(selected)
-  const { slot, error: slotError } = useDesignSlot()
+  const { slot, error: slotError } = useDesignSlot(overview ? overview.manifest.repo : null)
   const { openChat } = useChatLauncher()
 
   const ask = () => {
@@ -43,13 +87,7 @@ export default function SystemMap() {
     <>
       <PageHeader title="System Map" subtitle={overview ? overview.manifest.repo : 'One model of your system'} />
       <div style={{ padding: '0 24px 32px', overflowY: 'auto', flex: 1, minHeight: 0 }}>
-        {error && (
-          <Card>
-            <CardTitle>No model yet</CardTitle>
-            <p style={{ fontSize: 13 }}>{error}</p>
-            <button onClick={() => void refresh()}>Retry</button>
-          </Card>
-        )}
+        {error && <BuildModel message={error} onBuilt={() => void refresh()} />}
         {overview && (
           <>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 14, marginBottom: 20 }}>
