@@ -59,12 +59,17 @@ ratio as a direction, not a constant.
 7. **Facts are checked, not trusted.** The manifest holds a hash for every Facts file, and
    `overview` reports any that changed since the build.
 
+## Checked in a live gateway
+
+| Question | Answer |
+|---|---|
+| Can a session's shell write to the app's data folder? | Yes. `python3 -m core build` wrote the model there. |
+| Does the sandboxed backend reach repos outside its folder? | Yes. It built a model and ran git in all 7 worktrees of the test repo. |
+| Where can session overlap data come from? | `git worktree list`. The docs say `/api/sessions` covers only an app's own sessions. |
+
 ## Still open
 
-These need the app installed in a live gateway:
-
-- Can an agent session write to the app's data folder, given the session sandbox?
 - Does the model get more than 8,000 chars in a Kiro Crew session?
-- Does the sandboxed backend reach repos outside its own folder?
-- What does an app see of a person's other sessions? The docs say `/api/sessions` covers
-  only an app's own sessions, so the session overlay may need `git worktree list` instead.
+- Can the `note` tool write to the data folder from inside a session?
+
+Both need the tools mounted in a session. See `docs/platform-notes.md`.
