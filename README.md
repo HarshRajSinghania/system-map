@@ -2,13 +2,15 @@
 
 A live map of your system, as a [Kiro Crew](https://github.com/kirodotdev/KiroCrew) app. Every view reads one model built from your repo's main branch. Agents read that model in small slices, so a design chat does not fill up with the whole system.
 
-Status: early. It reads TypeScript projects, TanStack file routes, Postgres migrations, `cron.schedule` jobs and specs in `docs/specs`. The model format may change, and the app upgrades it when it starts.
+Status: early. It reads TypeScript projects, TanStack file routes, Postgres migrations, `cron.schedule` jobs, specs in `docs/specs`, git history and worktrees, and coverage reports from Vitest, Jest or anything that writes lcov. The model format may change, and the app upgrades it when it starts.
 
 ## What it does
 
 - **Map.** Your system at three levels: areas, the modules in an area, then one module with what it touches. Links come from real imports and table calls.
 - **Plan.** What your specs promise and what does not exist yet. It looks up what each spec names, so a status shows its evidence. You can override any status.
 - **Data model.** A diagram of every table and foreign key. Click a table to see only it and its neighbors.
+- **Risk.** Code that changes often, has many paths and few tests, worst first. It works from imports alone, and a coverage report gives it real numbers.
+- **Worktrees.** What each worktree is changing, live, and where two of them collide. A conflict comes from a real trial merge, and two worktrees on one table raise a warning. The Map, the Data model and the chat side panel show it too.
 - **Findings.** Rule checks such as a table without row level security or a foreign key with no index. Each one cites its file and line.
 - **Design chat.** A chat beside the map, and an Ask button on everything.
 - **Agent tools.** Any session can read the model through MCP tools.
@@ -68,6 +70,23 @@ Ask the real compiler what a checkout imports and which tables it calls, then co
 node scripts/ts_truth.mjs <checkout> /tmp/truth.json
 python3 -m core verify-code <repo> /tmp/truth.json
 ```
+
+## Prove risk against real tools
+
+Compare each number with the tool that owns it: paths with the compiler, commits with git's log, and coverage with the test runner's own summary:
+
+```bash
+python3 -m core coverage <repo> <report> [commit]
+python3 -m core verify-risk <repo> /tmp/truth.json <coverage-summary.json>
+```
+
+Paths are counted from text, so screen copy can fool them a little. They must stay within 0.5% of the compiler.
+
+## Load a coverage report
+
+The app never runs your tests, since that would run your code in its backend. Run them yourself, then press Load report on the Risk view, or use the `coverage` tool. Without a report, Risk still shows which tests reach each file. Run tests in chat asks the Design chat to do this in a scratch copy.
+
+With Vitest, list every source file in `coverage.include`, or a file no test loads will be missing from the report. System Map counts a missing file as 0%.
 
 ## Run the page without Kiro Crew
 

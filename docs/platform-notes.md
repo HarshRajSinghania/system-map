@@ -49,6 +49,15 @@ An installed app's buttons get no default styling, so use the SDK's own controls
 - Agents can't log in to the dashboard, so `ui/dev` stands in for the host for screenshots.
   It proves layout and logic, not the host's own components.
 
+## Reading git safely
+
+- `git merge-tree --write-tree` needs git 2.38 or later. Below that, a merge reads as unknown.
+- It writes objects into the repo. Setting `GIT_OBJECT_DIRECTORY` to a temporary folder, with
+  the repo's own objects as `GIT_ALTERNATE_OBJECT_DIRECTORIES`, keeps the repo untouched.
+- `git log -- path` drops side branches that left a file as it was. Compare with
+  `--full-history`, or a real commit goes missing.
+- `git log --follow` treats a copy as the same file, so it counts another file's history.
+
 ## Updating an installed app
 
 Library, then the app's Details, then Sync reloads its files from the source folder. The

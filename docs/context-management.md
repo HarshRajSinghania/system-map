@@ -19,6 +19,17 @@ Test repo: a production app with 33 tables, 324 columns and 283 KB of migrations
 The migrations cover the data model only. The same repo has 3.4 MB in `src` and
 433 KB in `docs`, so later layers will be far larger than the numbers above.
 
+Risk and worktrees add little, because tools return only what is worst or what is live:
+
+| Tool call | Chars | Note |
+|---|---|---|
+| `risk` | 2,677 | The 11 hot and untested modules |
+| `risk`, files | 3,107 | The worst 15 |
+| `risk`, all 484 files | 946 | Over budget, so it returned a path and a head |
+| `worktrees` | 6,242 | 7 worktrees and 7 overlaps |
+| `worktrees` for one node | 1,573 | Who is on it, and their overlaps |
+| `overview` | 2,545 | With the worst modules and any collisions |
+
 ### Slices against the whole model
 
 One question, asked in two fresh Claude Code runs on the same model: which tables have a
@@ -62,6 +73,9 @@ tables gained their policies and triggers, so treat the ratio as a direction, no
    chat, compaction and the session.
 7. **Facts are checked, not trusted.** The manifest holds a hash for every Facts file, and
    `overview` reports any that changed since the build.
+8. **Live state stays out of the model.** Worktrees change by the minute, so they are worked
+   out on request and never stored. The page polls every 20 seconds and the panel every 30,
+   and the backend reuses an answer for 5 seconds. One check takes about 0.25s on 7 worktrees.
 
 ## Checked in a live gateway
 
