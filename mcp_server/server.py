@@ -54,6 +54,22 @@ TOOLS = [
         },
     },
     {
+        "name": "findings",
+        "description": (
+            "List rule checks on the model, such as a foreign key with no index or a table "
+            "without RLS. Filter by node or severity. Each finding cites file and line."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "Only this node, for example table:public.users."},
+                "severity": {"type": "string", "enum": ["high", "medium", "low", "info"]},
+                "repo": REPO,
+                "budget_chars": BUDGET,
+            },
+        },
+    },
+    {
         "name": "export_all",
         "description": (
             "Write every table in the model to one file and return its path. Use this for a job "
@@ -94,16 +110,25 @@ def call(name: str, args: dict) -> object:
     budget = int(args.get("budget_chars") or store.DEFAULT_BUDGET_CHARS)
     if name == "build":
         manifest = store.build(Path(args["repo_path"]).expanduser())
-        return {k: manifest[k] for k in ("repo_key", "commit", "branch", "counts")}
+        keys = ("repo_key", "ref", "commit", "version", "counts", "unchanged")
+        return {k: manifest[k] for k in keys if k in manifest}
 
     target = store.resolve_repo(args.get("repo"))
     if name == "overview":
         return {
-            "text": (target / "overview.md").read_text(encoding="utf-8"),
-            "freshness": store.staleness(target),
+            "text": (store.current(target) / "overview.md").read_text(encoding="utf-8"),
+            "freshness": store.freshness(target),
             "facts_changed_since_build": store.verify_facts(target),
-            "model_dir": str(target),
+            "model_dir": str(store.current(target)),
         }
+    if name == "findings":
+        found = [
+            finding
+            for finding in store.load_findings(target)
+            if (not args.get("node") or finding["node"] == args["node"])
+            and (not args.get("severity") or finding["severity"] == args["severity"])
+        ]
+        return store.fit(target, "findings", json.dumps(found, indent=1), budget)
     if name == "node":
         return store.fit(target, "node", json.dumps(store.load_node(target, args["id"]), indent=1), budget)
     if name == "neighbors":
@@ -111,7 +136,7 @@ def call(name: str, args: dict) -> object:
     if name == "search":
         return store.search(target, args["query"], int(args.get("limit") or 20))
     if name == "export_all":
-        parts = [p.read_text(encoding="utf-8") for p in sorted((target / "facts" / "tables").glob("*.json"))]
+        parts = [p.read_text(encoding="utf-8") for p in sorted((store.current(target) / "tables").glob("*.json"))]
         return store.fit(target, "all-tables", "\n".join(parts), budget)
     if name == "note":
         return store.add_note(target, args["id"], args["text"], list(args["evidence"]))

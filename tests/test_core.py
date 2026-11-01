@@ -1,131 +1,197 @@
 import json
-import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from core import store  # noqa: E402
-from core.migrations import parse_migrations, statements_of, strip_noise  # noqa: E402
+from core import findings, store, verify  # noqa: E402
+from core.sources import GitSource, TreeSource, canonical_root, default_ref  # noqa: E402
+from helpers import commit_all, git, write_migration  # noqa: E402
 
-FIRST = """
--- a comment with CREATE TABLE ghost (id int);
+BASE = """
 CREATE TABLE public.orgs (
   id uuid PRIMARY KEY,
-  name text NOT NULL UNIQUE,
-  note text DEFAULT 'a; b',
-  size numeric(10, 2) CHECK (size > 0)
+  name text NOT NULL
 );
 ALTER TABLE public.orgs ENABLE ROW LEVEL SECURITY;
-
 CREATE TABLE public.users (
   id uuid PRIMARY KEY,
-  org_id uuid NOT NULL REFERENCES public.orgs(id) ON DELETE CASCADE,
-  old_col text,
-  CONSTRAINT users_unique UNIQUE (org_id, id)
+  org_id uuid NOT NULL REFERENCES public.orgs(id) ON DELETE CASCADE
 );
-
-CREATE POLICY "read" ON public.orgs FOR SELECT TO authenticated USING (true);
-CREATE POLICY "gone" ON public.orgs FOR DELETE USING (true);
-
-CREATE FUNCTION public.f() RETURNS void LANGUAGE sql AS $$
-  CREATE TABLE ghost2 (id int);
-$$;
-"""
-
-SECOND = """
-ALTER TABLE public.users ADD COLUMN team_id uuid REFERENCES public.orgs(id);
-ALTER TABLE public.users DROP COLUMN old_col;
-ALTER TABLE public.users ALTER COLUMN team_id SET NOT NULL;
-CREATE INDEX IF NOT EXISTS users_org_idx ON public.users (org_id);
-DROP POLICY IF EXISTS "gone" ON public.orgs;
-CREATE TABLE public.temp (id int);
-DROP TABLE public.temp;
 """
 
 
 class Fixture(unittest.TestCase):
     def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        self.addCleanup(self._tmp.cleanup)
-        self.base = Path(self._tmp.name)
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.base = Path(tmp.name)
         self.repo = self.base / "repo"
-        migrations = self.repo / "supabase" / "migrations"
-        migrations.mkdir(parents=True)
-        (migrations / "001.sql").write_text(FIRST)
-        (migrations / "002.sql").write_text(SECOND)
+        self.repo.mkdir()
+        git(self.repo, "init", "-q", "-b", "main")
+        write_migration(self.repo, "001.sql", BASE)
+        self.first = commit_all(self.repo, "first")
         self.data = self.base / "data"
-
-
-class ParserTests(Fixture):
-    def setUp(self):
-        super().setUp()
-        self.schema = parse_migrations(self.repo / "supabase" / "migrations", self.repo)
-
-    def test_comments_and_function_bodies_are_not_schema(self):
-        self.assertEqual(sorted(self.schema.tables), ["public.orgs", "public.users"])
-
-    def test_columns_and_nullability(self):
-        orgs = self.schema.tables["public.orgs"]
-        self.assertEqual(list(orgs.columns), ["id", "name", "note", "size"])
-        self.assertFalse(orgs.columns["name"]["nullable"])
-        self.assertTrue(orgs.columns["note"]["nullable"])
-        self.assertEqual(orgs.columns["size"]["type"], "numeric(10, 2)")
-
-    def test_replay_applies_later_migrations(self):
-        users = self.schema.tables["public.users"]
-        self.assertNotIn("old_col", users.columns)
-        self.assertFalse(users.columns["team_id"]["nullable"])
-        self.assertEqual(users.indexes[0]["columns"], ["org_id"])
-
-    def test_foreign_keys_and_delete_rule(self):
-        fks = [c for c in self.schema.tables["public.users"].constraints if c["kind"] == "foreign_key"]
-        self.assertEqual({f["columns"][0]: f["on_delete"] for f in fks}, {"org_id": "cascade", "team_id": "no action"})
-        self.assertEqual(fks[0]["references"], "public.orgs")
-
-    def test_rls_and_policies_replay(self):
-        orgs = self.schema.tables["public.orgs"]
-        self.assertTrue(orgs.rls)
-        self.assertEqual(list(orgs.policies), ["read"])
-        self.assertFalse(self.schema.tables["public.users"].rls)
-
-    def test_every_fact_names_its_file_and_line(self):
-        fk = next(c for c in self.schema.tables["public.users"].constraints if c["kind"] == "foreign_key")
-        self.assertEqual(fk["source"], "supabase/migrations/001.sql:11")
-
-    def test_strip_noise_keeps_line_numbers(self):
-        sql = "select 1; -- x\n$$ a\nb $$;\nselect 2;"
-        self.assertEqual(strip_noise(sql).count("\n"), sql.count("\n"))
-        # The middle statement is only a blanked body, so it is not a statement at all.
-        self.assertEqual([line for line, _ in statements_of(sql)], [1, 4])
-
-
-class StoreTests(Fixture):
-    def setUp(self):
-        super().setUp()
-        store.build(self.repo, self.data)
+        self.manifest = store.build(self.repo, self.data)
         self.target = store.repo_dir(self.repo, self.data)
 
-    def test_one_file_per_table_with_a_hash(self):
-        manifest = json.loads((self.target / "manifest.json").read_text())
-        self.assertEqual(manifest["counts"]["tables"], 2)
-        self.assertEqual(len(manifest["facts"]), 2)
 
+class Sources(Fixture):
+    def test_main_is_the_default_ref(self):
+        self.assertEqual(default_ref(self.repo), "main")
+
+    def test_a_folder_without_git_uses_the_tree(self):
+        plain = self.base / "plain"
+        write_migration(plain, "001.sql", BASE)
+        store.build(plain, self.data)
+        self.assertEqual(store.read_manifest(store.repo_dir(plain, self.data))["ref"], "working tree")
+
+    def test_git_source_reads_the_ref_not_the_checkout(self):
+        write_migration(self.repo, "001.sql", "CREATE TABLE ghost (id int);")
+        text = GitSource(self.repo, "main").read_many(["supabase/migrations/001.sql"])
+        self.assertIn("orgs", text["supabase/migrations/001.sql"])
+
+    def test_a_checkout_on_a_branch_still_models_main(self):
+        git(self.repo, "checkout", "-q", "-b", "feature")
+        write_migration(self.repo, "002.sql", "CREATE TABLE feature_only (id int);")
+        commit_all(self.repo)
+        manifest = store.build(self.repo, self.data)
+        self.assertEqual(manifest["ref"], "main")
+        self.assertEqual(manifest["counts"]["tables"], 2)
+
+    def test_a_worktree_shares_its_repo_model(self):
+        worktree = self.base / "wt"
+        git(self.repo, "worktree", "add", "-q", "-b", "side", str(worktree))
+        self.assertEqual(canonical_root(worktree), self.repo.resolve())
+        self.assertEqual(store.repo_dir(worktree, self.data), self.target)
+
+    def test_tree_source_skips_dependencies(self):
+        (self.repo / "node_modules").mkdir()
+        (self.repo / "node_modules" / "x.ts").write_text("x")
+        self.assertNotIn("node_modules/x.ts", TreeSource(self.repo).blobs)
+
+
+class Versions(Fixture):
+    def test_one_file_per_table_with_a_hash(self):
+        self.assertEqual(self.manifest["counts"]["tables"], 2)
+        self.assertEqual(len(self.manifest["facts"]), 2)
+        self.assertEqual(store.verify_facts(self.target), [])
+
+    def test_rebuilding_with_nothing_new_reports_unchanged(self):
+        self.assertTrue(store.build(self.repo, self.data).get("unchanged"))
+
+    def test_a_new_migration_makes_a_new_version_and_keeps_notes(self):
+        store.add_note(self.target, "table:public.orgs", "Keep me.", ["supabase/migrations/001.sql"])
+        write_migration(self.repo, "002.sql", "CREATE TABLE t (id int PRIMARY KEY);")
+        commit_all(self.repo)
+        manifest = store.build(self.repo, self.data)
+        self.assertNotEqual(manifest["version"], self.manifest["version"])
+        self.assertTrue((self.target / "versions" / self.manifest["version"]).is_dir())
+        self.assertEqual(len(store.load_notes(self.target, "table:public.orgs")), 1)
+
+    def test_a_failed_build_leaves_the_model_alone(self):
+        write_migration(self.repo, "002.sql", "CREATE TABLE t (id int PRIMARY KEY);")
+        commit_all(self.repo)
+        original, store._write_version = store._write_version, lambda *a: 1 / 0
+        self.addCleanup(setattr, store, "_write_version", original)
+        with self.assertRaises(ZeroDivisionError):
+            store.build(self.repo, self.data)
+        self.assertEqual(store.read_manifest(self.target)["version"], self.manifest["version"])
+        self.assertEqual([p.name for p in (self.target / "versions").iterdir() if p.name.startswith(".")], [])
+
+    def test_old_versions_are_pruned(self):
+        for number in range(8):
+            write_migration(self.repo, f"1{number}.sql", f"CREATE TABLE t{number} (id int PRIMARY KEY);")
+            commit_all(self.repo)
+            store.build(self.repo, self.data)
+        self.assertEqual(len(list((self.target / "versions").iterdir())), store.KEEP_VERSIONS)
+
+    def test_tampered_facts_are_detected(self):
+        relative = next(iter(self.manifest["facts"]))
+        path = self.target / relative
+        path.write_text(path.read_text() + " ")
+        self.assertEqual(store.verify_facts(self.target), [relative])
+
+    def test_an_old_format_model_is_ignored(self):
+        path = self.target / "manifest.json"
+        path.write_text(json.dumps({**self.manifest, "schema_version": 1}))
+        self.assertEqual(store.repos(self.data), [])
+
+
+class Freshness(Fixture):
+    def test_a_commit_without_a_migration_is_behind_but_not_stale(self):
+        (self.repo / "README.md").write_text("x")
+        commit_all(self.repo)
+        fresh = store.freshness(self.target)
+        self.assertFalse(fresh["stale"])
+        self.assertEqual(fresh["commits_behind"], 1)
+
+    def test_a_new_migration_is_stale(self):
+        write_migration(self.repo, "002.sql", "CREATE TABLE t (id int);")
+        commit_all(self.repo)
+        fresh = store.freshness(self.target)
+        self.assertTrue(fresh["stale"])
+        self.assertEqual(fresh["changed_inputs"], ["supabase/migrations/002.sql"])
+
+    def test_current_model_is_fresh(self):
+        fresh = store.freshness(self.target)
+        self.assertFalse(fresh["stale"])
+        self.assertEqual(fresh["commits_behind"], 0)
+
+
+class Reading(Fixture):
     def test_overview_flags_a_table_without_rls(self):
-        overview = (self.target / "overview.md").read_text()
-        self.assertIn("users | 3 | 2 | 1 | 0 | NO", overview)
+        overview = (store.current(self.target) / "overview.md").read_text()
+        self.assertIn("users | 2 | 1 | 0 | 0 | NO", overview)
+        self.assertIn("1 high", overview)
+
+    def test_a_huge_schema_keeps_the_overview_under_its_limit(self):
+        sql = "\n".join(f"CREATE TABLE a_rather_long_table_name_{i} (id int PRIMARY KEY);" for i in range(500))
+        write_migration(self.repo, "002.sql", sql)
+        commit_all(self.repo)
+        store.build(self.repo, self.data)
+        overview = (store.current(self.target) / "overview.md").read_text()
+        self.assertLess(len(overview), store.OVERVIEW_LIMIT_CHARS)
+        self.assertIn("more. Use `search`", overview)
 
     def test_neighbors_go_both_ways(self):
         found = store.neighbors(self.target, "table:public.orgs")
-        self.assertEqual(len(found["incoming"]), 2)
+        self.assertEqual(found["incoming"][0]["table"], "table:public.users")
         self.assertEqual(found["outgoing"], [])
 
     def test_search_returns_ids_not_bodies(self):
         hits = store.search(self.target, "org_id")
         self.assertEqual(hits, [{"id": "table:public.users", "matched": ["column org_id"]}])
 
+    def test_graph_has_tables_lines_and_key_flags(self):
+        graph = store.graph(self.target)
+        self.assertEqual(len(graph["tables"]), 2)
+        self.assertEqual(graph["edges"][0]["target"], "table:public.orgs")
+        users = next(t for t in graph["tables"] if t["name"] == "users")
+        self.assertTrue(next(c for c in users["columns"] if c["name"] == "org_id")["foreign"])
+        self.assertTrue(next(c for c in users["columns"] if c["name"] == "id")["primary"])
+
+    def test_graph_draws_an_outside_table_as_a_stub(self):
+        write_migration(self.repo, "002.sql", "CREATE TABLE t (u uuid REFERENCES auth.users(id));")
+        commit_all(self.repo)
+        store.build(self.repo, self.data)
+        stub = next(t for t in store.graph(self.target)["tables"] if t["id"] == "table:auth.users")
+        self.assertEqual(stub["status"], "external")
+
+    def test_a_node_carries_its_findings(self):
+        node = store.load_node(self.target, "table:public.users")
+        self.assertIn("rls_off", [f["check"] for f in node["findings"]])
+
+    def test_every_node_has_status_layer_and_evidence(self):
+        node = store.load_node(self.target, "table:public.orgs")
+        self.assertEqual((node["status"], node["layer"]), ("built", "facts"))
+        self.assertEqual(node["evidence"], ["supabase/migrations/001.sql:2"])
+
+
+class Budgets(Fixture):
     def test_small_answers_stay_inline(self):
         self.assertTrue(store.fit(self.target, "x", "short")["inline"])
 
@@ -135,40 +201,212 @@ class StoreTests(Fixture):
         self.assertEqual(Path(result["path"]).read_text(), "y" * 5000)
         self.assertLessEqual(len(result["head"]), 600)
 
+
+class Notes(Fixture):
     def test_note_needs_real_evidence(self):
+        for evidence in ([], ["../../etc/passwd"], ["nope.sql:3"]):
+            with self.assertRaises(ValueError):
+                store.add_note(self.target, "table:public.orgs", "text", evidence)
+
+    def test_evidence_is_checked_at_the_models_commit(self):
+        write_migration(self.repo, "002.sql", "CREATE TABLE t (id int);")
         with self.assertRaises(ValueError):
-            store.add_note(self.target, "table:public.orgs", "text", [])
-        with self.assertRaises(ValueError):
-            store.add_note(self.target, "table:public.orgs", "text", ["../../etc/passwd"])
-        with self.assertRaises(ValueError):
-            store.add_note(self.target, "table:public.orgs", "text", ["nope.sql:3"])
+            store.add_note(self.target, "table:public.orgs", "text", ["supabase/migrations/002.sql"])
 
     def test_note_is_returned_with_its_node(self):
         store.add_note(self.target, "table:public.orgs", "Core table.", ["supabase/migrations/001.sql:3"])
         self.assertEqual(store.load_node(self.target, "table:public.orgs")["reads"][0]["text"], "Core table.")
 
-    def test_tampered_facts_are_detected(self):
-        self.assertEqual(store.verify_facts(self.target), [])
-        path = self.target / "facts" / "tables" / "public.orgs.json"
-        path.write_text(path.read_text() + " ")
-        self.assertEqual(store.verify_facts(self.target), ["facts/tables/public.orgs.json"])
 
-    def test_rebuild_keeps_notes(self):
-        store.add_note(self.target, "table:public.orgs", "Keep me.", ["supabase/migrations/001.sql"])
-        store.build(self.repo, self.data)
-        self.assertEqual(len(store.load_notes(self.target, "table:public.orgs")), 1)
-
-    def test_resolve_repo_defaults_to_the_only_model(self):
+class ResolveRepo(Fixture):
+    def test_the_only_model_is_the_default(self):
         self.assertEqual(store.resolve_repo(None, self.data), self.target)
 
-    def test_staleness_counts_commits_behind(self):
-        run = lambda *a: subprocess.run(["git", "-C", str(self.repo), *a], check=True, capture_output=True)
-        run("init", "-q")
-        run("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "one")
-        store.build(self.repo, self.data)
-        self.assertFalse(store.staleness(self.target)["stale"])
-        run("-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "--allow-empty", "-m", "two")
-        self.assertEqual(store.staleness(self.target)["commits_behind"], 1)
+    def test_a_worktree_path_finds_its_repo(self):
+        worktree = self.base / "wt"
+        git(self.repo, "worktree", "add", "-q", "-b", "side", str(worktree))
+        self.assertEqual(store.resolve_repo(str(worktree), self.data), self.target)
+
+
+def node(**changes) -> dict:
+    base = {
+        "id": "table:public.t",
+        "name": "t",
+        "schema": "public",
+        "source": "m.sql:1",
+        "rls": True,
+        "rls_source": "m.sql:2",
+        "columns": [{"name": "id", "source": "m.sql:1"}],
+        "constraints": [{"name": "t_pkey", "kind": "primary_key", "columns": ["id"], "source": "m.sql:1"}],
+        "indexes": [],
+        "policies": [{"name": "p"}],
+    }
+    return {**base, **changes}
+
+
+def fk(column: str, on_delete: str = "cascade") -> dict:
+    return {
+        "name": f"t_{column}_fkey",
+        "kind": "foreign_key",
+        "columns": [column],
+        "references": "public.p",
+        "on_delete": on_delete,
+        "source": "m.sql:3",
+    }
+
+
+def checks(found: list[dict]) -> list[str]:
+    return [f["check"] for f in found]
+
+
+class Findings(unittest.TestCase):
+    def test_a_clean_table_has_no_findings(self):
+        self.assertEqual(findings.check_table(node()), [])
+
+    def test_rls_off(self):
+        found = findings.check_table(node(rls=False))
+        self.assertEqual((found[0]["check"], found[0]["severity"]), ("rls_off", "high"))
+
+    def test_rls_off_only_matters_in_public(self):
+        self.assertNotIn("rls_off", checks(findings.check_table(node(rls=False, schema="private"))))
+
+    def test_rls_on_with_no_policy(self):
+        self.assertEqual(checks(findings.check_table(node(policies=[]))), ["rls_no_policy"])
+
+    def test_no_primary_key(self):
+        self.assertEqual(checks(findings.check_table(node(constraints=[]))), ["no_primary_key"])
+
+    def test_fk_without_an_index(self):
+        table = node(constraints=[*node()["constraints"], fk("p_id")])
+        found = findings.check_table(table)
+        self.assertEqual((found[0]["check"], found[0]["severity"]), ("fk_no_index", "medium"))
+        self.assertEqual(found[0]["evidence"], ["m.sql:3"])
+
+    def test_fk_with_no_delete_action_is_lower(self):
+        table = node(constraints=[*node()["constraints"], fk("p_id", "no action")])
+        self.assertEqual(findings.check_table(table)[0]["severity"], "low")
+
+    def test_fk_covered_by_a_leading_index_column(self):
+        index = {"name": "i", "columns": ["p_id", "other"], "partial": False, "source": "m.sql:4"}
+        table = node(constraints=[*node()["constraints"], fk("p_id")], indexes=[index])
+        self.assertEqual(findings.check_table(table), [])
+
+    def test_fk_not_covered_by_a_trailing_index_column(self):
+        index = {"name": "i", "columns": ["other", "p_id"], "partial": False, "source": "m.sql:4"}
+        table = node(constraints=[*node()["constraints"], fk("p_id")], indexes=[index])
+        self.assertEqual(checks(findings.check_table(table)), ["fk_no_index"])
+
+    def test_a_partial_index_does_not_cover_a_fk(self):
+        index = {"name": "i", "columns": ["p_id"], "partial": True, "source": "m.sql:4"}
+        table = node(constraints=[*node()["constraints"], fk("p_id")], indexes=[index])
+        self.assertEqual(checks(findings.check_table(table)), ["fk_no_index"])
+
+    def test_fk_covered_by_a_unique_rule(self):
+        unique = {"name": "u", "kind": "unique", "columns": ["p_id"], "source": "m.sql:5"}
+        table = node(constraints=[*node()["constraints"], fk("p_id"), unique])
+        self.assertEqual(findings.check_table(table), [])
+
+    def test_an_index_repeating_a_key_is_a_duplicate(self):
+        index = {"name": "i", "columns": ["id"], "partial": False, "source": "m.sql:4"}
+        found = findings.check_table(node(indexes=[index]))
+        self.assertEqual(checks(found), ["index_duplicate"])
+        self.assertEqual(found[0]["evidence"], ["m.sql:4", "m.sql:1"])
+
+    def test_two_same_indexes_are_a_duplicate(self):
+        indexes = [{"name": n, "columns": ["a"], "partial": False, "source": "m.sql:4"} for n in ("i", "j")]
+        self.assertEqual(checks(findings.check_table(node(indexes=indexes))), ["index_duplicate"])
+
+    def test_unused_column_is_flagged_softly(self):
+        table = node(columns=[{"name": "id", "source": "m.sql:1"}, {"name": "ghost", "source": "m.sql:2"}])
+        found = findings.check_unused(table, {"id"})
+        self.assertEqual([f["id"] for f in found], ["column_unused:public.t:ghost"])
+        self.assertEqual(found[0]["severity"], "info")
+
+    def test_key_columns_never_count_as_unused(self):
+        self.assertEqual(findings.check_unused(node(), set()), [])
+
+    def test_findings_sort_worst_first(self):
+        found = findings.find([node(rls=False, policies=[], constraints=[])], set())
+        self.assertEqual([f["severity"] for f in found][:2], ["high", "medium"])
+
+
+class CodeScan(unittest.TestCase):
+    def test_generated_types_and_tests_are_not_usage(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "src" / "integrations" / "supabase").mkdir(parents=True)
+        (root / "src" / "integrations" / "supabase" / "types.ts").write_text("generated_only")
+        (root / "src" / "a.test.ts").write_text("test_only")
+        (root / "src" / "a.ts").write_text("real_use")
+        tokens = findings.code_tokens(TreeSource(root), "from_sql")
+        self.assertEqual(tokens & {"generated_only", "test_only", "real_use", "from_sql"}, {"real_use", "from_sql"})
+
+
+class Compare(unittest.TestCase):
+    def shard(self, **changes) -> dict:
+        return {
+            "name": "t",
+            "schema": "public",
+            "source": "m.sql:1",
+            "rls": True,
+            "columns": [{"name": "id", "type": "timestamptz", "nullable": False, "default": None, "generated": False, "source": "m.sql:2"}],
+            "constraints": [],
+            "indexes": [],
+            "policies": [],
+            "triggers": [],
+            **changes,
+        }
+
+    def catalog(self, **changes) -> dict:
+        table = {
+            "schema": "public",
+            "name": "t",
+            "rls": True,
+            "columns": [{"name": "id", "type": "timestamp with time zone", "nullable": False, "has_default": False}],
+            "constraints": None,
+            "indexes": None,
+            "policies": None,
+            "triggers": None,
+            **changes,
+        }
+        return {"tables": [table], "types": []}
+
+    def test_a_match_reports_nothing(self):
+        self.assertEqual(verify.compare([self.shard()], [], self.catalog()), [])
+
+    def test_each_side_can_report_a_missing_thing(self):
+        diffs = verify.compare([self.shard(rls=False)], [], self.catalog())
+        self.assertEqual(diffs[0]["what"], "rls")
+
+    def test_a_table_only_in_postgres_is_reported(self):
+        catalog = self.catalog()
+        catalog["tables"].append({**catalog["tables"][0], "name": "extra"})
+        self.assertEqual(verify.compare([self.shard()], [], catalog)[0]["item"], "public.extra")
+
+    def test_other_schemas_are_left_out(self):
+        catalog = self.catalog()
+        catalog["tables"].append({**catalog["tables"][0], "schema": "auth"})
+        self.assertEqual(verify.compare([self.shard()], [], catalog), [])
+
+    def test_type_spellings_normalize(self):
+        pairs = [
+            ("int", "integer"),
+            ("timestamptz", "timestamp with time zone"),
+            ("VARCHAR(20)", "character varying(20)"),
+            ("numeric(10, 2)", "numeric(10,2)"),
+            ("public.mood", "mood"),
+            ("text[]", "text[]"),
+            ("bool", "boolean"),
+        ]
+        for one, two in pairs:
+            self.assertEqual(verify.normal_type(one), verify.normal_type(two))
+
+    def test_a_source_line_must_name_its_fact(self):
+        shard = self.shard()
+        files = {"m.sql": "create table t (\n  wrong int\n);"}
+        bad = verify.source_lines_name_their_facts([shard], files.__getitem__)
+        self.assertEqual([b["fact"] for b in bad], ["id"])
 
 
 if __name__ == "__main__":

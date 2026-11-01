@@ -69,6 +69,15 @@ class BackendTests(unittest.TestCase):
         value = self.get("/overview")
         self.assertEqual([t["name"] for t in value["tables"]], ["orgs", "users"])
         self.assertNotIn("facts", value["manifest"])
+        self.assertNotIn("inputs", value["manifest"])
+
+    def test_graph_and_findings(self):
+        self.assertEqual(len(self.get("/graph")["edges"]), 1)
+        self.assertTrue(self.get("/findings")["findings"])
+
+    def test_rebuild_with_no_path_uses_the_known_repo(self):
+        reply = json.load(self.post("/build", {}))
+        self.assertTrue(reply["unchanged"])
 
     def test_proxied_prefix_works_too(self):
         self.assertEqual(self.get("/apps/system-map/api/overview")["tables"][0]["name"], "orgs")

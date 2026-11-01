@@ -61,6 +61,19 @@ class McpServerTests(unittest.TestCase):
         value = json.loads(self.tool("overview")["content"][0]["text"])
         self.assertIn("orgs | 1 | 0", value["text"])
         self.assertEqual(value["facts_changed_since_build"], [])
+        self.assertIn("stale", value["freshness"])
+
+    def test_findings_filter_by_node_and_severity(self):
+        value = json.loads(self.tool("findings", severity="high")["content"][0]["text"])
+        found = json.loads(value["text"])
+        self.assertEqual({f["check"] for f in found}, {"rls_off"})
+        value = json.loads(self.tool("findings", node="table:public.orgs", severity="high")["content"][0]["text"])
+        self.assertEqual(len(json.loads(value["text"])), 1)
+
+    def test_findings_obey_the_budget(self):
+        value = json.loads(self.tool("findings", budget_chars=20)["content"][0]["text"])
+        self.assertFalse(value["inline"])
+        self.assertTrue(Path(value["path"]).is_file())
 
     def test_node_over_budget_returns_a_path_not_the_body(self):
         value = json.loads(self.tool("node", id="table:public.users", budget_chars=50)["content"][0]["text"])

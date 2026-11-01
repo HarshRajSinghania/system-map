@@ -4,11 +4,17 @@ Everything an agent or the UI needs lives in files, so nothing large has to pass
 through a chat. The layout is:
 
     repos/<repo-key>/
-      manifest.json             commit, counts, a hash for every Facts file
-      overview.md               the one file meant to be read first
-      facts/tables/<name>.json  one table each; parsers write these
-      reads/<node>/<id>.json    agent notes; each one cites evidence
-      slices/<hash>.md          answers too large to return inline
+      manifest.json                  the current version, its commit and counts
+      versions/<version>/
+        overview.md                  the one file meant to be read first
+        tables/<schema>.<name>.json  one table each; parsers write these
+        findings.json                rule checks over the tables
+        types.json, externals.json
+      reads/<node>/<id>.json         agent notes; each one cites evidence
+      slices/<hash>.md               answers too large to return inline
+
+A build writes a new version, then swaps `manifest.json`. That swap is one atomic file
+replace, so a reader sees the old model or the new one, never half of either.
 """
 from __future__ import annotations
 
@@ -16,17 +22,19 @@ import hashlib
 import json
 import os
 import re
-import subprocess
+import shutil
 import time
 from pathlib import Path
 
-from .migrations import parse_migrations
+from . import extractors, findings
+from .sources import canonical_root, git, open_source
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 #: The most a tool hands back inline. Larger answers go to a slice file.
 DEFAULT_BUDGET_CHARS = 4000
 #: Past this the overview stops being a cheap first read, so it is a hard limit.
 OVERVIEW_LIMIT_CHARS = 6000
+KEEP_VERSIONS = 5
 
 
 def data_root() -> Path:
@@ -51,100 +59,158 @@ def repo_key(repo_root: Path) -> str:
 
 
 def repo_dir(repo_root: Path, root: Path | None = None) -> Path:
-    return (root or data_root()) / "repos" / repo_key(repo_root)
+    return (root or data_root()) / "repos" / repo_key(canonical_root(repo_root))
 
 
-def git(repo_root: Path, *args: str) -> str | None:
-    try:
-        done = subprocess.run(
-            ["git", "-C", str(repo_root), *args],
-            capture_output=True,
-            text=True,
-            timeout=20,
-            check=True,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return done.stdout.strip()
+def read_manifest(target: Path) -> dict:
+    return json.loads((target / "manifest.json").read_text(encoding="utf-8"))
+
+
+def current(target: Path) -> Path:
+    """The folder of the version the manifest points at."""
+    return target / "versions" / read_manifest(target)["version"]
 
 
 def _write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temp = path.with_suffix(path.suffix + ".tmp")
+    temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     temp.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temp.replace(path)
 
 
-def find_migrations(repo_root: Path) -> Path | None:
-    for candidate in ("supabase/migrations", "db/migrations", "migrations"):
-        path = repo_root / candidate
-        if path.is_dir() and any(path.glob("*.sql")):
-            return path
-    return None
+def _builder_id() -> str:
+    """Hash this package's own code, so a better parser replaces older Facts."""
+    package = Path(__file__).resolve().parent
+    digest = hashlib.sha256()
+    for path in sorted(package.rglob("*.py")):
+        digest.update(path.relative_to(package).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
-def build(repo_root: Path, root: Path | None = None) -> dict:
-    """Rebuild the Facts layer for a repo. Reads and slices are left alone."""
-    repo_root = repo_root.resolve()
+def _fingerprint(source) -> tuple[str, dict[str, str]]:
+    """Hash the ids of every input, without reading a single file."""
+    extractor = next((e for e in extractors.EXTRACTORS if e.detect(source)), None)
+    if extractor is None:
+        raise ValueError(f"no extractor knows how to read {source.root}")
+    inputs = extractor.inputs(source)
+    code = {path: source.blobs[path] for path in findings.code_files(source)}
+    payload = json.dumps([_builder_id(), inputs, code], sort_keys=True).encode()
+    return hashlib.sha256(payload).hexdigest()[:12], inputs
+
+
+def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> dict:
+    """Write a new version of the Facts. Reads and slices are left alone."""
+    repo_root = canonical_root(repo_path)
+    source = open_source(repo_root, ref)
     target = repo_dir(repo_root, root)
-    migrations = find_migrations(repo_root)
-    if migrations is None:
-        raise ValueError(f"no SQL migrations found under {repo_root}")
+    version, inputs = _fingerprint(source)
 
-    schema = parse_migrations(migrations, repo_root)
-    facts = target / "facts" / "tables"
-    if facts.exists():
-        for stale in facts.glob("*.json"):
-            stale.unlink()
+    previous = read_manifest(target) if (target / "manifest.json").is_file() else None
+    if previous and previous.get("version") == version and previous.get("schema_version") == SCHEMA_VERSION:
+        previous["commit"], previous["unchanged"] = source.commit, True
+        _write_json(target / "manifest.json", {k: v for k, v in previous.items() if k != "unchanged"})
+        return previous
 
-    hashes: dict[str, str] = {}
-    for table in schema.tables.values():
-        shard = table.to_shard()
-        path = facts / f"{table.schema}.{table.name}.json"
-        _write_json(path, shard)
-        hashes[path.relative_to(target).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
-
-    manifest = {
-        "schema_version": SCHEMA_VERSION,
-        "repo": str(repo_root),
-        "repo_key": repo_key(repo_root),
-        "commit": git(repo_root, "rev-parse", "HEAD"),
-        "branch": git(repo_root, "rev-parse", "--abbrev-ref", "HEAD"),
-        "built_at": int(time.time()),
-        "counts": {
-            "tables": len(schema.tables),
-            "statements": schema.statements,
-            "skipped_statements": schema.skipped,
-        },
-        "facts": hashes,
-    }
+    extraction = extractors.extract(source)
+    found = findings.find(extraction.nodes, findings.code_tokens(source, extraction.usage_text))
+    versions = target / "versions"
+    staging = versions / f".staging-{os.getpid()}-{time.time_ns()}"
+    try:
+        hashes = _write_version(staging, extraction, found)
+        counts = _counts(extraction, found)
+        manifest = {
+            "schema_version": SCHEMA_VERSION,
+            "repo": str(repo_root),
+            "repo_key": repo_key(repo_root),
+            "ref": source.ref,
+            "commit": source.commit,
+            "version": version,
+            "built_at": int(time.time()),
+            "counts": counts,
+            "stats": extraction.stats,
+            "inputs": inputs,
+            "facts": {f"versions/{version}/{relative}": digest for relative, digest in hashes.items()},
+        }
+        overview = render_overview(manifest, extraction.nodes, found)
+        (staging / "overview.md").write_text(overview, encoding="utf-8")
+        final = versions / version
+        if final.exists():
+            shutil.rmtree(staging)
+        else:
+            staging.rename(final)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
     _write_json(target / "manifest.json", manifest)
-    overview = render_overview(manifest, [t.to_shard() for t in schema.tables.values()])
-    if len(overview) > OVERVIEW_LIMIT_CHARS:
-        raise ValueError(f"overview is {len(overview)} chars, over {OVERVIEW_LIMIT_CHARS}")
-    (target / "overview.md").write_text(overview, encoding="utf-8")
+    _prune(versions, version)
     return manifest
 
 
-def render_overview(manifest: dict, shards: list[dict]) -> str:
+def _write_version(folder: Path, extraction: extractors.Extraction, found: list[dict]) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    for node in extraction.nodes:
+        path = folder / "tables" / f"{node['schema']}.{node['name']}.json"
+        _write_json(path, node)
+        hashes[path.relative_to(folder).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
+    _write_json(folder / "findings.json", found)
+    _write_json(folder / "types.json", extraction.types)
+    _write_json(folder / "externals.json", extraction.externals)
+    return hashes
+
+
+def _counts(extraction: extractors.Extraction, found: list[dict]) -> dict:
+    nodes = extraction.nodes
+    return {
+        "tables": len(nodes),
+        "columns": sum(len(n["columns"]) for n in nodes),
+        "constraints": sum(len(n["constraints"]) for n in nodes),
+        "indexes": sum(len(n["indexes"]) for n in nodes),
+        "policies": sum(len(n["policies"]) for n in nodes),
+        "triggers": sum(len(n["triggers"]) for n in nodes),
+        "types": len(extraction.types),
+        "externals": len(extraction.externals),
+        "findings": findings.tally(found),
+    }
+
+
+def _prune(versions: Path, keep: str) -> None:
+    old = [p for p in versions.iterdir() if p.is_dir() and not p.name.startswith(".") and p.name != keep]
+    for path in sorted(old, key=lambda p: p.stat().st_mtime)[: max(0, len(old) - (KEEP_VERSIONS - 1))]:
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def render_overview(manifest: dict, nodes: list[dict], found: list[dict]) -> str:
     """One line per table: enough to choose what to open next, and no more."""
-    lines = [
+    counts = manifest["counts"]["findings"]
+    head = [
         f"# System map: {Path(manifest['repo']).name}",
         "",
-        f"Commit {str(manifest['commit'])[:10]} on {manifest['branch']}. "
-        f"{manifest['counts']['tables']} tables. "
-        f"Open one with `node('table:<schema>.<name>')`.",
+        f"{manifest['ref']} at {str(manifest['commit'])[:10]}. {manifest['counts']['tables']} tables. "
+        f"Findings: {counts['high']} high, {counts['medium']} medium, {counts['low']} low, {counts['info']} info.",
+        "Open one with `node('table:<schema>.<name>')`. See rule checks with `findings`.",
         "",
-        "name | cols | fk | idx | policies | rls",
     ]
-    for shard in sorted(shards, key=lambda s: (s["schema"], s["name"])):
-        fks = sum(1 for c in shard["constraints"] if c["kind"] == "foreign_key")
-        prefix = "" if shard["schema"] == "public" else f"{shard['schema']}."
-        lines.append(
-            f"{prefix}{shard['name']} | {len(shard['columns'])} | {fks} | {len(shard['indexes'])} "
-            f"| {len(shard['policies'])} | {'yes' if shard['rls'] else 'NO'}"
+    rows = ["name | cols | fk | idx | policies | rls"]
+    names = []
+    for node in sorted(nodes, key=lambda n: (n["schema"], n["name"])):
+        fks = sum(1 for c in node["constraints"] if c["kind"] == "foreign_key")
+        label = node["name"] if node["schema"] == "public" else f"{node['schema']}.{node['name']}"
+        names.append(label)
+        rows.append(
+            f"{label} | {len(node['columns'])} | {fks} | {len(node['indexes'])} "
+            f"| {len(node['policies'])} | {'yes' if node['rls'] else 'NO'}"
         )
-    return "\n".join(lines) + "\n"
+    text = "\n".join(head + rows) + "\n"
+    if len(text) <= OVERVIEW_LIMIT_CHARS:
+        return text
+    room = OVERVIEW_LIMIT_CHARS - len("\n".join(head)) - 80
+    shown: list[str] = []
+    for name in names:
+        if sum(len(n) + 2 for n in shown) + len(name) > room:
+            break
+        shown.append(name)
+    return "\n".join(head) + ", ".join(shown) + f"\n\n{len(names) - len(shown)} more. Use `search`.\n"
 
 
 def repos(root: Path | None = None) -> list[dict]:
@@ -152,9 +218,10 @@ def repos(root: Path | None = None) -> list[dict]:
     found = []
     if base.is_dir():
         for path in sorted(base.iterdir()):
-            manifest = path / "manifest.json"
-            if manifest.is_file():
-                found.append(json.loads(manifest.read_text(encoding="utf-8")))
+            if (path / "manifest.json").is_file():
+                manifest = read_manifest(path)
+                if manifest.get("schema_version") == SCHEMA_VERSION:
+                    found.append(manifest)
     return found
 
 
@@ -162,8 +229,11 @@ def resolve_repo(repo: str | None, root: Path | None = None) -> Path:
     """Pick a model by repo path or key. With one model, that is the default."""
     known = repos(root)
     if repo:
+        wanted = {repo}
+        if repo.startswith(("/", "~")):
+            wanted.add(str(canonical_root(Path(repo))))
         for manifest in known:
-            if repo in (manifest["repo"], manifest["repo_key"], Path(manifest["repo"]).name):
+            if wanted & {manifest["repo"], manifest["repo_key"], Path(manifest["repo"]).name}:
                 return (root or data_root()) / "repos" / manifest["repo_key"]
         raise KeyError(f"no model for {repo!r}; build one first")
     if len(known) == 1:
@@ -173,26 +243,38 @@ def resolve_repo(repo: str | None, root: Path | None = None) -> Path:
     raise KeyError("several models exist; name a repo: " + ", ".join(m["repo_key"] for m in known))
 
 
-def staleness(target: Path) -> dict:
-    """Compare a model's commit with its repo's current one."""
-    manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
-    head = git(Path(manifest["repo"]), "rev-parse", "HEAD")
-    behind = None
-    if head and manifest["commit"] and head != manifest["commit"]:
-        count = git(Path(manifest["repo"]), "rev-list", "--count", f"{manifest['commit']}..{head}")
-        behind = int(count) if count and count.isdigit() else None
+def freshness(target: Path) -> dict:
+    """Compare a model with the tip of the branch it was built from.
+
+    A commit only makes the model stale when it changes a file the Facts came from.
+    """
+    manifest = read_manifest(target)
+    repo = Path(manifest["repo"])
+    try:
+        source = open_source(repo, manifest["ref"] if manifest["commit"] else None)
+        extractor = next(e for e in extractors.EXTRACTORS if e.detect(source))
+    except (ValueError, StopIteration, OSError) as error:
+        return {"ref": manifest["ref"], "stale": False, "commits_behind": 0, "error": str(error)}
+    behind = 0
+    if source.commit and source.commit != manifest["commit"]:
+        count = git(repo, "rev-list", "--count", f"{manifest['commit']}..{source.commit}")
+        behind = int(count) if count and count.isdigit() else 0
+    now, then = extractor.inputs(source), manifest["inputs"]
+    changed = sorted(path for path in set(now) | set(then) if now.get(path) != then.get(path))
     return {
+        "ref": manifest["ref"],
         "model_commit": manifest["commit"],
-        "repo_commit": head,
-        "stale": head is not None and head != manifest["commit"],
-        "commits_behind": behind if behind is not None else 0,
+        "tip_commit": source.commit,
+        "commits_behind": behind,
+        "stale": bool(changed),
+        "changed_inputs": changed[:20],
     }
 
 
 def table_index(target: Path) -> list[dict]:
     """One short row per table, for a list view."""
     rows = []
-    for path in sorted((target / "facts" / "tables").glob("*.json")):
+    for path in sorted((current(target) / "tables").glob("*.json")):
         shard = json.loads(path.read_text(encoding="utf-8"))
         rows.append(
             {
@@ -207,11 +289,60 @@ def table_index(target: Path) -> list[dict]:
     return rows
 
 
+def graph(target: Path) -> dict:
+    """Everything the diagram draws: tables, outside stubs, and foreign key lines."""
+    folder = current(target)
+    tables, edges = [], []
+    for path in sorted((folder / "tables").glob("*.json")):
+        shard = json.loads(path.read_text(encoding="utf-8"))
+        foreign = {c for k in shard["constraints"] if k["kind"] == "foreign_key" for c in k["columns"]}
+        primary = {c for k in shard["constraints"] if k["kind"] == "primary_key" for c in k["columns"]}
+        tables.append(
+            {
+                "id": shard["id"],
+                "name": shard["name"],
+                "status": shard["status"],
+                "rls": shard["rls"],
+                "columns": [
+                    {
+                        "name": c["name"],
+                        "type": c["type"],
+                        "nullable": c["nullable"],
+                        "primary": c["name"] in primary,
+                        "foreign": c["name"] in foreign,
+                    }
+                    for c in shard["columns"]
+                ],
+            }
+        )
+        for constraint in shard["constraints"]:
+            if constraint["kind"] == "foreign_key":
+                edges.append(
+                    {
+                        "id": f"{shard['id']}:{constraint['name']}",
+                        "source": shard["id"],
+                        "target": f"table:{constraint['references']}",
+                        "columns": constraint["columns"],
+                        "on_delete": constraint["on_delete"],
+                    }
+                )
+    externals = json.loads((folder / "externals.json").read_text(encoding="utf-8"))
+    for external in externals:
+        tables.append(
+            {"id": external["id"], "name": f"{external['schema']}.{external['name']}", "status": "external", "rls": None, "columns": []}
+        )
+    return {"tables": tables, "edges": edges}
+
+
+def load_findings(target: Path) -> list[dict]:
+    return json.loads((current(target) / "findings.json").read_text(encoding="utf-8"))
+
+
 def _shard_path(target: Path, node_id: str) -> Path:
     match = re.fullmatch(r"table:([\w$-]+)\.([\w$-]+)", node_id)
     if not match:
         raise KeyError(f"bad node id {node_id!r}; expected table:<schema>.<name>")
-    return target / "facts" / "tables" / f"{match.group(1)}.{match.group(2)}.json"
+    return current(target) / "tables" / f"{match.group(1)}.{match.group(2)}.json"
 
 
 def load_node(target: Path, node_id: str) -> dict:
@@ -220,6 +351,7 @@ def load_node(target: Path, node_id: str) -> dict:
         raise KeyError(f"no node {node_id!r}")
     shard = json.loads(path.read_text(encoding="utf-8"))
     shard["reads"] = load_notes(target, node_id)
+    shard["findings"] = [f for f in load_findings(target) if f["node"] == node_id]
     return shard
 
 
@@ -235,20 +367,19 @@ def load_notes(target: Path, node_id: str) -> list[dict]:
 
 
 def add_note(target: Path, node_id: str, text: str, evidence: list[str]) -> dict:
-    """Save an agent's note. Every evidence entry must point at a real repo file."""
+    """Save an agent's note. Every evidence entry must name a file at the model's commit."""
     if not _shard_path(target, node_id).is_file():
         raise KeyError(f"no node {node_id!r}")
     if not text.strip():
         raise ValueError("a note needs text")
     if not evidence:
         raise ValueError("a note needs at least one evidence entry, as path or path:line")
-    manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
-    repo_root = Path(manifest["repo"])
+    manifest = read_manifest(target)
+    source = open_source(Path(manifest["repo"]), manifest["commit"])
     for item in evidence:
         relative = item.rsplit(":", 1)[0] if re.search(r":\d+$", item) else item
-        resolved = (repo_root / relative).resolve()
-        if repo_root not in resolved.parents or not resolved.is_file():
-            raise ValueError(f"evidence {item!r} is not a file in {repo_root}")
+        if relative not in source.blobs:
+            raise ValueError(f"evidence {item!r} is not a file at {manifest['ref']}")
     note = {
         "node": node_id,
         "layer": "reads",
@@ -265,9 +396,8 @@ def add_note(target: Path, node_id: str, text: str, evidence: list[str]) -> dict
 
 def verify_facts(target: Path) -> list[str]:
     """List Facts files that no longer match the hash the parser recorded."""
-    manifest = json.loads((target / "manifest.json").read_text(encoding="utf-8"))
     changed = []
-    for relative, expected in manifest["facts"].items():
+    for relative, expected in read_manifest(target)["facts"].items():
         path = target / relative
         if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             changed.append(relative)
@@ -278,7 +408,7 @@ def search(target: Path, query: str, limit: int = 20) -> list[dict]:
     """Find tables by table, column or constraint target. Returns ids, not bodies."""
     needle = query.lower()
     hits = []
-    for path in sorted((target / "facts" / "tables").glob("*.json")):
+    for path in sorted((current(target) / "tables").glob("*.json")):
         shard = json.loads(path.read_text(encoding="utf-8"))
         matched = []
         if needle in shard["name"].lower():
@@ -299,7 +429,7 @@ def neighbors(target: Path, node_id: str) -> dict:
     shard = load_node(target, node_id)
     me = f"{shard['schema']}.{shard['name']}"
     incoming = []
-    for path in sorted((target / "facts" / "tables").glob("*.json")):
+    for path in sorted((current(target) / "tables").glob("*.json")):
         other = json.loads(path.read_text(encoding="utf-8"))
         for constraint in other["constraints"]:
             if constraint["kind"] == "foreign_key" and constraint["references"] == me:
