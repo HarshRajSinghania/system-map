@@ -1,0 +1,74 @@
+{
+  "name": "system-map",
+  "version": "0.0.1",
+  "displayName": "System Map",
+  "description": "A live map of your system. Every view reads one model built from your repo, and agents read it through small slices instead of loading it all.",
+  "author": "System Map contributors",
+  "license": "Apache-2.0",
+  "iconPath": "assets/icon.png",
+  "skills": [
+    "skills/system-map"
+  ],
+  "tags": [
+    "architecture",
+    "developer-tools",
+    "data-model"
+  ],
+  "mcpServers": {
+    "system-map": {
+      "command": "python3",
+      "args": [
+        "mcp_server/server.py"
+      ],
+      "autoApprove": [
+        "overview",
+        "node",
+        "neighbors",
+        "search",
+        "export_all",
+        "spike_payload"
+      ]
+    }
+  },
+  "backend": {
+    "entryPoint": "backend/server.py",
+    "port": "auto",
+    "healthCheck": "/health"
+  },
+  "ui": {
+    "entry": "dist/index.mjs",
+    "pages": [
+      {
+        "route": "/apps/system-map",
+        "label": "System Map",
+        "icon": "Boxes"
+      }
+    ]
+  },
+  "contributes": {
+    "panelTabs": [
+      {
+        "id": "map",
+        "title": "System Map",
+        "menuLabel": "System Map",
+        "menuDescription": "Browse the system model beside this chat",
+        "icon": "Boxes",
+        "entry": "dist/panel.mjs"
+      }
+    ]
+  },
+  "permissions": {
+    "api": [
+      "/api/chat",
+      "/api/chat/slots",
+      "/apps/system-map/api"
+    ],
+    "storage": true
+  },
+  "platform": {
+    "os": [
+      "macos",
+      "linux"
+    ]
+  }
+}
