@@ -1,7 +1,7 @@
 import { jsx as e, jsxs as i } from "react/jsx-runtime";
 import { Btn as c } from "@kirocrew/app-sdk/ui";
 import { useState as m } from "react";
-import { u as p, b as f, d as h, M as g, N as u, T as y } from "./chunks/model-DyjFJPE-.mjs";
+import { u as p, b as f, d as h, M as g, N as u, T as y } from "./chunks/model-BQD0Q2Ko.mjs";
 function z() {
   const { active: s, loaded: a, repos: d } = p(), { overview: t, error: l } = f(s), [o, r] = m(null), n = h(o, s);
   return l ? /* @__PURE__ */ e("p", { style: { padding: 12, fontSize: 13 }, children: l }) : a && d.length === 0 ? /* @__PURE__ */ e("p", { style: { padding: 12, fontSize: 13 }, children: "No model yet. Open System Map from Apps to build one." }) : t ? /* @__PURE__ */ i("div", { style: { padding: 12, height: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", minHeight: 0 }, children: [

@@ -14,6 +14,7 @@ Test repo: a production app with 33 tables, 324 columns and 283 KB of migrations
 | Largest table, as a tool returns it | 10,330 |
 | All 24 findings, as a tool returns them | 8,587 |
 | Every table, as stored | 185,133 |
+| The whole system map (67 modules and areas, 497 links), as stored | 178,246 |
 
 The migrations cover the data model only. The same repo has 3.4 MB in `src` and
 433 KB in `docs`, so later layers will be far larger than the numbers above.

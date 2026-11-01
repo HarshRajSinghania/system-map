@@ -15,6 +15,7 @@ export interface TableRow {
 export interface Freshness {
   ref: string
   stale: boolean
+  map_stale: boolean
   commits_behind: number
   changed_inputs?: string[]
   error?: string
@@ -110,6 +111,64 @@ export interface Graph {
   edges: GraphEdge[]
 }
 
+export type PlanStatus = 'built' | 'partial' | 'planned' | 'unclear'
+
+export interface Claim {
+  claim: string
+  found: boolean
+  where: string
+  source: string
+}
+
+export interface SystemNode {
+  id: string
+  kind: string
+  name: string
+  status: string
+  path?: string
+  area?: string | null
+  files?: number
+  lines?: number
+  test_files?: number
+  route_kind?: string
+  schedule?: string
+  found?: number
+  missing?: number
+  evidence: string[]
+}
+
+export interface Plan extends SystemNode {
+  status: PlanStatus
+  status_source: string
+  found: number
+  missing: number
+  claims: Claim[]
+  path: string
+}
+
+export interface SystemEdge {
+  source: string
+  target: string
+  kind: string
+  count: number
+  access?: string
+  evidence: string[]
+}
+
+export interface SystemGraph {
+  nodes: SystemNode[]
+  edges: SystemEdge[]
+}
+
+export interface Link {
+  node: string
+  count: number
+  access?: string
+  evidence: string[]
+}
+
+export type NodeInfo = SystemNode & { links?: Record<string, Link[]> }
+
 export function withRepo(path: string, repo: string | null): string {
   if (!repo) return `${BASE}${path}`
   return `${BASE}${path}${path.includes('?') ? '&' : '?'}repo=${encodeURIComponent(repo)}`
@@ -174,7 +233,7 @@ export function useOverview(repo: string | null) {
   return { overview, error, refresh }
 }
 
-/** Load something that only changes when the model's version does. */
+/** Load something that only changes when `version` does. */
 export function useVersioned<T>(path: string, repo: string | null, version: string | undefined): T | null {
   const api = useAppApi()
   const [value, setValue] = useState<T | null>(null)
@@ -196,9 +255,9 @@ export function useVersioned<T>(path: string, repo: string | null, version: stri
   return value
 }
 
-export function useNode(id: string | null, repo: string | null = null) {
+export function useNode<T = TableNode>(id: string | null, repo: string | null = null) {
   const api = useAppApi()
-  const [node, setNode] = useState<TableNode | null>(null)
+  const [node, setNode] = useState<T | null>(null)
 
   useEffect(() => {
     if (!id) {
@@ -207,7 +266,7 @@ export function useNode(id: string | null, repo: string | null = null) {
     }
     let live = true
     api
-      .get<TableNode>(withRepo(`/node?id=${encodeURIComponent(id)}`, repo))
+      .get<T>(withRepo(`/node?id=${encodeURIComponent(id)}`, repo))
       .then((value) => {
         if (live) setNode(value)
       })

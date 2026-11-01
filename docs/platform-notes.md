@@ -49,6 +49,11 @@ An installed app's buttons get no default styling, so use the SDK's own controls
 - Agents can't log in to the dashboard, so `ui/dev` stands in for the host for screenshots.
   It proves layout and logic, not the host's own components.
 
+## Updating an installed app
+
+Library, then the app's Details, then Sync reloads its files from the source folder. The
+backend restarts and upgrades models. A new tool reaches new sessions only.
+
 ## Reaching the backend
 
 - The page reaches the backend through `useAppApi` at `/apps/system-map/api/...`, with that

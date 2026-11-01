@@ -1,7 +1,7 @@
 import { Badge, SearchInput } from '@kirocrew/app-sdk/ui'
 import { useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import type { Finding, Severity, TableNode, TableRow } from './model'
+import type { Finding, Severity, SystemNode, TableNode, TableRow } from './model'
 
 export const MONO: CSSProperties = { fontFamily: 'var(--mono, ui-monospace, monospace)' }
 export const MUTED: CSSProperties = { color: 'var(--muted, #71717a)' }
@@ -84,6 +84,69 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 const LIST: CSSProperties = { margin: 0, paddingLeft: 16 }
+
+/** Areas and their modules, for moving around the map. */
+export function SystemTree({
+  nodes,
+  focus,
+  onSelect,
+}: {
+  nodes: SystemNode[]
+  focus: string | null
+  onSelect: (id: string) => void
+}) {
+  const [filter, setFilter] = useState('')
+  const needle = filter.trim().toLowerCase()
+  const areas = nodes.filter((node) => node.kind === 'area').sort((a, b) => (b.lines ?? 0) - (a.lines ?? 0))
+  const modules = nodes.filter((node) => node.kind === 'module')
+
+  const row = (node: SystemNode, depth: number, label: string) => (
+    <button
+      key={node.id}
+      onClick={() => onSelect(node.id)}
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        gap: 8,
+        width: '100%',
+        padding: `3px 8px 3px ${8 + depth * 14}px`,
+        border: 0,
+        borderRadius: 6,
+        cursor: 'pointer',
+        textAlign: 'left',
+        fontSize: 13,
+        fontWeight: depth === 0 ? 600 : 400,
+        color: 'var(--text, inherit)',
+        background: node.id === focus ? 'var(--bg-hover, rgba(127,127,127,.2))' : 'transparent',
+      }}
+    >
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ ...MUTED, fontWeight: 400, flexShrink: 0 }} title={`${node.files} files`}>
+        {node.files}
+      </span>
+    </button>
+  )
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1, gap: 8 }}>
+      <SearchInput aria-label="Filter modules" placeholder="Filter modules" value={filter} onChange={(event) => setFilter(event.target.value)} />
+      <div style={{ overflowY: 'auto', minHeight: 0, flex: 1 }}>
+        {areas.map((area) => {
+          const inside = modules.filter((module) => module.area === area.id && module.path !== area.path)
+          const matches = inside.filter((module) => module.name.toLowerCase().includes(needle))
+          const open = needle !== '' || focus === area.id || inside.some((module) => module.id === focus)
+          if (needle && matches.length === 0 && !area.name.toLowerCase().includes(needle)) return null
+          return (
+            <div key={area.id}>
+              {row(area, 0, (area.path ?? area.name).replace(/^src\//, ''))}
+              {open && matches.map((module) => row(module, 1, module.name))}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 export function FindingList({ findings, onAsk }: { findings: Finding[]; onAsk?: (finding: Finding) => void }) {
   return (

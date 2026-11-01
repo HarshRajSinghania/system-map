@@ -2,13 +2,15 @@
 
 A live map of your system, as a [Kiro Crew](https://github.com/kirodotdev/KiroCrew) app. Every view reads one model built from your repo's main branch. Agents read that model in small slices, so a design chat does not fill up with the whole system.
 
-Status: early. It reads Postgres migrations. The model format may change, and the app upgrades it when it starts.
+Status: early. It reads TypeScript projects, TanStack file routes, Postgres migrations, `cron.schedule` jobs and specs in `docs/specs`. The model format may change, and the app upgrades it when it starts.
 
 ## What it does
 
+- **Map.** Your system at three levels: areas, the modules in an area, then one module with what it touches. Links come from real imports and table calls.
+- **Plan.** What your specs promise and what does not exist yet. It looks up what each spec names, so a status shows its evidence. You can override any status.
 - **Data model.** A diagram of every table and foreign key. Click a table to see only it and its neighbors.
 - **Findings.** Rule checks such as a table without row level security or a foreign key with no index. Each one cites its file and line.
-- **Design chat.** A chat beside the map, and an Ask button on every table and finding.
+- **Design chat.** A chat beside the map, and an Ask button on everything.
 - **Agent tools.** Any session can read the model through MCP tools.
 
 ## Layout
@@ -41,10 +43,10 @@ Then open System Map from Apps and point it at a repo.
 
 ```bash
 python3 -m unittest discover -s tests
-(cd ui && npm run typecheck && npm run build)
+(cd ui && npm test && npm run typecheck && npm run build)
 ```
 
-The replay test needs Postgres server binaries. Set `PGBIN` if they are not in `/usr/lib/postgresql/16/bin`. It skips itself when they are missing.
+The replay test needs Postgres server binaries. Set `PGBIN` if they are not in `/usr/lib/postgresql/16/bin`. The compiler test needs `npm install` in `ui`. Each skips itself when its tool is missing.
 
 ## Prove a model against real Postgres
 
@@ -57,6 +59,15 @@ python3 -m core verify <repo> /tmp/replay/catalog.json
 ```
 
 `bootstrap.sql` is a repo path for anything the migrations expect to exist, such as a stub of Supabase's `auth` schema. The server listens on a socket only, and stops when the script ends.
+
+## Prove a model against the TypeScript compiler
+
+Ask the real compiler what a checkout imports and which tables it calls, then compare. This also checks routes against TanStack's generated route tree:
+
+```bash
+node scripts/ts_truth.mjs <checkout> /tmp/truth.json
+python3 -m core verify-code <repo> /tmp/truth.json
+```
 
 ## Run the page without Kiro Crew
 

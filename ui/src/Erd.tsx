@@ -10,13 +10,11 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
-  getViewportForBounds,
-  useReactFlow,
-  useStore,
 } from '@xyflow/react'
 import type { Edge, Node, NodeProps } from '@xyflow/react'
-import flowCss from '@xyflow/react/dist/style.css?inline'
-import { memo, useEffect, useMemo, useRef } from 'react'
+import { memo, useMemo } from 'react'
+import { INSPECTOR_ROOM, MIN_ZOOM, useFrame } from './flow'
+import type { Rect } from './flow'
 import type { Graph, GraphColumn, GraphTable } from './model'
 import { MONO, MUTED } from './parts'
 
@@ -25,33 +23,6 @@ export type Density = 'names' | 'keys' | 'columns'
 const WIDTH: Record<Density, number> = { names: 210, keys: 240, columns: 240 }
 const HEADER = 34
 const ROW = 20
-const INSPECTOR_ROOM = 370
-const MIN_ZOOM = 0.05
-
-const STYLE_ID = 'system-map-erd-css'
-const THEME_CSS = `
-.system-map-erd .react-flow {
-  --xy-background-color: transparent;
-  --xy-edge-stroke: var(--border-strong, #a1a1aa);
-  --xy-controls-button-background-color: var(--card, #fff);
-  --xy-controls-button-background-color-hover: var(--bg-hover, #f4f4f5);
-  --xy-controls-button-color: var(--text, #18181b);
-  --xy-controls-button-border-color: var(--border, #e4e4e7);
-  --xy-minimap-background-color: var(--card, #fff);
-  --xy-minimap-node-background-color: var(--border-strong, #a1a1aa);
-  --xy-attribution-background-color: transparent;
-}
-.system-map-erd .react-flow__handle { opacity: 0; pointer-events: none; min-width: 1px; min-height: 1px; }
-.system-map-erd .react-flow__node { cursor: pointer; }
-`
-
-// At import, not in an effect: React Flow checks for its styles as it mounts.
-if (!document.getElementById(STYLE_ID)) {
-  const style = document.createElement('style')
-  style.id = STYLE_ID
-  style.textContent = flowCss + THEME_CSS
-  document.head.appendChild(style)
-}
 
 interface CardData extends Record<string, unknown> {
   table: GraphTable
@@ -213,7 +184,6 @@ function Diagram({
   onSelect: (id: string | null) => void
 }) {
   const { mode } = useTheme()
-  const flow = useReactFlow()
   // A selected table gets its own layout: it and its neighbors, large enough to read.
   const scope = useMemo(() => (selected ? neighborhood(graph, selected) : graph), [graph, selected])
   const shape: Density = selected && density === 'names' ? 'keys' : density
@@ -259,33 +229,16 @@ function Diagram({
     [scope, selected],
   )
 
-  // Frame from the sizes we already know, so the camera never waits on a measure pass.
-  const width = useStore((state) => state.width)
-  const height = useStore((state) => state.height)
-  const moved = useRef(false)
-  useEffect(() => {
-    if (!width || !height) return
-    const rects = scope.tables.map((table) => ({
-      ...(places.get(table.id) ?? { x: 0, y: 0 }),
-      width: WIDTH[shape],
-      height: cardHeight(table, shape),
-    }))
-    const left = Math.min(...rects.map((rect) => rect.x))
-    const top = Math.min(...rects.map((rect) => rect.y))
-    const right = Math.max(...rects.map((rect) => rect.x + rect.width))
-    const bottom = Math.max(...rects.map((rect) => rect.y + rect.height))
-    const room = selected ? Math.min(INSPECTOR_ROOM, width * 0.5) : 0
-    const view = getViewportForBounds(
-      { x: left, y: top, width: right - left, height: bottom - top },
-      width - room,
-      height,
-      MIN_ZOOM,
-      1,
-      0.04,
-    )
-    void flow.setViewport(view, { duration: moved.current ? 200 : 0 })
-    moved.current = true
-  }, [flow, scope, selected, places, shape, width, height])
+  const rects = useMemo<Rect[]>(
+    () =>
+      scope.tables.map((table) => ({
+        ...(places.get(table.id) ?? { x: 0, y: 0 }),
+        width: WIDTH[shape],
+        height: cardHeight(table, shape),
+      })),
+    [scope, places, shape],
+  )
+  useFrame(rects, selected ? INSPECTOR_ROOM : 0)
 
   return (
     <ReactFlow
@@ -317,7 +270,7 @@ export function Erd(props: {
   onSelect: (id: string | null) => void
 }) {
   return (
-    <div className="system-map-erd" style={{ position: 'absolute', inset: 0 }} data-testid="erd">
+    <div className="system-map-flow" style={{ position: 'absolute', inset: 0 }} data-testid="erd">
       <ReactFlowProvider>
         <Diagram {...props} />
       </ReactFlowProvider>

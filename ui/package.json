@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite --config dev/vite.config.ts",
     "build": "vite build",
+    "test": "node --test test/",
     "typecheck": "tsc --noEmit -p ."
   },
   "dependencies": {

@@ -5,9 +5,12 @@ import type { CSSProperties } from 'react'
 import { Erd } from './Erd'
 import type { Density } from './Erd'
 import { Findings } from './Findings'
+import { Inspector } from './Inspector'
+import { PlanBoard, PlanHint } from './Plan'
+import { SystemMap } from './SystemMap'
 import { BASE, useActiveRepo, useNode, useOverview, useVersioned, withRepo } from './model'
-import type { Finding, Graph, Overview } from './model'
-import { MUTED, NodeDetail, TableList } from './parts'
+import type { Finding, Graph, NodeInfo, Overview, Plan, PlanStatus, SystemGraph } from './model'
+import { MUTED, SystemTree, TableList } from './parts'
 
 const SLOT_NAME = 'system-map-design'
 const GAP = 12
@@ -17,6 +20,15 @@ const DENSITIES: [Density, string][] = [
   ['columns', 'Columns'],
 ]
 const COLUMN: CSSProperties = { display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, overflow: 'hidden', padding: 12 }
+
+type View = 'map' | 'data' | 'plan' | 'findings'
+
+const VIEWS: [View, string][] = [
+  ['map', 'Map'],
+  ['data', 'Data model'],
+  ['plan', 'Plan'],
+  ['findings', 'Findings'],
+]
 
 /** Open the app's own chat, pointed at the repo the model was built from. */
 function useDesignSlot(repo: string | null) {
@@ -109,27 +121,37 @@ function BuildModel({ message, onBuilt }: { message: string | null; onBuilt: (ke
 }
 
 function FreshnessBadge({ overview }: { overview: Overview }) {
-  const { stale, commits_behind: behind, ref, changed_inputs: changed = [] } = overview.freshness
+  const { stale, map_stale: mapStale, commits_behind: behind, ref, changed_inputs: changed = [] } = overview.freshness
   if (stale) return <Badge variant="warn">{changed.length} schema files changed on {ref}</Badge>
-  if (behind > 0) return <Badge variant="muted">Schema current, {behind} commits behind {ref}</Badge>
+  if (mapStale) return <Badge variant="warn">Code changed on {ref}. Rebuild to update.</Badge>
+  if (behind > 0) return <Badge variant="muted">Current, {behind} commits behind {ref}</Badge>
   return <Badge variant="ok">Current with {ref}</Badge>
 }
 
-export default function SystemMap() {
+export default function SystemMapApp() {
   const api = useAppApi()
   const { repos, active: repo, loaded, choose, reload } = useActiveRepo()
   const { overview, error, refresh } = useOverview(repo)
   const version = overview?.manifest.version
-  const graph = useVersioned<Graph>('/graph', repo, version)
-  const findings = useVersioned<{ findings: Finding[] }>('/findings', repo, version)?.findings ?? []
+  const [tick, setTick] = useState(0)
+  const stamp = version ? `${version}:${tick}` : undefined
+  const graph = useVersioned<Graph>('/graph', repo, stamp)
+  const system = useVersioned<SystemGraph>('/system', repo, stamp)
+  const plans = useVersioned<{ plans: Plan[] }>('/plan', repo, stamp)?.plans ?? []
+  const findings = useVersioned<{ findings: Finding[] }>('/findings', repo, stamp)?.findings ?? []
+  const [view, setView] = useState<View>('map')
   const [selected, setSelected] = useState<string | null>(null)
-  const node = useNode(selected, repo)
-  const [view, setView] = useState<'diagram' | 'findings'>('diagram')
+  const [focus, setFocus] = useState<string | null>(null)
+  const [showPlans, setShowPlans] = useState(true)
   const [density, setDensity] = useState<Density>('names')
   const [adding, setAdding] = useState(false)
   const [rebuilt, setRebuilt] = useState<string | null>(null)
   const { ref, height } = useFillHeight()
   const chat = useDesignSlot(overview ? overview.manifest.repo : null)
+
+  // The map inspects a single thing, not a whole area or group.
+  const inspected = view === 'map' ? (focus && !/^(area|group):/.test(focus) ? focus : null) : view === 'data' ? selected : null
+  const node = useNode<NodeInfo>(inspected, repo)
 
   const flagged = useMemo(() => {
     const counts = new Map<string, number>()
@@ -138,6 +160,8 @@ export default function SystemMap() {
     }
     return counts
   }, [findings])
+
+  const unbuilt = plans.filter((plan) => plan.status === 'planned' || plan.status === 'partial').length
 
   const rebuild = async () => {
     setRebuilt('Checking')
@@ -150,19 +174,37 @@ export default function SystemMap() {
     }
   }
 
-  const askTable = () => {
+  const askNode = () => {
     if (node) chat.send(`Use the system-map tools. Look at ${node.id} and tell me what to watch out for.`)
   }
   const askFinding = (finding: Finding) => {
     chat.send(`Use the system-map tools. Check finding ${finding.id} on ${finding.node}, read its evidence, and propose a fix.`)
   }
-  const showNode = (id: string) => {
-    setView('diagram')
+  const askPlan = (plan: Plan) => {
+    chat.send(`Use the system-map tools. Look at ${plan.id}, say what is left to build, and propose the next step.`)
+  }
+  const setPlanStatus = async (id: string, status: PlanStatus | null) => {
+    await api.post(`${BASE}/plan-status`, { repo: overview?.manifest.repo_key, id, status })
+    setTick((value) => value + 1)
+  }
+
+  const showTable = (id: string) => {
+    setView('data')
     setSelected(id)
   }
-  /** A selected table belongs to one repo, so changing repo clears it. */
+  const showOnMap = (id: string) => {
+    setView('map')
+    setFocus(id)
+  }
+  /** From the inspector, stay on the view you are on where you can. */
+  const openLink = (id: string) => {
+    if (view === 'data' && id.startsWith('table:')) setSelected(id)
+    else showOnMap(id)
+  }
+  /** A selection belongs to one repo, so changing repo clears it. */
   const openRepo = (next: string) => {
     setSelected(null)
+    setFocus(null)
     setRebuilt(null)
     choose(next)
   }
@@ -191,6 +233,7 @@ export default function SystemMap() {
 
   const nothingBuilt = loaded && repos.length === 0
   const showBuild = adding || nothingBuilt || (!overview && error !== null)
+  const onLeftOfTree = view === 'map' || view === 'plan'
 
   return (
     <>
@@ -198,7 +241,7 @@ export default function SystemMap() {
       <div ref={ref} style={{ height, display: 'flex', flexDirection: 'column', gap: GAP, padding: '0 16px', minHeight: 0 }}>
         {showBuild && (
           <BuildModel
-            message={overview ? null : nothingBuilt ? 'Point System Map at a repo with SQL migrations.' : error}
+            message={overview ? null : nothingBuilt ? 'Point System Map at a repo.' : error}
             onBuilt={(key) => {
               setAdding(false)
               openRepo(key)
@@ -211,22 +254,20 @@ export default function SystemMap() {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
               <FreshnessBadge overview={overview} />
               <Badge variant="muted">{overview.manifest.commit.slice(0, 7)}</Badge>
-              <Badge variant="muted">{overview.manifest.counts.tables} tables</Badge>
-              <Badge variant="muted">{overview.manifest.counts.columns} columns</Badge>
               <span style={{ flex: 1 }} />
-              {view === 'diagram' &&
+              {view === 'data' &&
                 DENSITIES.map(([value, label]) => (
                   <Btn key={value} primary={density === value} onClick={() => setDensity(value)}>
                     {label}
                   </Btn>
                 ))}
+              {view === 'map' && <PlanHint count={unbuilt} on={showPlans} onToggle={() => setShowPlans((value) => !value)} />}
               <span style={{ width: 8 }} />
-              <Btn primary={view === 'diagram'} onClick={() => setView('diagram')}>
-                Diagram
-              </Btn>
-              <Btn primary={view === 'findings'} onClick={() => setView('findings')}>
-                Findings {findings.length}
-              </Btn>
+              {VIEWS.map(([value, label]) => (
+                <Btn key={value} primary={view === value} onClick={() => setView(value)}>
+                  {value === 'findings' ? `${label} ${findings.length}` : value === 'plan' ? `${label} ${unbuilt}` : label}
+                </Btn>
+              ))}
             </div>
             <div
               style={{
@@ -239,48 +280,39 @@ export default function SystemMap() {
               }}
             >
               <Card style={COLUMN}>
-                <CardTitle>Tables</CardTitle>
-                <TableList tables={overview.tables} selected={selected} flagged={flagged} onSelect={showNode} />
+                <CardTitle>{onLeftOfTree ? 'Modules' : 'Tables'}</CardTitle>
+                {onLeftOfTree ? (
+                  <SystemTree nodes={system?.nodes ?? []} focus={focus} onSelect={showOnMap} />
+                ) : (
+                  <TableList tables={overview.tables} selected={selected} flagged={flagged} onSelect={showTable} />
+                )}
               </Card>
               <Card style={{ ...COLUMN, padding: 0, position: 'relative' }} data-testid="canvas">
-                {view === 'diagram' && graph && (
+                {view === 'map' && system && (
+                  <SystemMap
+                    system={system}
+                    focus={focus}
+                    tables={overview.manifest.counts.tables}
+                    showPlans={showPlans}
+                    inspecting={inspected !== null}
+                    onFocus={setFocus}
+                    onOpenTables={() => setView('data')}
+                  />
+                )}
+                {view === 'data' && graph && (
                   <Erd graph={graph} selected={selected} flagged={flagged} density={density} onSelect={setSelected} />
                 )}
-                {view === 'findings' && <Findings findings={findings} onShow={showNode} onAsk={askFinding} />}
-                {view === 'diagram' && node && (
-                  <div
-                    data-testid="inspector"
-                    style={{
-                      position: 'absolute',
-                      top: 12,
-                      right: 12,
-                      bottom: 12,
-                      width: 340,
-                      maxWidth: '60%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 8,
-                      padding: 12,
-                      borderRadius: 8,
-                      background: 'var(--card, #fff)',
-                      border: '1px solid var(--border, #e4e4e7)',
-                      boxShadow: '0 4px 16px rgba(0,0,0,.12)',
-                      zIndex: 5,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ flex: 1, fontWeight: 600, fontSize: 14, color: 'var(--text, inherit)' }}>{node.name}</span>
-                      <Btn primary onClick={askTable} disabled={!chat.slot}>
-                        Ask
-                      </Btn>
-                      <Btn onClick={() => setSelected(null)} aria-label="Close">
-                        Close
-                      </Btn>
-                    </div>
-                    <div style={{ overflowY: 'auto', minHeight: 0, flex: 1 }}>
-                      <NodeDetail node={node} onAsk={askFinding} />
-                    </div>
-                  </div>
+                {view === 'plan' && <PlanBoard plans={plans} onShow={showOnMap} onAsk={askPlan} onStatus={(id, status) => void setPlanStatus(id, status)} />}
+                {view === 'findings' && <Findings findings={findings} onShow={showTable} onAsk={askFinding} />}
+                {node && inspected && (
+                  <Inspector
+                    node={node}
+                    canAsk={chat.slot !== null}
+                    onAsk={askNode}
+                    onAskFinding={askFinding}
+                    onOpen={openLink}
+                    onClose={() => (view === 'data' ? setSelected(null) : setFocus(null))}
+                  />
                 )}
               </Card>
               <Card style={COLUMN}>

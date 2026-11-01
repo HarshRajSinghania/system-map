@@ -1,6 +1,6 @@
 ---
 name: system-map
-description: Read and add to a repo's system model through the system-map tools. Use for questions about data models, tables, constraints or how parts of a system connect, before reading source files.
+description: Read and add to a repo's system model through the system-map tools. Use for questions about data models, how parts of a system connect, what a change touches, or what is not built yet, before reading source files.
 ---
 
 # System Map
@@ -12,17 +12,24 @@ loading the whole system into your context.
 
 Go from small to large, and stop as soon as you can answer:
 
-1. `overview`: the index. It shows the commit and whether the model is stale.
-2. `search`: find node ids by table, column or foreign key target.
-3. `node` or `neighbors`: one table or its links.
-4. `findings`: rule checks, such as a foreign key with no index. Filter by node or severity.
-5. `export_all`: only for a job that truly needs the whole schema.
+1. `overview`: the index. It shows the commit, the areas, and what is not fully built.
+2. `search`: find node ids by name, column or foreign key target.
+3. `node` or `neighbors`: one thing and its links. Ids look like `table:public.users`,
+   `module:src/agents/inbox`, `area:src/agents`, `route:/desk`, `job:renewals`,
+   `service:anthropic` and `plan:inbox`.
+4. `plan`: what the specs promise and what does not exist yet. Filter by status.
+5. `findings`: rule checks, such as a foreign key with no index. Filter by node or severity.
+6. `export_all`: only for a job that truly needs the whole schema.
 
 If a result says `inline: false`, it was too large to return. It gives you a file
 path. Read that file in parts. Do not ask for it again with a bigger budget.
 
-If `overview` reports `stale: true`, say so before relying on the model. Rebuild it
-with `build` when the answer depends on recent commits.
+If `overview` reports `stale` or `map_stale` as true, say so before relying on the model.
+Rebuild it with `build` when the answer depends on recent commits.
+
+A plan's status comes from checking what its spec names against the code. `status_source`
+says where it came from, and `you` means a person set it, so do not argue with that. Links
+come from imports and direct table calls, so they do not show runtime wiring.
 
 ## Writing
 
