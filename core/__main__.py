@@ -4,6 +4,7 @@
     python3 -m core stats <repo>
     python3 -m core verify <repo> <catalog.json>
     python3 -m core verify-sqlite <repo>
+    python3 -m core verify-routes <repo> <next-manifest.json>...
     python3 -m core verify-code <repo> <truth.json>
     python3 -m core coverage <repo> [report] [commit]
     python3 -m core risk <repo>
@@ -20,7 +21,7 @@ from collections import Counter
 from pathlib import Path
 
 from . import explore, proposals, risk, store, verify
-from .extractors import sqlite
+from .extractors import sqlite, typescript
 from .sources import open_source
 
 
@@ -169,6 +170,21 @@ def check_proposal(repo_root: Path, changes_path: Path, results_path: Path) -> i
     return 1 if diffs else 0
 
 
+def check_routes(repo_root: Path, manifests: list[Path]) -> int:
+    """Compare the routes in a fresh read with the manifests `next build` wrote."""
+    project = typescript.scan(open_source(repo_root), set())
+    truth: set[str] = set()
+    for path in manifests:
+        written = json.loads(path.read_text(encoding="utf-8"))
+        # The app manifest maps a file to its URL, and the pages manifest maps a URL to its file.
+        truth |= set(written) if "pages-manifest" in path.name else set(written.values())
+    found = verify.compare_next_routes(set(project.routes), truth)
+    for line in found:
+        print(line)
+    print(f"{len(project.routes)} routes, {len(found)} differences")
+    return 1 if found else 0
+
+
 def check_sqlite(repo_root: Path) -> int:
     """Load the repo's schema into a separate real SQLite, and compare it with the model."""
     source = open_source(repo_root)
@@ -192,6 +208,8 @@ def main(argv: list[str]) -> int:
         return stats(Path(argv[1]).expanduser())
     if len(argv) == 3 and argv[0] == "verify":
         return check(Path(argv[1]).expanduser(), Path(argv[2]))
+    if len(argv) >= 3 and argv[0] == "verify-routes":
+        return check_routes(Path(argv[1]).expanduser(), [Path(item) for item in argv[2:]])
     if len(argv) == 2 and argv[0] == "verify-sqlite":
         return check_sqlite(Path(argv[1]).expanduser())
     if len(argv) == 3 and argv[0] == "verify-code":

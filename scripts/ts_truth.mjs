@@ -78,6 +78,27 @@ function literal(node) {
   return ts.isStringLiteralLike(node) ? node.text : null
 }
 
+const SQL_START = /^\s*(?:(SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH)|(select|insert|update|delete|replace|with))\b/
+const SQL_TABLE = /\b(from|join|into|update)\s+["'`\[]?([A-Za-z_]\w*)/gi
+const NOT_TABLES = new Set(['set', 'select', 'or', 'only'])
+
+/** The tables named in one string, if it opens like a query. */
+function sqlUses(body) {
+  const opening = SQL_START.exec(body)
+  if (!opening) return []
+  const verb = (opening[1] ?? opening[2]).toUpperCase()
+  const seen = new Map()
+  for (const match of body.matchAll(SQL_TABLE)) {
+    const keyword = match[1].toUpperCase()
+    const table = match[2]
+    if (NOT_TABLES.has(table.toLowerCase())) continue
+    const writes = keyword === 'INTO' || keyword === 'UPDATE' || (keyword === 'FROM' && verb === 'DELETE')
+    const access = writes ? 'write' : 'read'
+    seen.set(`${table}|${access}`, { table, access })
+  }
+  return [...seen.values()]
+}
+
 /** Walk one `.from("x")` chain outward to the first read or write call on it. */
 function accessOf(call) {
   let node = call
@@ -107,6 +128,10 @@ for (const file of files) {
     if (isDecision(node)) paths += 1
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
       named.add(literal(node.moduleSpecifier))
+    }
+    if ((ts.isStringLiteralLike(node) || ts.isTemplateExpression(node)) && !/\.test\.|\.spec\.|__tests__/.test(file)) {
+      const body = node.getText(source).slice(1, -1)
+      if (sqlUses(body).length) (tableCalls[file] ??= []).push(...sqlUses(body))
     }
     if (ts.isCallExpression(node)) {
       const [first] = node.arguments

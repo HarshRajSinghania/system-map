@@ -169,6 +169,9 @@ def read_tsconfig_paths(text: str | None) -> list[tuple[str, str]]:
     for pattern, targets in (options.get("paths") or {}).items():
         for target in targets:
             aliases.append((pattern, posixpath.normpath(posixpath.join(base, target))))
+    if "baseUrl" in options:
+        # With a base, `lib/db` can mean a file. It only counts if that file exists.
+        aliases.append(("*", posixpath.normpath(posixpath.join(base, "*"))))
     return aliases
 
 
@@ -180,7 +183,10 @@ def resolve(specifier: str, importer: str, files: set[str], aliases: list[tuple[
     else:
         candidates = []
         for pattern, target in aliases:
-            if pattern.endswith("/*") and bare.startswith(pattern[:-1]):
+            if pattern == "*":
+                prefix = target[:-1].rstrip("/")
+                candidates.append(f"{prefix}/{bare}" if prefix else bare)
+            elif pattern.endswith("/*") and bare.startswith(pattern[:-1]):
                 prefix = target[:-1].rstrip("/")
                 rest = bare[len(pattern) - 1 :]
                 candidates.append(f"{prefix}/{rest}" if prefix else rest)

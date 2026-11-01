@@ -282,3 +282,17 @@ def source_lines_name_their_facts(shards: list[dict], read_file) -> list[dict]:
         for trigger in shard["triggers"]:
             check(trigger["name"], trigger["source"])
     return bad
+
+
+#: Next lists these in its manifests, but they are its own or are generated files, not routes.
+NEXT_INTERNAL = {"/_not-found", "/_global-error", "/_app", "/_document", "/_error", "/404", "/500"}
+NEXT_GENERATED = re.compile(r"/(icon|apple-icon|favicon|opengraph-image|twitter-image|sitemap|robots|manifest)(\.\w+)?(/|$)")
+
+
+def compare_next_routes(model: set[str], truth: set[str]) -> list[str]:
+    """Hold the routes in the model to the ones `next build` wrote down."""
+    # An intercepting route, such as `/feed/(..)photo/[id]`, shows another route's URL.
+    kept = {url for url in truth if url not in NEXT_INTERNAL and not NEXT_GENERATED.search(url) and "(." not in url}
+    return [f"Next has {url}, and the model doesn't" for url in sorted(kept - model)] + [
+        f"the model has {url}, and Next doesn't" for url in sorted(model - kept)
+    ]
