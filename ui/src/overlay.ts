@@ -1,5 +1,5 @@
 import { GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES } from './graphView.ts'
-import type { Overlap, Risk, RiskRow, WorktreeState } from './model'
+import type { Graph, Overlap, Proposal, Risk, RiskRow, SystemGraph, WorktreeState } from './model'
 
 export type RiskBand = 'hot-untested' | 'hot'
 
@@ -44,6 +44,21 @@ export function tablesAtWork(state: WorktreeState | null): Map<string, number> {
     if (node.startsWith('table:')) found.set(node, names.length)
   }
   return found
+}
+
+/** Today's system with a proposal laid over it. */
+export function withProposal(system: SystemGraph, proposal: Pick<Proposal, 'overlay'> | null): SystemGraph {
+  if (!proposal) return system
+  return { ...system, nodes: [...system.nodes, ...proposal.overlay.nodes], edges: [...system.edges, ...proposal.overlay.edges] }
+}
+
+/** The diagram narrowed to the tables a view names, with only the keys between them. */
+export function graphOnly(graph: Graph, ids: string[]): Graph {
+  const wanted = new Set(ids)
+  return {
+    tables: graph.tables.filter((table) => wanted.has(table.id)),
+    edges: graph.edges.filter((edge) => wanted.has(edge.source) && wanted.has(edge.target)),
+  }
 }
 
 export function percent(share: number | null | undefined): string {

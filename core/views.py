@@ -64,22 +64,26 @@ def validate(body: dict, known: set[str], proposal_nodes: set[str] | None = None
     }
 
 
-def _around(node_id: str, system: dict, depth: int = 1) -> set[str]:
+def _around(node_id: str, edges: list[dict], depth: int = 1) -> set[str]:
     found = {node_id}
     for _ in range(depth):
-        for edge in system["edges"]:
-            if edge["source"] in found or edge["target"] in found:
+        ring = set(found)
+        for edge in edges:
+            if edge["source"] in ring or edge["target"] in ring:
                 found |= {edge["source"], edge["target"]}
     return found
 
 
-def resolve(view: dict, system: dict, tables: list[str], ranked: dict) -> dict:
-    """Turn a view's filter into the nodes to draw today."""
+def resolve(view: dict, system: dict, tables: list[str], ranked: dict, keys: list[dict] | None = None) -> dict:
+    """Turn a view's filter into the nodes to draw today.
+
+    On the data level, a table's neighbours are the tables its foreign keys `keys` reach.
+    """
     known = {node["id"]: node for node in system["nodes"]}
     all_ids = set(known) | set(tables)
     named = set(view["nodes"])
     if view["around"]:
-        named |= _around(view["around"], system)
+        named |= _around(view["around"], keys or [] if view["level"] == "data" else system["edges"])
     if view["area"]:
         named |= {node["id"] for node in system["nodes"] if node.get("area") == view["area"]}
     if view["kinds"]:

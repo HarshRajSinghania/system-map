@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { GROUP_ROUTES, GROUP_TABLES } from '../src/graphView.ts'
 import type { Overlap, Risk, RiskRow, WorktreeState } from '../src/model.ts'
-import { bandOf, overlapsOn, percent, riskIndex, tablesAtWork, worktreesOn } from '../src/overlay.ts'
+import { bandOf, graphOnly, overlapsOn, percent, riskIndex, tablesAtWork, withProposal, worktreesOn } from '../src/overlay.ts'
 
 const byNode = {
   'module:src/a': ['one', 'two'],
@@ -75,6 +75,24 @@ test('tables at work carry how many worktrees are on them', () => {
     ['table:public.orgs', 1],
     ['table:public.users', 1],
   ])
+})
+
+test('a proposal lays its nodes and links over today', () => {
+  const today = { nodes: [], edges: [] }
+  const idea = { id: 'route:/idea', kind: 'route', name: '/idea', status: 'proposed', evidence: [] }
+  const link = { source: 'route:/idea', target: 'module:src/a', kind: 'renders', count: 1, evidence: [] }
+  const shown = withProposal(today, { overlay: { nodes: [idea], edges: [link] } })
+  assert.deepEqual([shown.nodes.length, shown.edges.length], [1, 1])
+  assert.equal(withProposal(today, null), today)
+})
+
+test('a view of the diagram keeps only its tables and the keys between them', () => {
+  const table = (id: string) => ({ id, name: id, status: 'built', rls: true, columns: [] })
+  const key = (source: string, target: string) => ({ id: `${source}${target}`, source, target, columns: [], on_delete: 'cascade' })
+  const graph = { tables: [table('a'), table('b'), table('c')], edges: [key('a', 'b'), key('b', 'c')] }
+  const narrow = graphOnly(graph, ['a', 'b'])
+  assert.deepEqual(narrow.tables.map((row) => row.id), ['a', 'b'])
+  assert.deepEqual(narrow.edges.map((row) => row.id), ['ab'])
 })
 
 test('a share reads as a percent, and nothing reads as none', () => {

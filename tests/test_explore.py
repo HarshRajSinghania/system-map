@@ -248,6 +248,10 @@ class UseCases(Repo):
         self.assertEqual([gap["check"] for gap in found["gaps"]], ["no_route", "no_table"])
         self.assertEqual(found["state"], "missing")
 
+    def test_a_missing_table_counts_once(self):
+        found = self.save(tables=["ghosts"], needs=[{"need": "has_many", "parent": "orgs", "child": "ghosts"}])
+        self.assertEqual([gap["check"] for gap in found["gaps"]], ["no_table"])
+
     def test_a_route_no_test_reaches_is_a_gap(self):
         self.assertEqual(self.checks(routes=["/quiet"]), ["no_tests"])
 
@@ -279,6 +283,23 @@ class UseCases(Repo):
         with self.assertRaisesRegex(ValueError, "needs column"):
             self.save(needs=[{"need": "optional", "table": "clients"}])
 
+    def test_a_proposal_says_which_gaps_it_closes(self):
+        self.save(routes=["/chase"], tables=[{"table": "reminders", "access": "write"}], needs=[{"need": "field", "table": "clients", "column": "tier"}])
+        changes = [
+            REMINDERS,
+            {"op": "add_column", "table": "clients", "column": {"name": "tier", "type": "text"}},
+            {"op": "add_module", "path": "src/agents/chase", "uses_tables": ["reminders"]},
+            {"op": "add_route", "path": "/chase", "renders": "module:src/agents/chase"},
+        ]
+        explore.save_proposal(self.target, "Chase", "", changes)
+        closes = explore.read_proposal(self.target, "chase")["closes"]
+        self.assertEqual((closes[0]["title"], closes[0]["before"], closes[0]["after"]), ("Case", 3, 0))
+
+    def test_a_proposal_that_closes_no_gap_says_nothing(self):
+        self.save(routes=["/nowhere"])
+        explore.save_proposal(self.target, "Reminders", "", [REMINDERS])
+        self.assertEqual(explore.read_proposal(self.target, "reminders")["closes"], [])
+
     def test_use_cases_read_back_with_their_gaps(self):
         self.save(routes=["/nowhere"])
         self.assertEqual(explore.use_case_rows(self.target)[0]["gaps"][0]["check"], "no_route")
@@ -305,6 +326,15 @@ class Views(Repo):
         self.assertIn("table:public.clients", found["resolved"])
         self.assertIn("module:src/screens/desk", found["resolved"])
         self.assertNotIn("module:src/screens/quiet", found["resolved"])
+
+    def test_around_stops_one_step_out(self):
+        record = views.validate({"title": "V", "around": "a"}, {"a"})
+        system = {"nodes": [{"id": name, "kind": "module"} for name in "abc"], "edges": [{"source": "a", "target": "b"}, {"source": "b", "target": "c"}]}
+        self.assertEqual(views.resolve(record, system, [], {"modules": []})["resolved"], ["a", "b"])
+
+    def test_on_the_data_level_around_follows_foreign_keys(self):
+        found = self.save(around="table:public.clients", level="data")
+        self.assertEqual(found["resolved"], ["table:public.clients", "table:public.orgs"])
 
     def test_an_area_takes_its_modules(self):
         found = self.save(area="area:src/screens")

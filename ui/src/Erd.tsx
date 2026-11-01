@@ -37,9 +37,17 @@ interface CardData extends Record<string, unknown> {
 
 type CardNode = Node<CardData, 'table'>
 
+const PROPOSAL_MARK: Record<string, { color: string; dashed: boolean }> = {
+  proposed: { color: 'var(--accent, #2563eb)', dashed: true },
+  changed: { color: 'var(--warn-text, #b45309)', dashed: false },
+  removed: { color: 'var(--danger, #dc2626)', dashed: true },
+}
+
 const TableCard = memo(function TableCard({ data }: NodeProps<CardNode>) {
   const { table, columns, hidden, flags, working, focused, width, large } = data
   const external = table.status === 'external'
+  const mark = PROPOSAL_MARK[table.status]
+  const edge = mark?.color ?? 'var(--border-strong, #a1a1aa)'
   return (
     <div
       style={{
@@ -48,7 +56,7 @@ const TableCard = memo(function TableCard({ data }: NodeProps<CardNode>) {
         overflow: 'hidden',
         background: 'var(--card, #fff)',
         color: 'var(--text, #18181b)',
-        border: `1px ${external ? 'dashed' : 'solid'} ${focused ? 'var(--accent, #2563eb)' : 'var(--border-strong, #a1a1aa)'}`,
+        border: `${mark ? 2 : 1}px ${external || mark?.dashed ? 'dashed' : 'solid'} ${focused ? 'var(--accent, #2563eb)' : edge}`,
         boxShadow: focused ? '0 0 0 3px var(--accent-subtle, rgba(37,99,235,.2))' : undefined,
         fontSize: 12,
       }}
@@ -71,6 +79,7 @@ const TableCard = memo(function TableCard({ data }: NodeProps<CardNode>) {
       >
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{table.name}</span>
         <span style={{ display: 'flex', gap: 6, fontWeight: 400, fontSize: 11, flexShrink: 0 }}>
+          {mark && <span style={{ color: mark.color, fontWeight: 600 }}>{table.status}</span>}
           {working > 0 && (
             <span style={{ fontWeight: working > 1 ? 600 : 400, color: working > 1 ? 'var(--warn-text, #b45309)' : 'var(--accent, #2563eb)' }}>{working} at work</span>
           )}
@@ -85,9 +94,9 @@ const TableCard = memo(function TableCard({ data }: NodeProps<CardNode>) {
           style={{ height: ROW, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px' }}
         >
           <span style={{ width: 16, color: 'var(--accent, #2563eb)', fontWeight: 600, fontSize: 10 }}>
-            {column.primary ? 'PK' : column.foreign ? 'FK' : ''}
+            {column.primary ? 'PK' : column.foreign ? 'FK' : column.proposed ? 'new' : ''}
           </span>
-          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{column.name}</span>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: column.proposed ? 600 : undefined }}>{column.name}</span>
           <span style={{ ...MUTED, ...MONO, fontSize: 11, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {column.type}
           </span>

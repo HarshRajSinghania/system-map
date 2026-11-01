@@ -4,20 +4,23 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { CSSProperties } from 'react'
 import { Erd } from './Erd'
 import type { Density } from './Erd'
+import { ExploreView } from './Explore'
+import type { Tab } from './Explore'
 import { Findings } from './Findings'
 import { Inspector } from './Inspector'
 import { PlanBoard, PlanHint } from './Plan'
 import { RiskView } from './Risk'
 import { SystemMap } from './SystemMap'
 import { WorktreesView } from './Worktrees'
-import { BASE, useActiveRepo, useLive, useNode, useOverview, useVersioned, withRepo } from './model'
-import type { Finding, Graph, NodeInfo, Overlap, Overview, Plan, PlanStatus, Risk, SystemGraph, WorktreeState } from './model'
-import { overlapsOn, tablesAtWork } from './overlay'
+import { BASE, useActiveRepo, useLive, useNode, useOverview, useProposal, useVersioned, withRepo } from './model'
+import type { ExploreData, Finding, Graph, NodeInfo, Overlap, Overview, Plan, PlanStatus, Proposal, ProposalRow, Risk, SavedView, SystemGraph, WorktreeState } from './model'
+import { graphOnly, overlapsOn, tablesAtWork, withProposal } from './overlay'
 import { MUTED, SystemTree, TableList } from './parts'
 
 const SLOT_NAME = 'system-map-design'
 const GAP = 12
 const CHECK_WORKTREES_MS = 20000
+const CHECK_EXPLORE_MS = 8000
 const DENSITIES: [Density, string][] = [
   ['names', 'Names'],
   ['keys', 'Keys'],
@@ -25,7 +28,7 @@ const DENSITIES: [Density, string][] = [
 ]
 const COLUMN: CSSProperties = { display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, overflow: 'hidden', padding: 12 }
 
-type View = 'map' | 'data' | 'plan' | 'risk' | 'worktrees' | 'findings'
+type View = 'map' | 'data' | 'plan' | 'risk' | 'worktrees' | 'findings' | 'explore'
 
 const VIEWS: [View, string][] = [
   ['map', 'Map'],
@@ -34,6 +37,7 @@ const VIEWS: [View, string][] = [
   ['risk', 'Risk'],
   ['worktrees', 'Worktrees'],
   ['findings', 'Findings'],
+  ['explore', 'Explore'],
 ]
 
 /** Open the app's own chat, pointed at the repo the model was built from. */
@@ -148,6 +152,13 @@ export default function SystemMapApp() {
   const risk = useVersioned<Risk>('/risk', repo, stamp)
   const live = useLive<WorktreeState>('/worktrees', repo, CHECK_WORKTREES_MS)
   const worktrees = live.value
+  const explore = useLive<ExploreData>('/explore', repo, CHECK_EXPLORE_MS)
+  const [tab, setTab] = useState<Tab>('whatif')
+  const [openProposal, setOpenProposal] = useState<string | null>(null)
+  const [proposalTick, setProposalTick] = useState(0)
+  const proposal = useProposal(openProposal, repo, proposalTick)
+  const [drawn, setDrawn] = useState(false)
+  const [savedView, setSavedView] = useState<SavedView | null>(null)
   const [view, setView] = useState<View>('map')
   const [selected, setSelected] = useState<string | null>(null)
   const [focus, setFocus] = useState<string | null>(null)
@@ -177,7 +188,14 @@ export default function SystemMapApp() {
   const unbuilt = plans.filter((plan) => plan.status === 'planned' || plan.status === 'partial').length
   const collisions = (worktrees?.counts.high ?? 0) + (worktrees?.counts.medium ?? 0)
   const hotUntested = risk?.modules.filter((row) => row.hot && row.untested).length ?? 0
-  const viewCounts: Partial<Record<View, number>> = { findings: findings.length, plan: unbuilt, risk: hotUntested, worktrees: collisions }
+  const drafts = explore.value?.proposals.filter((row) => row.status === 'draft').length ?? 0
+  const viewCounts: Partial<Record<View, number>> = { findings: findings.length, plan: unbuilt, risk: hotUntested, worktrees: collisions, explore: drafts }
+  const overlaid: Proposal | null = drawn ? proposal : null
+  const shownSystem = useMemo(() => (system ? withProposal(system, overlaid) : null), [system, overlaid])
+  const shownGraph = useMemo(() => {
+    const base = overlaid?.graph ?? graph
+    return base && savedView?.level === 'data' ? graphOnly(base, savedView.resolved) : base
+  }, [graph, overlaid, savedView])
 
   const rebuild = async () => {
     setRebuilt('Checking')
@@ -217,6 +235,43 @@ export default function SystemMapApp() {
       setCoverageError(String(caught))
     }
   }
+  const drawProposal = (level: 'map' | 'data') => {
+    setDrawn(true)
+    setSavedView(null)
+    setFocus(null)
+    // In a diagram of every table, one new table is too small to read, so open on it.
+    const first = [...(proposal?.diff.added ?? []), ...(proposal?.diff.changed ?? [])].find((row) => row.id.startsWith('table:'))
+    setSelected(level === 'data' ? (first?.id ?? null) : null)
+    setView(level)
+  }
+  const setProposalStatus = async (id: string, status: ProposalRow['status']) => {
+    await api.post(`${BASE}/proposal-status`, { repo: overview?.manifest.repo_key, id, status })
+    setProposalTick((value) => value + 1)
+    await explore.refresh()
+  }
+  const deleteIntent = async (kind: 'proposals' | 'use_cases' | 'views', id: string) => {
+    await api.post(`${BASE}/intent-delete`, { repo: overview?.manifest.repo_key, kind, id })
+    if (kind === 'proposals') {
+      setOpenProposal(null)
+      setDrawn(false)
+    }
+    await explore.refresh()
+  }
+  const openSavedView = (saved: SavedView) => {
+    setSavedView(saved)
+    setShowRisk(saved.overlays.risk)
+    setShowWork(saved.overlays.worktrees)
+    setShowPlans(saved.overlays.plans)
+    setOpenProposal(saved.proposal)
+    setDrawn(saved.proposal !== null)
+    setFocus(null)
+    setSelected(null)
+    setView(saved.level)
+  }
+  const clearOverlays = () => {
+    setDrawn(false)
+    setSavedView(null)
+  }
   const setPlanStatus = async (id: string, status: PlanStatus | null) => {
     await api.post(`${BASE}/plan-status`, { repo: overview?.manifest.repo_key, id, status })
     setTick((value) => value + 1)
@@ -245,6 +300,8 @@ export default function SystemMapApp() {
     setSelected(null)
     setFocus(null)
     setRebuilt(null)
+    setOpenProposal(null)
+    clearOverlays()
     choose(next)
   }
 
@@ -273,6 +330,7 @@ export default function SystemMapApp() {
   const nothingBuilt = loaded && repos.length === 0
   const showBuild = adding || nothingBuilt || (!overview && error !== null)
   const onLeftOfTree = view === 'map' || view === 'plan'
+  const showing = overlaid?.title ?? savedView?.title
 
   return (
     <>
@@ -293,6 +351,12 @@ export default function SystemMapApp() {
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', fontSize: 13 }}>
               <FreshnessBadge overview={overview} />
               <Badge variant="muted">{overview.manifest.commit.slice(0, 7)}</Badge>
+              {showing && (view === 'map' || view === 'data') && (
+                <span style={{ display: 'flex', gap: 6, alignItems: 'center' }} data-testid="showing">
+                  <Badge variant="aim">Showing: {showing}</Badge>
+                  <Btn onClick={clearOverlays}>Back to today</Btn>
+                </span>
+              )}
               <span style={{ flex: 1 }} />
               {view === 'data' &&
                 DENSITIES.map(([value, label]) => (
@@ -337,21 +401,43 @@ export default function SystemMapApp() {
                 )}
               </Card>
               <Card style={{ ...COLUMN, padding: 0, position: 'relative' }} data-testid="canvas">
-                {view === 'map' && system && (
+                {view === 'map' && shownSystem && (
                   <SystemMap
-                    system={system}
+                    system={shownSystem}
                     focus={focus}
                     tables={overview.manifest.counts.tables}
                     showPlans={showPlans}
                     inspecting={inspected !== null}
                     risk={showRisk ? risk : null}
                     worktrees={showWork ? worktrees : null}
-                    onFocus={setFocus}
+                    only={savedView?.level === 'map' ? savedView.resolved : null}
+                    layout={savedView?.layout ?? 'left-right'}
+                    onFocus={(id) => {
+                      setSavedView(null)
+                      setFocus(id)
+                    }}
                     onOpenTables={() => setView('data')}
                   />
                 )}
-                {view === 'data' && graph && (
-                  <Erd graph={graph} selected={selected} flagged={flagged} working={atWork} density={density} onSelect={setSelected} />
+                {view === 'data' && shownGraph && (
+                  <Erd graph={shownGraph} selected={selected} flagged={flagged} working={atWork} density={density} onSelect={setSelected} />
+                )}
+                {view === 'explore' && explore.value && (
+                  <ExploreView
+                    data={explore.value}
+                    proposal={proposal}
+                    shownProposal={drawn ? openProposal : null}
+                    canAsk={chat.slot !== null}
+                    tab={tab}
+                    onTab={setTab}
+                    onSend={chat.send}
+                    onOpenProposal={setOpenProposal}
+                    onDrawProposal={drawProposal}
+                    onStatus={(id, status) => void setProposalStatus(id, status)}
+                    onDelete={(kind, id) => void deleteIntent(kind, id)}
+                    onOpenView={openSavedView}
+                    onNode={openNode}
+                  />
                 )}
                 {view === 'plan' && <PlanBoard plans={plans} onShow={showOnMap} onAsk={askPlan} onStatus={(id, status) => void setPlanStatus(id, status)} />}
                 {view === 'risk' && risk && (

@@ -88,6 +88,7 @@ export interface GraphColumn {
   nullable: boolean
   primary: boolean
   foreign: boolean
+  proposed?: boolean
 }
 
 export interface GraphTable {
@@ -152,6 +153,7 @@ export interface SystemEdge {
   kind: string
   count: number
   access?: string
+  proposed?: boolean
   evidence: string[]
 }
 
@@ -259,6 +261,95 @@ export interface WorktreeState {
   counts: Record<Severity, number>
 }
 
+export type LimitKind = 'refused' | 'breaks' | 'cannot_support' | 'advice'
+
+export interface Limit {
+  check: string
+  kind: LimitKind
+  severity: Severity
+  node: string
+  title: string
+  detail: string
+  evidence: string[]
+}
+
+export interface DiffRow {
+  id: string
+  kind?: string
+  name?: string
+  what?: string[]
+  because?: string[]
+  access?: string
+}
+
+export interface ProposalRow {
+  id: string
+  title: string
+  why: string
+  status: 'draft' | 'accepted' | 'dropped'
+  limits: Record<LimitKind, number>
+  diff: { added: number; changed: number; removed: number; touched: number }
+}
+
+export interface Proposal extends Omit<ProposalRow, 'limits' | 'diff'> {
+  limits: Limit[]
+  counts: Record<LimitKind, number>
+  diff: { added: DiffRow[]; changed: DiffRow[]; removed: DiffRow[]; touched: DiffRow[] }
+  sql: { change: number; sql: string[] }[]
+  overlay: { nodes: SystemNode[]; edges: SystemEdge[] }
+  graph: Graph
+  closes: { id: string; title: string; before: number; after: number }[]
+}
+
+export interface Gap {
+  check: string
+  severity: Severity
+  node: string
+  title: string
+  detail: string
+  evidence: string[]
+}
+
+export interface UseCasePart {
+  id: string
+  kind: string
+  exists: boolean
+  tests?: number
+  test_files?: string[]
+  browser_tests?: string[]
+  covered?: number | null
+  writers?: string[]
+  readers?: string[]
+}
+
+export interface UseCase {
+  id: string
+  title: string
+  actor: string
+  goal: string
+  parts: UseCasePart[]
+  gaps: Gap[]
+  state: 'ready' | 'gaps' | 'missing'
+}
+
+export interface SavedView {
+  id: string
+  title: string
+  note: string
+  level: 'map' | 'data'
+  layout: 'left-right' | 'top-down'
+  overlays: { risk: boolean; worktrees: boolean; plans: boolean }
+  proposal: string | null
+  resolved: string[]
+  missing: string[]
+}
+
+export interface ExploreData {
+  proposals: ProposalRow[]
+  use_cases: UseCase[]
+  views: SavedView[]
+}
+
 export type NodeInfo = SystemNode & { links?: Record<string, Link[]>; risk?: NodeRisk }
 
 export function withRepo(path: string, repo: string | null): string {
@@ -345,6 +436,33 @@ export function useVersioned<T>(path: string, repo: string | null, version: stri
     }
   }, [api, path, repo, version])
   return value
+}
+
+/** Load one proposal with its diff and limits. Change `tick` to load it again. */
+export function useProposal(id: string | null, repo: string | null, tick: number): Proposal | null {
+  const api = useAppApi()
+  const [proposal, setProposal] = useState<Proposal | null>(null)
+
+  useEffect(() => {
+    if (!id) {
+      setProposal(null)
+      return
+    }
+    let live = true
+    api
+      .get<Proposal>(withRepo(`/proposal?id=${encodeURIComponent(id)}`, repo))
+      .then((value) => {
+        if (live) setProposal(value)
+      })
+      .catch(() => {
+        if (live) setProposal(null)
+      })
+    return () => {
+      live = false
+    }
+  }, [api, id, repo, tick])
+
+  return proposal
 }
 
 /** Load something that changes on its own, and keep it current while the page is in view. */

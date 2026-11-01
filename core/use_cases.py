@@ -98,7 +98,9 @@ def _route(path: str, system: dict, nodes: dict, ranked: dict, reach: dict) -> t
     node = nodes.get(node_id)
     if node is None:
         return {"id": node_id, "kind": "route", "exists": False}, [_gap("no_route", "high", node_id, f"{path} does not exist", "No route file makes this page.")]
-    modules = [edge["target"] for edge in _edges(system, "renders", source=node_id)]
+    if node["status"] == "proposed":
+        return {"id": node_id, "kind": "route", "exists": True, "proposed": True}, []
+    modules =[edge["target"] for edge in _edges(system, "renders", source=node_id)]
     paths = list(node["evidence"])
     for module in modules:
         paths += _files_of(module, ranked)
@@ -181,9 +183,12 @@ def evaluate(use_case: dict, system: dict, tables: dict, types: dict, ranked: di
         part, found = _module(module_id, nodes, ranked, reach)
         parts.append(part)
         gaps += found
+    named = {gap["node"] for gap in gaps if gap["check"] == "no_table"}
     for need in use_case["needs"]:
         for limit in limits.check_need(need, tables, types):
-            gaps.append(_gap(limit["check"], limit["severity"], limit["node"], limit["title"], limit["detail"], limit["evidence"]))
+            # A table named as a part and needed by a need is one gap, not two.
+            if limit["check"] != "no_such_table" or limit["node"] not in named:
+                gaps.append(_gap(limit["check"], limit["severity"], limit["node"], limit["title"], limit["detail"], limit["evidence"]))
     worst = {gap["severity"] for gap in gaps}
     state = "missing" if "high" in worst else "gaps" if gaps else "ready"
     return {**use_case, "parts": parts, "gaps": gaps, "state": state}

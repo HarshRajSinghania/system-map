@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, buildView, shortPath, trailFor } from '../src/graphView.ts'
+import { GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, buildView, savedView, shortPath, trailFor } from '../src/graphView.ts'
 import type { SystemEdge, SystemGraph, SystemNode } from '../src/model.ts'
 
 function node(id: string, kind: string, extra: Partial<SystemNode> = {}): SystemNode {
@@ -124,6 +124,40 @@ test('the trail walks down from the top', () => {
   assert.deepEqual(trailFor(system, 'module:src/a/one').map((step) => step.id), [null, 'area:src/a', 'module:src/a/one'])
   assert.deepEqual(trailFor(system, 'route:/desk').map((step) => step.label), ['System', 'Routes', '/desk'])
   assert.deepEqual(trailFor(system, 'table:public.users').map((step) => step.label), ['System', 'users'])
+})
+
+const withIdea: SystemGraph = {
+  nodes: [
+    ...system.nodes,
+    node('module:src/a/idea', 'module', { path: 'src/a/idea', area: 'area:src/a', status: 'proposed' }),
+    node('route:/idea', 'route', { path: '/idea', status: 'proposed' }),
+  ],
+  edges: [...system.edges, { ...edge('route:/idea', 'module:src/a/idea', 'renders'), proposed: true }, { ...edge('module:src/a/idea', 'table:public.users', 'uses_table'), proposed: true }],
+}
+
+test('something proposed gets its own card at the top, and never hides in a group', () => {
+  const shown = ids(buildView(withIdea, null, 33, true))
+  assert.ok(shown.includes('module:src/a/idea'))
+  assert.ok(shown.includes('route:/idea'))
+})
+
+test('a proposed card and its lines say so', () => {
+  const view = buildView(withIdea, null, 33, true)
+  assert.equal(view.cards.find((card) => card.id === 'route:/idea')?.status, 'proposed')
+  assert.equal(line(view, 'route:/idea', 'module:src/a/idea')?.kind, 'renders')
+  assert.equal(view.lines.find((item) => item.source === 'route:/idea')?.proposed, true)
+})
+
+test('a saved view shows only what it names, and the links between them', () => {
+  const view = savedView(system, ['module:src/a/one', 'module:src/b/three', 'table:public.users'], 33)
+  assert.deepEqual(ids(view), ['module:src/a/one', 'module:src/b/three', 'table:public.users'])
+  assert.equal(line(view, 'module:src/a/one', 'module:src/b/three')?.count, 2)
+  assert.ok(line(view, 'module:src/a/one', 'table:public.users'))
+  assert.equal(view.lines.length, 3)
+})
+
+test('a saved view cannot draw what the model does not hold', () => {
+  assert.deepEqual(ids(savedView(system, ['module:src/nope'], 33)), [])
 })
 
 test('short paths drop the code root', () => {

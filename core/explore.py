@@ -177,8 +177,31 @@ def save_proposal(target: Path, title: str, why: str, raw: list, item_id: str | 
     return {key: result[key] for key in ("id", "title", "status", "diff", "limits", "counts", "sql")}
 
 
+def _closes(target: Path, found: dict, after: dict) -> list[dict]:
+    """Use cases this proposal helps: their gaps today, and their gaps with it in place."""
+    records = list_items(target, "use_cases")
+    if not records:
+        return []
+    system, tables, types, ranked, reach = _use_case_inputs(target)
+    lay = found["overlay"]
+    future = {**system, "nodes": system["nodes"] + lay["nodes"], "edges": system["edges"] + lay["edges"]}
+    rows = []
+    for record in records:
+        before = use_cases.evaluate(record, system, tables, types, ranked, reach)
+        then = use_cases.evaluate(record, future, after, types, ranked, reach)
+        count_before, count_after = len(before["gaps"]), len(then["gaps"])
+        if count_after < count_before:
+            rows.append({"id": record["id"], "title": record["title"], "before": count_before, "after": count_after})
+    return rows
+
+
 def read_proposal(target: Path, item_id: str) -> dict:
-    return evaluate(target, get_item(target, "proposals", item_id))
+    record = get_item(target, "proposals", item_id)
+    found = evaluate(target, record)
+    shards, type_rows, system, code = _model(target)
+    tables, types = proposals.working_copy(shards, type_rows)
+    _, after = limits.check_all(record["changes"], tables, types, system, {})
+    return {**found, "closes": _closes(target, found, after)}
 
 
 def set_status(target: Path, item_id: str, status: str) -> dict:
@@ -232,7 +255,7 @@ def save_view(target: Path, body: dict, item_id: str | None = None) -> dict:
         found = read_proposal(target, body["proposal"])
         extra = {row["id"] for row in found["diff"]["added"]}
     record = _save(target, "views", views.validate(body, {node["id"] for node in system["nodes"]} | set(tables), extra), item_id)
-    return views.resolve(record, system, tables + sorted(extra), store.load_risk(target))
+    return views.resolve(record, system, tables + sorted(extra), store.load_risk(target), store.graph(target)["edges"])
 
 
 def view_rows(target: Path) -> list[dict]:
@@ -241,7 +264,8 @@ def view_rows(target: Path) -> list[dict]:
         return []
     system, tables = _known_ids(target)
     ranked = store.load_risk(target)
-    return [views.resolve(record, system, tables, ranked) for record in records]
+    keys = store.graph(target)["edges"]
+    return [views.resolve(record, system, tables, ranked, keys) for record in records]
 
 
 def summary(target: Path) -> dict:

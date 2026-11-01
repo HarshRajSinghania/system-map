@@ -1,10 +1,10 @@
 import { jsx as e, jsxs as s } from "react/jsx-runtime";
 import { Btn as f } from "@kirocrew/app-sdk/ui";
 import { useState as h } from "react";
-import { u as g, f as y, i as u, h as v, M as S, S as b, N as x, T as z, j as M } from "./chunks/model-BSIe8JEf.mjs";
-const k = 3e4;
-function A() {
-  const { active: l, loaded: c, repos: p } = g(), { overview: i, error: o } = y(l), [r, d] = h(null), a = u(r, l), n = v("/worktrees", l, k).value, m = ((n == null ? void 0 : n.overlaps) ?? []).filter((t) => t.severity === "high" || t.severity === "medium");
+import { u as g, g as y, k as u, i as v, M as S, S as b, N as x, T as z, l as k } from "./chunks/model-DY_WnPYV.mjs";
+const M = 3e4;
+function C() {
+  const { active: l, loaded: c, repos: p } = g(), { overview: i, error: o } = y(l), [r, d] = h(null), a = u(r, l), n = v("/worktrees", l, M).value, m = ((n == null ? void 0 : n.overlaps) ?? []).filter((t) => t.severity === "high" || t.severity === "medium");
   return o ? /* @__PURE__ */ e("p", { style: { padding: 12, fontSize: 13 }, children: o }) : c && p.length === 0 ? /* @__PURE__ */ e("p", { style: { padding: 12, fontSize: 13 }, children: "No model yet. Open System Map from Apps to build one." }) : i ? /* @__PURE__ */ s("div", { style: { padding: 12, height: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", minHeight: 0 }, children: [
     /* @__PURE__ */ s("p", { style: { ...S, fontSize: 13, margin: "0 0 8px" }, children: [
       i.tables.length,
@@ -30,9 +30,9 @@ function A() {
         /* @__PURE__ */ e("span", { style: { fontWeight: 600 }, children: a.name })
       ] }),
       /* @__PURE__ */ e(x, { node: a })
-    ] }) : /* @__PURE__ */ e(z, { tables: i.tables, selected: r, working: M(n), onSelect: d })
+    ] }) : /* @__PURE__ */ e(z, { tables: i.tables, selected: r, working: k(n), onSelect: d })
   ] }) : /* @__PURE__ */ e("p", { style: { padding: 12, fontSize: 13 }, children: "Loading" });
 }
 export {
-  A as default
+  C as default
 };

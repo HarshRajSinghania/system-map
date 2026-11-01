@@ -16,6 +16,7 @@ export interface Line {
   target: string
   kind: string
   count: number
+  proposed?: boolean
 }
 
 export interface MapView {
@@ -33,6 +34,9 @@ export function shortPath(path: string): string {
 }
 
 function cardFor(node: SystemNode): Card {
+  if (node.status === 'proposed') {
+    return { id: node.id, kind: node.kind, title: node.kind === 'module' ? node.name : shortPath(node.path ?? node.name), subtitle: 'proposed', status: 'proposed' }
+  }
   switch (node.kind) {
     case 'area':
       return { id: node.id, kind: 'area', title: shortPath(node.path ?? node.name), subtitle: `${node.files} files, ${node.lines} lines` }
@@ -70,7 +74,7 @@ function groupCards(system: SystemGraph, tables: number): Card[] {
 }
 
 function tableCard(id: string): Card {
-  return { id, kind: 'table', title: id.replace(/^table:(public\.)?/, ''), subtitle: 'table' }
+  return { id, kind: 'table', title: id.replace(/^table:(public\.)?/, '') }
 }
 
 interface Rollup {
@@ -90,6 +94,8 @@ function display(id: string, rollup: Rollup): string | null {
   if (id.startsWith('table:')) return GROUP_TABLES
   const node = rollup.byId.get(id)
   if (!node) return null
+  // Something proposed stays its own card, so a what-if never hides inside a group.
+  if (node.status === 'proposed') return id
   if ((node.kind === 'module' || node.kind === 'area') && rollup.routesDir && node.path === rollup.routesDir) {
     return GROUP_ROUTES
   }
@@ -114,7 +120,7 @@ function rollLines(system: SystemGraph, rollup: Rollup, showPlans: boolean, keep
     const id = `${source}|${target}|${edge.kind}`
     const line = merged.get(id)
     if (line) line.count += edge.count
-    else merged.set(id, { id, source, target, kind: edge.kind, count: edge.count })
+    else merged.set(id, { id, source, target, kind: edge.kind, count: edge.count, proposed: edge.proposed })
   }
   return [...merged.values()]
 }
@@ -140,6 +146,7 @@ function systemLevel(system: SystemGraph, rollup: Rollup, tables: number, showPl
     if (node.kind === 'area' && node.path !== rollup.routesDir) ids.add(node.id)
     if (node.kind === 'service') ids.add(node.id)
     if (node.kind === 'plan' && !isHiddenPlan(node, showPlans)) ids.add(node.id)
+    if (node.status === 'proposed') ids.add(node.id)
   }
   return { cards: cardsFor(ids, rollup, groups), lines: lines.filter((line) => ids.has(line.source) && ids.has(line.target)) }
 }
@@ -188,6 +195,20 @@ function neighborhood(system: SystemGraph, rollup: Rollup, focus: string): MapVi
     lines.push({ id: `${edge.source}|${edge.target}|${edge.kind}`, source: edge.source, target: edge.target, kind: edge.kind, count: edge.count })
   }
   return { cards: cardsFor(ids, rollup, []), lines }
+}
+
+/** A saved view: only the nodes it names, and the links between them, with nothing rolled up. */
+export function savedView(system: SystemGraph, only: string[], tables: number): MapView {
+  const byId = new Map(system.nodes.map((node) => [node.id, node]))
+  const ids = new Set(only)
+  const lines = new Map<string, Line>()
+  for (const edge of system.edges) {
+    if (!ids.has(edge.source) || !ids.has(edge.target)) continue
+    const id = `${edge.source}|${edge.target}|${edge.kind}`
+    lines.set(id, { id, source: edge.source, target: edge.target, kind: edge.kind, count: edge.count, proposed: edge.proposed })
+  }
+  const rollup: Rollup = { byId, open: null, expanded: null, routesDir: null }
+  return { cards: cardsFor(ids, rollup, groupCards(system, tables)), lines: [...lines.values()] }
 }
 
 function routesFolder(system: SystemGraph): string | null {

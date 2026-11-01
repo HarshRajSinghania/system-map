@@ -5,7 +5,7 @@ import type { Edge, Node, NodeProps } from '@xyflow/react'
 import { memo, useMemo } from 'react'
 import { INSPECTOR_ROOM, MIN_ZOOM, useFrame } from './flow'
 import type { Rect } from './flow'
-import { GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, buildView, trailFor } from './graphView'
+import { GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, buildView, savedView, trailFor } from './graphView'
 import type { Card, Line, MapView } from './graphView'
 import type { Risk, SystemGraph, WorktreeState } from './model'
 import { bandOf, riskIndex, worktreesOn } from './overlay'
@@ -58,10 +58,11 @@ type CardNode = Node<CardData, 'card'>
 
 const SystemCard = memo(function SystemCard({ data }: NodeProps<CardNode>) {
   const { card, focused, work, band } = data
-  const planned = card.kind === 'plan'
+  const proposed = card.status === 'proposed'
+  const planned = card.kind === 'plan' || proposed
   const outside = card.kind === 'service'
   const crowded = work.length > 1
-  const accent = planned ? STATUS_COLOR[card.status ?? 'unclear'] : crowded ? 'var(--warn-text, #b45309)' : undefined
+  const accent = proposed ? 'var(--accent, #2563eb)' : planned ? STATUS_COLOR[card.status ?? 'unclear'] : crowded ? 'var(--warn-text, #b45309)' : undefined
   const line = focused ? 'var(--accent, #2563eb)' : (accent ?? 'var(--border-strong, #a1a1aa)')
   return (
     <div
@@ -105,9 +106,9 @@ const SystemCard = memo(function SystemCard({ data }: NodeProps<CardNode>) {
 
 const NODE_TYPES = { card: SystemCard }
 
-function place(view: MapView): Map<string, { x: number; y: number }> {
+function place(view: MapView, direction: 'LR' | 'TB'): Map<string, { x: number; y: number }> {
   const layout = new dagre.graphlib.Graph({ multigraph: true })
-  layout.setGraph({ rankdir: 'LR', nodesep: 14, ranksep: 70, marginx: 16, marginy: 16 })
+  layout.setGraph({ rankdir: direction, nodesep: 14, ranksep: 70, marginx: 16, marginy: 16 })
   layout.setDefaultEdgeLabel(() => ({}))
   for (const card of view.cards) layout.setNode(card.id, { width: WIDTH, height: HEIGHT })
   for (const line of view.lines) {
@@ -137,7 +138,7 @@ function toEdge(line: Line): Edge {
     style: {
       stroke: style.color,
       strokeWidth: lineWidth(line.count),
-      strokeDasharray: style.dashed ? '6 4' : undefined,
+      strokeDasharray: style.dashed || line.proposed ? '6 4' : undefined,
       opacity: line.kind === 'imports' ? 0.55 : 0.85,
     },
   }
@@ -229,6 +230,8 @@ function Diagram({
   inspecting,
   risk,
   worktrees,
+  only,
+  layout,
   onFocus,
   onOpenTables,
 }: {
@@ -239,12 +242,14 @@ function Diagram({
   inspecting: boolean
   risk: Risk | null
   worktrees: WorktreeState | null
+  only: string[] | null
+  layout: 'left-right' | 'top-down'
   onFocus: (id: string | null) => void
   onOpenTables: () => void
 }) {
   const { mode } = useTheme()
-  const view = useMemo(() => buildView(system, focus, tables, showPlans), [system, focus, tables, showPlans])
-  const places = useMemo(() => place(view), [view])
+  const view = useMemo(() => (only ? savedView(system, only, tables) : buildView(system, focus, tables, showPlans)), [system, only, focus, tables, showPlans])
+  const places = useMemo(() => place(view, layout === 'top-down' ? 'TB' : 'LR'), [view, layout])
   const rows = useMemo(() => riskIndex(risk), [risk])
   const byNode = worktrees?.by_node
 
@@ -306,6 +311,8 @@ export function SystemMap(props: {
   inspecting: boolean
   risk: Risk | null
   worktrees: WorktreeState | null
+  only: string[] | null
+  layout: 'left-right' | 'top-down'
   onFocus: (id: string | null) => void
   onOpenTables: () => void
 }) {
