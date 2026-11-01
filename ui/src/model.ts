@@ -1,5 +1,7 @@
 import { useAppApi } from '@kirocrew/app-sdk'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { plainError } from './errors'
+import type { Project } from './projects'
 
 export const BASE = '/apps/system-map/api'
 
@@ -18,6 +20,7 @@ export interface Freshness {
   map_stale: boolean
   commits_behind: number
   changed_inputs?: string[]
+  missing?: boolean
   error?: string
 }
 
@@ -28,6 +31,7 @@ export interface Overview {
     ref: string
     commit: string
     version: string
+    built_at: number
     counts: {
       tables: number
       columns: number
@@ -358,17 +362,18 @@ export function withRepo(path: string, repo: string | null): string {
 }
 
 const CHOSEN_REPO = 'system-map.repo'
+const CHOSEN_EVENT = 'system-map:project'
 
-/** Which repo to show: the last one chosen here, or else the first model. */
+/** Which project to show: the last one chosen here, or else the first. The page and panel share it. */
 export function useActiveRepo() {
   const api = useAppApi()
-  const [repos, setRepos] = useState<{ repo: string; repo_key: string }[]>([])
+  const [repos, setRepos] = useState<Project[]>([])
   const [loaded, setLoaded] = useState(false)
   const [chosen, setChosen] = useState<string | null>(() => localStorage.getItem(CHOSEN_REPO))
 
   const reload = useCallback(async () => {
     try {
-      const reply = await api.get<{ repos: { repo: string; repo_key: string }[] }>(`${BASE}/repos`)
+      const reply = await api.get<{ repos: Project[] }>(`${BASE}/repos`)
       setRepos(reply.repos)
     } catch {
       setRepos([])
@@ -381,9 +386,18 @@ export function useActiveRepo() {
     void reload()
   }, [reload])
 
+  useEffect(() => {
+    const follow = () => {
+      setChosen(localStorage.getItem(CHOSEN_REPO))
+      void reload()
+    }
+    window.addEventListener(CHOSEN_EVENT, follow)
+    return () => window.removeEventListener(CHOSEN_EVENT, follow)
+  }, [reload])
+
   const choose = useCallback((key: string) => {
     localStorage.setItem(CHOSEN_REPO, key)
-    setChosen(key)
+    window.dispatchEvent(new Event(CHOSEN_EVENT))
   }, [])
 
   const active = repos.find((item) => item.repo_key === chosen)?.repo_key ?? repos[0]?.repo_key ?? null
@@ -394,6 +408,8 @@ export function useOverview(repo: string | null) {
   const api = useAppApi()
   const [overview, setOverview] = useState<Overview | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const latest = useRef<string | null>(repo)
+  latest.current = repo
 
   const refresh = useCallback(async () => {
     if (!repo) {
@@ -401,41 +417,46 @@ export function useOverview(repo: string | null) {
       return
     }
     try {
-      setOverview(await api.get<Overview>(withRepo('/overview', repo)))
+      const reply = await api.get<Overview>(withRepo('/overview', repo))
+      if (latest.current !== repo) return
+      setOverview(reply)
       setError(null)
     } catch (caught) {
+      if (latest.current !== repo) return
       setOverview(null)
-      setError(String(caught))
+      setError(plainError(caught, 'load this project'))
     }
   }, [api, repo])
 
   useEffect(() => {
+    setError(null)
     void refresh()
   }, [refresh])
 
-  return { overview, error, refresh }
+  // A reply belongs to the project it came from, so an old one never shows under a new name.
+  return { overview: overview?.manifest.repo_key === repo ? overview : null, error, refresh }
 }
 
 /** Load something that only changes when `version` does. */
 export function useVersioned<T>(path: string, repo: string | null, version: string | undefined): T | null {
   const api = useAppApi()
-  const [value, setValue] = useState<T | null>(null)
+  const [held, setHeld] = useState<{ repo: string | null; value: T | null }>({ repo, value: null })
   useEffect(() => {
     if (!version) return
     let live = true
     api
       .get<T>(withRepo(path, repo))
       .then((reply) => {
-        if (live) setValue(reply)
+        if (live) setHeld({ repo, value: reply })
       })
       .catch(() => {
-        if (live) setValue(null)
+        if (live) setHeld({ repo, value: null })
       })
     return () => {
       live = false
     }
   }, [api, path, repo, version])
-  return value
+  return held.repo === repo ? held.value : null
 }
 
 /** Load one proposal with its diff and limits. Change `tick` to load it again. */
@@ -468,16 +489,20 @@ export function useProposal(id: string | null, repo: string | null, tick: number
 /** Load something that changes on its own, and keep it current while the page is in view. */
 export function useLive<T>(path: string, repo: string | null, everyMs: number) {
   const api = useAppApi()
-  const [value, setValue] = useState<T | null>(null)
+  const [held, setHeld] = useState<{ repo: string | null; value: T | null }>({ repo, value: null })
   const [checkedAt, setCheckedAt] = useState<number | null>(null)
+  const latest = useRef<string | null>(repo)
+  latest.current = repo
 
   const refresh = useCallback(async () => {
     if (!repo) return
     try {
-      setValue(await api.get<T>(withRepo(path, repo)))
+      const reply = await api.get<T>(withRepo(path, repo))
+      if (latest.current !== repo) return
+      setHeld({ repo, value: reply })
       setCheckedAt(Date.now())
     } catch {
-      setValue(null)
+      if (latest.current === repo) setHeld({ repo, value: null })
     }
   }, [api, path, repo])
 
@@ -489,7 +514,7 @@ export function useLive<T>(path: string, repo: string | null, everyMs: number) {
     return () => window.clearInterval(timer)
   }, [refresh, everyMs])
 
-  return { value, checkedAt, refresh }
+  return { value: held.repo === repo ? held.value : null, checkedAt, refresh }
 }
 
 export function useNode<T = TableNode>(id: string | null, repo: string | null = null) {
