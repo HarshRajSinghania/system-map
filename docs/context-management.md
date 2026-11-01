@@ -36,7 +36,7 @@ ratio as a direction, not a constant.
 | Path | Limit | How we know |
 |---|---|---|
 | MCP tool result, Claude Code | 9,000 chars arrived whole. 60,000 and 120,000 were replaced by a "saved to file" pointer. | Measured. Exact cut-off not found. |
-| Tool result in Kiro Crew's event stream | Cut to 8,000 chars (`MAX_TOOL_RESULT_CHARS`) | Read in source. This event feeds the host. The model reads the result from its own client. Confirm in a live session. |
+| Tool result in Kiro Crew's event stream | Cut to 8,000 chars (`MAX_TOOL_RESULT_CHARS`) for the host's record. The model is not cut there. | Read in source, then measured in a live session. |
 | Injected context | 40,000 chars an entry, 50 pending a slot | App Kit docs |
 | `ChatEmbed` transcript | Newest 200 rows, 500 with "load earlier" | App Kit docs |
 | Long sessions | Older turns are compacted away. Files survive. | Kiro Crew docs |
@@ -66,10 +66,5 @@ ratio as a direction, not a constant.
 | Can a session's shell write to the app's data folder? | Yes. `python3 -m core build` wrote the model there. |
 | Does the sandboxed backend reach repos outside its folder? | Yes. It built a model and ran git in all 7 worktrees of the test repo. |
 | Where can session overlap data come from? | `git worktree list`. The docs say `/api/sessions` covers only an app's own sessions. |
-
-## Still open
-
-- Does the model get more than 8,000 chars in a Kiro Crew session?
-- Can the `note` tool write to the data folder from inside a session?
-
-Both need the tools mounted in a session. See `docs/platform-notes.md`.
+| Does the model get more than 8,000 chars in a Kiro Crew session? | Yes. 9,000 and 20,000 chars both reached the model whole. The 8,000-char cut affects only what the host records. |
+| Can the `note` tool write to the data folder from inside a session? | Yes. A live session wrote a note and got its path back. |

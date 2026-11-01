@@ -22,7 +22,10 @@ The backend needs third-party apps turned on in **Settings → Security → Thir
 (cd ui && npm install && npm run build)
 kirocrew app install "$PWD"
 kirocrew app enable system-map
+kirocrew restart
 ```
+
+The restart gives agent sessions the tools. It stops any work running in your sessions.
 
 ## Build a model
 

@@ -22,9 +22,10 @@ app.json mcpServers
 ```
 
 So after a first install the server is declared but not mounted. A new session does not
-help, because the spec it reads still has no `tools` entry. A test in a fresh session
-confirmed the tools were missing. The source says gateway boot rebuilds the spec, so a
-restart should mount them. That is not yet confirmed by a run.
+help, because the spec it reads still has no `tools` entry. Restart the gateway after the
+first install: boot rebuilds the spec, and new sessions then get the tools. Both the gap
+and the fix were confirmed in a live gateway. Tools appear as
+`mcp__system-map_system-map__<tool>`.
 
 ## Reaching the backend
 
