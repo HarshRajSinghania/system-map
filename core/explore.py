@@ -67,7 +67,23 @@ def delete_item(target: Path, kind: str, item_id: str) -> dict:
     return {"id": item_id, "deleted": True}
 
 
+def limits_apply(target: Path) -> bool:
+    """Limits are proven against real Postgres, so they say nothing about other databases."""
+    return store.read_manifest(target).get("engine", "postgres") == "postgres"
+
+
+def _apply_all(target: Path, changes: list[dict], tables: dict, types: dict, system: dict, code: dict) -> tuple[list[dict], dict]:
+    """Run changes on a working copy, checking limits where they apply."""
+    if limits_apply(target):
+        return limits.check_all(changes, tables, types, system, code)
+    for change in changes:
+        if change["op"] in proposals.TABLE_OPS:
+            proposals.apply(tables, types, change)
+    return [], tables
+
+
 def _model(target: Path) -> tuple[list[dict], list[dict], dict, dict]:
+    proposals.use_schema("public" if limits_apply(target) else "main")
     folder = store.current(target)
     shards = [json.loads(path.read_text(encoding="utf-8")) for path in sorted((folder / "tables").glob("*.json"))]
     types = json.loads((folder / "types.json").read_text(encoding="utf-8"))
@@ -84,7 +100,7 @@ def _code_uses(target: Path, changes: list[dict], code: dict) -> dict[str, list[
     source = open_source(Path(manifest["repo"]), manifest["commit"] or None)
     found: dict[str, list[str]] = {}
     for key, column in wanted:
-        short = key.removeprefix("public.")
+        short = key.split(".", 1)[-1]
         paths = [path for path, calls in code["table_calls"].items() if any(call["table"] == short for call in calls)]
         for path, text in source.read_many(paths).items():
             for number, line in enumerate(text.splitlines(), 1):
@@ -137,7 +153,8 @@ def evaluate(target: Path, body: dict, live: bool = True) -> dict:
     changes = body["changes"]
     tables, types = proposals.working_copy(shards, type_rows)
     before, _ = proposals.working_copy(shards, type_rows)
-    found, after = limits.check_all(changes, tables, types, system, _code_uses(target, changes, code))
+    found, after = _apply_all(target, changes, tables, types, system, _code_uses(target, changes, code))
+    checked = limits_apply(target)
     lay = proposals.overlay(changes, system)
     diff = proposals.diff(before, after, lay, system)
     ranked = store.load_risk(target)
@@ -149,7 +166,8 @@ def evaluate(target: Path, body: dict, live: bool = True) -> dict:
         "diff": diff,
         "limits": found,
         "counts": {name: sum(1 for limit in found if limit["kind"] == name) for name in ("refused", "breaks", "cannot_support", "advice")},
-        "sql": [{"change": index, "sql": proposals.to_sql(change)} for index, change in enumerate(changes)],
+        "limits_checked": checked,
+        "sql": [{"change": index, "sql": proposals.to_sql(change)} for index, change in enumerate(changes)] if checked else [],
         "overlay": lay,
         "graph": _graph_rows(after, before, externals),
     }
@@ -174,7 +192,7 @@ def save_proposal(target: Path, title: str, why: str, raw: list, item_id: str | 
     if not dry_run:
         record = _save(target, "proposals", body, item_id)
         result["id"] = record["id"]
-    return {key: result[key] for key in ("id", "title", "status", "diff", "limits", "counts", "sql")}
+    return {key: result[key] for key in ("id", "title", "status", "diff", "limits", "limits_checked", "counts", "sql")}
 
 
 def _closes(target: Path, found: dict, after: dict) -> list[dict]:
@@ -200,7 +218,7 @@ def read_proposal(target: Path, item_id: str) -> dict:
     found = evaluate(target, record)
     shards, type_rows, system, code = _model(target)
     tables, types = proposals.working_copy(shards, type_rows)
-    _, after = limits.check_all(record["changes"], tables, types, system, {})
+    _, after = _apply_all(target, record["changes"], tables, types, system, {})
     return {**found, "closes": _closes(target, found, after)}
 
 

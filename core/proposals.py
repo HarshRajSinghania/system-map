@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import copy
 import re
+from contextvars import ContextVar
 
 from .extractors import typescript
 
@@ -21,8 +22,16 @@ TYPE_NAME = re.compile(r"^[A-Za-z_][\w. ]*(\(\s*\d+(\s*,\s*\d+)?\s*\))?(\[\])?$"
 EXPRESSION = re.compile(r"^[^;]*$")
 
 
+#: The schema a bare table name means: `public` on Postgres, `main` on SQLite.
+_default_schema: ContextVar[str] = ContextVar("default_schema", default="public")
+
+
+def use_schema(schema: str) -> None:
+    _default_schema.set(schema)
+
+
 def qualified(name: str) -> str:
-    return name if "." in name else f"public.{name}"
+    return name if "." in name else f"{_default_schema.get()}.{name}"
 
 
 def _need(change: dict, *fields: str) -> None:

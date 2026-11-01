@@ -284,6 +284,7 @@ def call(name: str, args: dict) -> object:
         state = store.worktree_state(target)
         return {
             "text": (store.current(target) / "overview.md").read_text(encoding="utf-8"),
+            "read": store.read_manifest(target).get("read"),
             "freshness": store.freshness(target),
             "facts_changed_since_build": store.verify_facts(target),
             "model_dir": str(store.current(target)),

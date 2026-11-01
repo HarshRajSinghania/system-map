@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import postgres
+from . import postgres, sqlite
 
-EXTRACTORS = [postgres]
+#: SQLite goes first, because its test is stricter: a driver the app ships with.
+EXTRACTORS = [sqlite, postgres]
 
 
 @dataclass
@@ -27,10 +28,19 @@ class Extraction:
     inputs: dict[str, str] = field(default_factory=dict)
     #: SQL text that uses columns: function bodies, policies, triggers.
     usage_text: str = ""
+    engine: str | None = None
+
+
+def extractor_for(source):
+    return next((extractor for extractor in EXTRACTORS if extractor.detect(source)), None)
+
+
+def inputs(source) -> dict[str, str]:
+    """The files the Facts come from, by content id."""
+    extractor = extractor_for(source)
+    return extractor.inputs(source) if extractor else {}
 
 
 def extract(source) -> Extraction:
-    for extractor in EXTRACTORS:
-        if extractor.detect(source):
-            return Extraction(**extractor.extract(source))
-    return Extraction()
+    extractor = extractor_for(source)
+    return Extraction(**extractor.extract(source)) if extractor else Extraction()

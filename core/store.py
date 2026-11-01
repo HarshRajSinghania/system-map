@@ -35,10 +35,11 @@ import time
 from pathlib import Path
 
 from . import coverage, extractors, findings, risk, system, worktrees
-from .extractors import plans, postgres, typescript
+from . import read as build_read
+from .extractors import plans, typescript
 from .sources import canonical_root, git, open_source
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 #: The most a tool hands back inline. Larger answers go to a slice file. This fits any
 #: one table, and sits well under the 20,000 chars proven to reach a model whole.
 DEFAULT_BUDGET_CHARS = 12000
@@ -104,7 +105,7 @@ def _map_inputs(source) -> dict[str, str]:
     """Ids of everything the system map reads beyond the migrations."""
     read = set(findings.code_files(source)) | set(typescript.code_files(source)) | set(plans.plan_files(source))
     read |= {path for root in system.SQL_ROOTS for path in source.list_files(root, (".sql",))}
-    read |= {path for path in ("tsconfig.json", "package.json") if path in source.blobs}
+    read |= {path for path in ("tsconfig.json", "jsconfig.json", "package.json") if path in source.blobs}
     read |= set(typescript.browser_files(source))
     return {path: source.blobs[path] for path in read}
 
@@ -115,9 +116,9 @@ def _hash(value: object) -> str:
 
 def _fingerprint(source) -> tuple[str, dict[str, str], str]:
     """Hash the ids of every input, without reading a single file."""
-    if not postgres.detect(source) and not typescript.detect(source):
-        raise ValueError(f"no extractor knows how to read {source.root}")
-    inputs = postgres.inputs(source) if postgres.detect(source) else {}
+    if not extractors.extractor_for(source) and not typescript.detect(source):
+        raise ValueError(f"{source.root} has no code or schema that System Map can read.")
+    inputs = extractors.inputs(source)
     map_hash = _hash(_map_inputs(source))
     return _hash([_builder_id(), inputs, map_hash]), inputs, map_hash
 
@@ -135,7 +136,7 @@ def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> 
         _write_json(target / "manifest.json", {k: v for k, v in previous.items() if k != "unchanged"})
         return previous
 
-    extraction = extractors.extract(source) if postgres.detect(source) else extractors.Extraction()
+    extraction = extractors.extract(source)
     found = findings.find(extraction.nodes, findings.code_tokens(source, extraction.usage_text))
     joined = system.build(source, extraction.nodes)
     joined["risk"] = risk.build(source, joined)
@@ -150,6 +151,8 @@ def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> 
             "repo_key": repo_key(repo_root),
             "ref": source.ref,
             "commit": source.commit,
+            "engine": extraction.engine,
+            "read": build_read.summary(source, extraction, joined),
             "version": version,
             "built_at": int(time.time()),
             "counts": counts,
@@ -210,7 +213,8 @@ def _write_version(folder: Path, extraction: extractors.Extraction, found: list[
     _write_json(folder / "findings.json", found)
     _write_json(folder / "types.json", extraction.types)
     _write_json(folder / "externals.json", extraction.externals)
-    _write_json(folder / "system.json", {"nodes": joined["nodes"], "edges": joined["edges"], "code_root": joined["code_root"]})
+    kept = ("nodes", "edges", "code_root", "routes_dir", "route_style")
+    _write_json(folder / "system.json", {key: joined[key] for key in kept})
     _write_json(
         folder / "imports.json",
         {"imports": joined["imports"], "table_calls": joined["table_calls"], "complexity": joined["complexity"]},
@@ -256,11 +260,13 @@ def render_overview(manifest: dict, nodes: list[dict], found: list[dict], joined
     head = [
         f"# System map: {Path(manifest['repo']).name}",
         "",
-        f"{manifest['ref']} at {str(manifest['commit'])[:10]}. {manifest['counts']['tables']} tables. "
+        f"{manifest['ref']} at {str(manifest['commit'])[:10] if manifest['commit'] else 'no commit'}. {manifest['counts']['tables']} tables. "
         f"Findings: {counts['high']} high, {counts['medium']} medium, {counts['low']} low, {counts['info']} info.",
         "Open any id with `node`. See rule checks with `findings`, and what is not built with `plan`.",
         "",
     ]
+    if manifest.get("read"):
+        head += [build_read.tell(manifest["read"]), ""]
     if areas:
         head += ["Areas: " + ", ".join(areas), ""]
     if unbuilt:
@@ -341,8 +347,6 @@ def check_folder(path: Path) -> Path:
         raise ValueError("Give the full path, starting with / or ~.")
     if not path.is_dir():
         raise ValueError(f"{path} isn't a folder on this machine.")
-    if not git(path, "rev-parse", "--git-dir"):
-        raise ValueError(f"{path} isn't a git repo. System Map reads git history, so pick a repo.")
     return path
 
 
@@ -413,7 +417,7 @@ def freshness(target: Path) -> dict:
     if source.commit and source.commit != manifest["commit"]:
         count = git(repo, "rev-list", "--count", f"{manifest['commit']}..{source.commit}")
         behind = int(count) if count and count.isdigit() else 0
-    now, then = (postgres.inputs(source) if postgres.detect(source) else {}), manifest["inputs"]
+    now, then = extractors.inputs(source), manifest["inputs"]
     changed = sorted(path for path in set(now) | set(then) if now.get(path) != then.get(path))
     return {
         "map_stale": _hash(_map_inputs(source)) != manifest.get("map_inputs"),

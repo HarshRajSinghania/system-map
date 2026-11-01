@@ -10,6 +10,8 @@ from __future__ import annotations
 import re
 
 PLAN_DIRS = ("docs/specs/", "docs/plans/", "specs/")
+#: Planning files at the top of a repo, such as a product brief.
+ROOT_PLANS = re.compile(r"^(brief|plan|roadmap|prd|spec|todo)\.md$", re.I)
 INDEX_FILES = re.compile(r"(^|/)(readme|index|template)\.md$", re.I)
 CLAIM = re.compile(r"`([^`\n]+)`")
 MIGRATION_NAME = re.compile(r"\d{14}_\w+")
@@ -42,7 +44,7 @@ def plan_files(source) -> list[str]:
     found = []
     for directory in PLAN_DIRS:
         found += [f for f in source.list_files(directory, (".md",)) if not INDEX_FILES.search(f)]
-    return found
+    return found + [f for f in source.list_files("", (".md",)) if ROOT_PLANS.match(f)]
 
 
 def inputs(source) -> dict[str, str]:

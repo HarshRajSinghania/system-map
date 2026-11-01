@@ -10,6 +10,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 
+ENGINE = "postgres"
 MIGRATION_DIRS = ("supabase/migrations/", "db/migrations/", "migrations/")
 IDENT = r'(?:"[^"]+"|[A-Za-z_][\w$]*)'
 QUALIFIED = rf"(?:{IDENT}\s*\.\s*)?{IDENT}"
@@ -820,6 +821,7 @@ def extract(source) -> dict:
     schema = replay(source)
     files = _migration_files(source)
     return {
+        "engine": ENGINE,
         "nodes": [table.to_shard() for table in schema.tables.values()],
         "externals": externals_of(schema),
         "types": list(schema.types.values()),

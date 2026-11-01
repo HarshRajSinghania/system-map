@@ -14,7 +14,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .extractors import postgres, typescript
+from .extractors import postgres, sqlite, typescript
 from .sources import git, run_git
 
 SEVERITIES = ("high", "medium", "low", "info")
@@ -95,7 +95,8 @@ def tables_touched(text: str, lines: set[int] | None) -> set[str]:
     for use in typescript.table_uses(typescript.mask_code(text)):
         reach = range(use["line"] - 1, use["line"] + QUERY_REACH_LINES + 1)
         if lines is None or not lines.isdisjoint(reach):
-            found.add(f"table:public.{use['table']}")
+            # The caller keeps the ids that exist, which settles which schema this is.
+            found |= {f"table:public.{use['table']}", f"table:main.{use['table']}"}
     return found
 
 
@@ -178,6 +179,9 @@ def join(changes: Changes, folder: str, model: Model) -> None:
         if path.endswith(".sql") and path.startswith(postgres.MIGRATION_DIRS):
             text = _read(folder, path)
             changes.schema |= {f"table:{name}" for name in postgres.tables_changed(text or "", path)}
+        if path.endswith(".sql"):
+            text = _read(folder, path)
+            changes.schema |= {f"table:{name}" for name in sqlite.tables_at(text or "", changed_lines(folder, changes.base, path))} & model.nodes
         elif _is_code(path, root):
             area, module = typescript.module_of(path, root)
             changes.modules |= {f"module:{module}", f"area:{area}"}
@@ -191,7 +195,7 @@ def _count(number: int, word: str) -> str:
 
 
 def _tables(ids: list[str]) -> str:
-    names = [item.replace("table:public.", "").replace("table:", "") for item in ids]
+    names = [item.replace("table:public.", "").replace("table:main.", "").replace("table:", "") for item in ids]
     return names[0] if len(names) == 1 else f"{len(names)} tables"
 
 

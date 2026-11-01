@@ -6,7 +6,10 @@ depends on what a checkout has open. `TreeSource` covers a folder with no git.
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import subprocess
+from functools import cached_property
 from pathlib import Path, PurePosixPath
 
 
@@ -114,6 +117,10 @@ class GitSource:
         return found
 
 
+#: Folders that hold no source, and can hold hundreds of thousands of files.
+TREE_SKIP = {".git", "node_modules", ".next", ".turbo", ".vercel", "dist", "build", "coverage", ".cache"}
+
+
 class TreeSource:
     """A plain folder: for a repo with no git, and for tests."""
 
@@ -122,13 +129,14 @@ class TreeSource:
         self.ref = "working tree"
         self.commit = None
 
-    @property
+    @cached_property
     def blobs(self) -> dict[str, str]:
         found = {}
-        for path in self.root.rglob("*"):
-            relative = path.relative_to(self.root)
-            if path.is_file() and not {".git", "node_modules"} & set(relative.parts):
-                found[PurePosixPath(relative).as_posix()] = hashlib.sha1(path.read_bytes()).hexdigest()
+        for folder, names, files in os.walk(self.root):
+            names[:] = [name for name in names if name not in TREE_SKIP]
+            for name in files:
+                path = Path(folder) / name
+                found[PurePosixPath(path.relative_to(self.root)).as_posix()] = hashlib.sha1(path.read_bytes()).hexdigest()
         return found
 
     def list_files(self, prefix: str = "", suffixes: tuple[str, ...] = ()) -> list[str]:
@@ -140,6 +148,17 @@ class TreeSource:
 
     def read_many(self, paths: list[str]) -> dict[str, str]:
         return {path: (self.root / path).read_text(encoding="utf-8", errors="replace") for path in paths}
+
+
+def package_dependencies(source) -> dict[str, set[str]]:
+    """What package.json asks for, split into what ships and what is only for development."""
+    if "package.json" not in source.blobs:
+        return {"runtime": set(), "dev": set()}
+    try:
+        data = json.loads(source.read_many(["package.json"])["package.json"])
+    except (KeyError, ValueError):
+        return {"runtime": set(), "dev": set()}
+    return {"runtime": set(data.get("dependencies") or {}), "dev": set(data.get("devDependencies") or {})}
 
 
 def open_source(repo_root: Path, ref: str | None = None) -> GitSource | TreeSource:

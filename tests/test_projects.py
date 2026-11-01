@@ -158,11 +158,10 @@ class CheckingAFolder(Scratch):
         with self.assertRaisesRegex(ValueError, "isn't a folder"):
             store.check_folder(self.base / "nope")
 
-    def test_a_plain_folder_is_refused_in_plain_words(self):
+    def test_a_folder_with_no_git_is_allowed(self):
         plain = self.base / "plain"
         plain.mkdir()
-        with self.assertRaisesRegex(ValueError, "isn't a git repo"):
-            store.check_folder(plain)
+        self.assertEqual(store.check_folder(plain), plain)
 
     def test_a_relative_path_is_refused(self):
         with self.assertRaisesRegex(ValueError, "full path"):
@@ -252,12 +251,12 @@ class BackendRoutes(unittest.TestCase):
         self.assertEqual(rows[0]["status"], "current")
         self.assertNotIn("facts", rows[0])
 
-    def test_build_refuses_a_plain_folder_and_saves_nothing(self):
+    def test_build_refuses_a_folder_with_nothing_to_read_and_saves_nothing(self):
         plain = self.base / "plain"
         plain.mkdir()
         code, reply = self.refused("/build", {"repo_path": str(plain)})
         self.assertEqual(code, 400)
-        self.assertIn("isn't a git repo", reply["error"])
+        self.assertIn("no code or schema", reply["error"])
         self.assertEqual(len(self.get("/repos")["repos"]), 2)
 
     def test_build_refuses_a_missing_folder(self):

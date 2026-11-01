@@ -11,6 +11,8 @@ import re
 from collections import defaultdict
 from dataclasses import dataclass, field
 
+from ..sources import package_dependencies
+
 CODE_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 RESOLVE_SUFFIXES = (".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mjs", ".cjs", ".json")
 SKIP_DIRS = re.compile(r"(^|/)(node_modules|dist|build|coverage|\.next|\.output|\.vercel)/")
@@ -27,6 +29,21 @@ BROWSER_ROOTS = ("e2e/", "tests/e2e/", "playwright/")
 GOTO = re.compile(r"""\.goto\(\s*["'`](/[^"'`$]*)["'`]""")
 
 TABLE_FROM = re.compile(r"""\.from\(\s*["'`]([\w-]+)["'`]""")
+#: A whole string or template literal. Comments are already blank by this point.
+STRING_LITERAL = re.compile(r"""`[^`]*`|"[^"\n]*"|'[^'\n]*'""")
+#: How a query opens. All one case, because `Select a date` is a sentence.
+SQL_START = re.compile(r"\s*(?:(SELECT|INSERT|UPDATE|DELETE|REPLACE|WITH)|(select|insert|update|delete|replace|with))\b")
+SQL_TABLE = re.compile(r"""\b(from|join|into|update)\s+["'`\[]?([A-Za-z_]\w*)""", re.I)
+NOT_TABLES = {"set", "select", "or", "only"}
+NEXT_CONFIG = re.compile(r"^next\.config\.\w+$")
+NEXT_ROUTE_FILE = re.compile(r"^(page|route)\.(tsx|ts|jsx|js)$")
+NEXT_APP_DIRS = ("src/app/", "app/")
+NEXT_PAGES_DIRS = ("src/pages/", "pages/")
+NEXT_NOT_PAGES = {"_app", "_document", "_error", "404", "500"}
+#: Folders that, sitting beside `src/`, mean the code does not all live in `src/`.
+TOP_CODE_DIRS = ("app/", "pages/", "components/", "lib/")
+ROOT_NAME = "root files"
+
 FIRST_VERB = re.compile(r"\.(select|insert|upsert|update|delete)\s*[(<]")
 WRITE_VERBS = {"insert", "upsert", "update", "delete"}
 
@@ -164,7 +181,9 @@ def resolve(specifier: str, importer: str, files: set[str], aliases: list[tuple[
         candidates = []
         for pattern, target in aliases:
             if pattern.endswith("/*") and bare.startswith(pattern[:-1]):
-                candidates.append(target[:-1].rstrip("/") + "/" + bare[len(pattern) - 1 :])
+                prefix = target[:-1].rstrip("/")
+                rest = bare[len(pattern) - 1 :]
+                candidates.append(f"{prefix}/{rest}" if prefix else rest)
             elif pattern == bare:
                 candidates.append(target)
     for base in candidates:
@@ -198,9 +217,35 @@ def service_for_package(package: str) -> str | None:
     return None
 
 
-def table_uses(masked: str) -> list[dict]:
-    """Every `.from("x")` on a database client, with whether it reads or writes."""
+def sql_uses(masked: str) -> list[dict]:
+    """Tables named in SQL held in a string, as with `better-sqlite3` or `pg`.
+
+    Only a string that opens like a query counts, so `Update from hosts` is not SQL. Callers
+    keep the tables they know, so a function such as `json_each` never becomes a table.
+    """
     uses = []
+    for literal in STRING_LITERAL.finditer(masked):
+        body = literal.group(0)[1:-1]
+        opening = SQL_START.match(body)
+        if not opening:
+            continue
+        verb = (opening.group(1) or opening.group(2)).upper()
+        seen: set[tuple[str, str]] = set()
+        for match in SQL_TABLE.finditer(body):
+            keyword, table = match.group(1).upper(), match.group(2)
+            if table.lower() in NOT_TABLES:
+                continue
+            writes = keyword in ("INTO", "UPDATE") or (keyword == "FROM" and verb == "DELETE")
+            use = (table, "write" if writes else "read")
+            if use not in seen:
+                seen.add(use)
+                uses.append({"table": table, "access": use[1], "line": _line(masked, literal.start() + 1 + match.start())})
+    return uses
+
+
+def table_uses(masked: str) -> list[dict]:
+    """Every table the code reaches: `.from("x")` on a client, and SQL held in a string."""
+    uses = sql_uses(masked)
     for match in TABLE_FROM.finditer(masked):
         before = masked[max(0, match.start() - 40) : match.start()]
         if re.search(r"storage\s*$", before):
@@ -234,6 +279,32 @@ def url_hosts(masked: str) -> list[tuple[str, int]]:
     return found
 
 
+def next_app_route(file: str, app_dir: str) -> str | None:
+    """Turn a page or route handler under `app/` into its URL, written the way Next writes it."""
+    parts = file[len(app_dir) :].split("/")
+    if not NEXT_ROUTE_FILE.match(parts.pop()):
+        return None
+    kept = []
+    for part in parts:
+        if part.startswith("_"):
+            return None  # A private folder, which stays out of routing.
+        if part.startswith("(") and part.endswith(")") or part.startswith("@"):
+            continue  # A route group or a parallel slot, which leave the URL alone.
+        if part.startswith("("):
+            return None  # An intercepting route, which shows another route's URL.
+        kept.append(part.replace("%5F", "_"))
+    return "/" + "/".join(kept)
+
+
+def next_pages_route(file: str, pages_dir: str) -> str | None:
+    parts = file[len(pages_dir) :].rsplit(".", 1)[0].split("/")
+    if parts[0] in NEXT_NOT_PAGES:
+        return None
+    if parts[-1] == "index":
+        parts.pop()
+    return "/" + "/".join(parts)
+
+
 def route_path(file: str, routes_dir: str) -> str | None:
     """Turn a TanStack file route into its URL. Layouts and the root give their parent."""
     stem = file[len(routes_dir) :].rsplit(".", 1)[0]
@@ -253,6 +324,24 @@ def find_routes_dir(files: set[str]) -> str | None:
         if any(f.startswith(candidate) and f.endswith(CODE_SUFFIXES) for f in files):
             return candidate
     return None
+
+
+def uses_next(source) -> bool:
+    if any(NEXT_CONFIG.match(path) for path in source.blobs):
+        return True
+    packages = package_dependencies(source)
+    return "next" in packages["runtime"] | packages["dev"]
+
+
+def route_readers(source, files: set[str]) -> list[tuple[str, object, str]]:
+    """Each folder that holds routes, how to read a URL from a file there, and its style."""
+    if uses_next(source):
+        found = [(folder, next_app_route, "next-app") for folder in NEXT_APP_DIRS if any(f.startswith(folder) for f in files)]
+        found += [(folder, next_pages_route, "next-pages") for folder in NEXT_PAGES_DIRS if any(f.startswith(folder) for f in files)]
+        if found:
+            return found
+    folder = find_routes_dir(files)
+    return [(folder, route_path, "file-routes")] if folder else []
 
 
 def module_of(path: str, code_root: str) -> tuple[str, str]:
@@ -279,6 +368,9 @@ class Project:
     edges: dict[tuple[str, str, str], dict] = field(default_factory=dict)
     table_calls: dict[str, list[dict]] = field(default_factory=lambda: defaultdict(list))
     routes: dict[str, dict] = field(default_factory=dict)
+    #: The folder routes live in, and how they are written there.
+    routes_dir: str = ""
+    route_style: str = ""
     #: file -> how many paths it has, and how long it is. Test files are left out.
     complexity: dict[str, int] = field(default_factory=dict)
     lines: dict[str, int] = field(default_factory=dict)
@@ -299,10 +391,9 @@ class Project:
 
 
 def code_files(source) -> list[str]:
-    root = "src/" if source.list_files("src/", CODE_SUFFIXES) else ""
     return [
         path
-        for path in source.list_files(root, CODE_SUFFIXES)
+        for path in source.list_files(code_root_of(source), CODE_SUFFIXES)
         if not SKIP_DIRS.search(path) and not GENERATED.search(path) and not path.endswith(".d.ts")
     ]
 
@@ -317,10 +408,23 @@ def browser_files(source) -> list[str]:
 
 
 def route_matches(route: str, url: str) -> bool:
-    """Does a URL land on this route? A `$name` part matches any one part."""
+    """Does a URL land on this route?
+
+    `$name` and `[name]` match one part, `[...name]` one or more, and `[[...name]]` any number.
+    """
     wanted = route.strip("/").split("/")
-    given = url.split("?")[0].split("#")[0].strip("/").split("/")
-    return len(wanted) == len(given) and all(part.startswith("$") or part == other for part, other in zip(wanted, given))
+    given = [part for part in url.split("?")[0].split("#")[0].strip("/").split("/") if part]
+    wanted = [part for part in wanted if part]
+    for index, part in enumerate(wanted):
+        if part.startswith("[[..."):
+            return len(given) >= index
+        if part.startswith("[..."):
+            return len(given) > index
+        if index >= len(given):
+            return False
+        if not (part.startswith("$") or part.startswith("[") or part == given[index]):
+            return False
+    return len(wanted) == len(given)
 
 
 def browser_visits(source) -> dict[str, list[str]]:
@@ -334,15 +438,23 @@ def browser_visits(source) -> dict[str, list[str]]:
     return visits
 
 
-def scan(source, known_tables: set[str]) -> Project:
+def code_root_of(source) -> str:
+    """`src/` when all the code lives there, and the repo root when any sits beside it."""
+    if not source.list_files("src/", CODE_SUFFIXES):
+        return ""
+    return "" if any(source.list_files(folder, CODE_SUFFIXES) for folder in TOP_CODE_DIRS) else "src/"
+
+
+def scan(source, known_tables: set[str], schema: str = "public") -> Project:
     """Read every code file once, and build modules and their links."""
     every = set(source.list_files())
     paths = code_files(source)
-    root = "src/" if paths and all(p.startswith("src/") for p in paths) else ""
+    root = code_root_of(source)
     project = Project(code_root=root)
-    aliases = read_tsconfig_paths(source.read_many(["tsconfig.json"]).get("tsconfig.json") if "tsconfig.json" in every else None)
+    config = next((name for name in ("tsconfig.json", "jsconfig.json") if name in every), None)
+    aliases = read_tsconfig_paths(source.read_many([config]).get(config) if config else None)
     contents = source.read_many(paths)
-    routes_dir = find_routes_dir(set(paths))
+    readers = route_readers(source, set(paths))
     project.nodes, stats = _modules(paths, contents, root)
 
     for path in paths:
@@ -368,12 +480,15 @@ def scan(source, known_tables: set[str]) -> Project:
         for use in table_uses(masked):
             project.table_calls[path].append(use)
             if use["table"] in known_tables:
-                project.edge(f"module:{module}", f"table:public.{use['table']}", "uses_table", f"{path}:{use['line']}", use["access"])
+                project.edge(f"module:{module}", f"table:{schema}.{use['table']}", "uses_table", f"{path}:{use['line']}", use["access"])
         for host, line in url_hosts(masked):
             project.edge(f"module:{module}", _service(project, host, f"{path}:{line}"), "uses_service", f"{path}:{line}")
 
-    if routes_dir:
-        _routes(project, paths, routes_dir, root)
+    for folder, reader, style in readers:
+        _routes(project, paths, folder, root, reader, style)
+    if readers:
+        project.routes_dir = readers[0][0].rstrip("/")
+        project.route_style = readers[0][2]
     project.nodes["stats"] = stats
     return project
 
@@ -403,7 +518,7 @@ def _modules(paths: list[str], contents: dict[str, str], root: str) -> tuple[dic
                     "kind": kind,
                     "status": "built",
                     "layer": "facts",
-                    "name": key.rsplit("/", 1)[-1],
+                    "name": ROOT_NAME if key == "." else key.rsplit("/", 1)[-1],
                     "path": key,
                     "area": parent,
                     "files": 0,
@@ -420,11 +535,17 @@ def _modules(paths: list[str], contents: dict[str, str], root: str) -> tuple[dic
     return nodes, {"code_files": len(paths)}
 
 
-def _routes(project: Project, paths: list[str], routes_dir: str, root: str) -> None:
+def _is_api(path: str, url: str, style: str) -> bool:
+    if style == "next-app":
+        return path.rsplit("/", 1)[-1].startswith("route.")
+    return url.startswith("/api/") or url == "/api"
+
+
+def _routes(project: Project, paths: list[str], routes_dir: str, root: str, reader, style: str) -> None:
     for path in paths:
         if not path.startswith(routes_dir) or TEST_FILE.search(path):
             continue
-        url = route_path(path, routes_dir)
+        url = reader(path, routes_dir)
         if url is None:
             continue
         node_id = f"route:{url}"
@@ -437,7 +558,7 @@ def _routes(project: Project, paths: list[str], routes_dir: str, root: str) -> N
                 "layer": "facts",
                 "name": url,
                 "path": url,
-                "route_kind": "api" if url.startswith("/api/") or url == "/api" else "page",
+                "route_kind": "api" if _is_api(path, url, style) else "page",
                 "evidence": [],
             },
         )

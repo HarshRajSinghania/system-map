@@ -3,6 +3,7 @@
     python3 -m core build <repo> [ref]
     python3 -m core stats <repo>
     python3 -m core verify <repo> <catalog.json>
+    python3 -m core verify-sqlite <repo>
     python3 -m core verify-code <repo> <truth.json>
     python3 -m core coverage <repo> [report] [commit]
     python3 -m core risk <repo>
@@ -19,6 +20,7 @@ from collections import Counter
 from pathlib import Path
 
 from . import explore, proposals, risk, store, verify
+from .extractors import sqlite
 from .sources import open_source
 
 
@@ -167,6 +169,18 @@ def check_proposal(repo_root: Path, changes_path: Path, results_path: Path) -> i
     return 1 if diffs else 0
 
 
+def check_sqlite(repo_root: Path) -> int:
+    """Load the repo's schema into a separate real SQLite, and compare it with the model."""
+    source = open_source(repo_root)
+    shards = sqlite.extract(source)["nodes"]
+    truth = sqlite.replay_source(source).connection
+    found = sqlite.differences(shards, truth)
+    for line in found:
+        print(line)
+    print(f"{len(shards)} tables, {len(found)} differences")
+    return 1 if found else 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) == 3 and argv[0] == "proposal-sql":
         return proposal_sql(Path(argv[1]), Path(argv[2]))
@@ -178,6 +192,8 @@ def main(argv: list[str]) -> int:
         return stats(Path(argv[1]).expanduser())
     if len(argv) == 3 and argv[0] == "verify":
         return check(Path(argv[1]).expanduser(), Path(argv[2]))
+    if len(argv) == 2 and argv[0] == "verify-sqlite":
+        return check_sqlite(Path(argv[1]).expanduser())
     if len(argv) == 3 and argv[0] == "verify-code":
         return check_code(Path(argv[1]).expanduser(), Path(argv[2]))
     if len(argv) >= 2 and argv[0] == "coverage":

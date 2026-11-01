@@ -50,7 +50,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"repos": store.project_rows(), "data_root": str(store.data_root())})
             elif path.endswith("/overview"):
                 target = store.resolve_repo(repo)
-                keep = ("repo", "repo_key", "ref", "commit", "version", "built_at", "counts", "stats", "code_root")
+                keep = ("repo", "repo_key", "ref", "commit", "engine", "read", "version", "built_at", "counts", "stats", "code_root")
                 manifest = store.read_manifest(target)
                 self._json(
                     200,

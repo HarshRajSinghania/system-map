@@ -69,8 +69,9 @@ def plan_edges(plan: dict, module_for) -> list[dict]:
 
 
 def build(source, tables: list[dict]) -> dict:
-    known = {table["name"] for table in tables if table["schema"] == "public"}
-    project = typescript.scan(source, known) if typescript.detect(source) else None
+    schema = "main" if any(table["schema"] == "main" for table in tables) else "public"
+    known = {table["name"] for table in tables if table["schema"] == schema}
+    project = typescript.scan(source, known, schema) if typescript.detect(source) else None
     nodes: list[dict] = []
     edges: list[dict] = []
     if project:
@@ -113,4 +114,6 @@ def build(source, tables: list[dict]) -> dict:
         "complexity": dict(project.complexity) if project else {},
         "lines": dict(project.lines) if project else {},
         "code_root": project.code_root if project else "",
+        "routes_dir": project.routes_dir if project else "",
+        "route_style": project.route_style if project else "",
     }
