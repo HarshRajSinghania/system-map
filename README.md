@@ -43,7 +43,7 @@ kirocrew restart
 
 The backend needs you to trust this app when Kiro Crew asks. The restart gives agent sessions the tools, and it stops any work running in your sessions.
 
-Then open System Map from Apps and point it at a repo.
+Then open System Map from Apps and add a project. Use the project menu in the header to add, switch or remove projects. One is open at a time, and each keeps its own view and design chat.
 
 ## Checks
 

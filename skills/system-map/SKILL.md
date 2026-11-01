@@ -30,6 +30,8 @@ it, say so before you start.
 If a result says `inline: false`, it was too large to return. It gives you a file
 path. Read that file in parts. Do not ask for it again with a bigger budget.
 
+The tools use this session's project. Pass `repo` with a project's name only to read a different one.
+
 If `overview` reports `stale` or `map_stale` as true, say so before relying on the model.
 Rebuild it with `build` when the answer depends on recent commits.
 

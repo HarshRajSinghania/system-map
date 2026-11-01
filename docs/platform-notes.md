@@ -80,6 +80,22 @@ backend restarts and upgrades models. A new tool reaches new sessions only.
   path listed in `permissions.api`.
 - The backend runs in the gateway's sandbox wrapper. It can still read repos and run git.
 
+## More than one project
+
+- An agent tool runs in its session's folder. With no `repo`, the tools use the model for that
+  folder, and a worktree counts as its main repo.
+- The app proxy strips the session key, and no documented API names a chat's project. So the
+  side panel can't follow its chat. It names its project and offers the same menu.
+- `/api/recent-projects` isn't in the app docs. It fills Add project when the host allows it,
+  and a refusal just leaves the path field.
+- Removing a project deletes its app data for good. It never touches the repo.
+
+## Host components
+
+Use only names listed in the host's vendor stubs, `kirocrew-ui.mjs` and `kirocrew-app-sdk.mjs`.
+Naming any other export fails the whole app at load. `IconButton` is in the app kit's source,
+but not in the stub.
+
 ## App icon
 
 - `assets/icon.svg` is the source. `assets/icon.png` is that file drawn at 512x512, and it is

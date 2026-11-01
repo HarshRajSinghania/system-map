@@ -1,6 +1,6 @@
 {
   "name": "system-map",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "displayName": "System Map",
   "description": "A live map of your system. Every view reads one model built from your repo, and agents read it through small slices instead of loading it all.",
   "author": "System Map contributors",
@@ -66,7 +66,8 @@
     "api": [
       "/api/chat",
       "/api/chat/slots",
-      "/apps/system-map/api"
+      "/apps/system-map/api",
+      "/api/recent-projects"
     ],
     "storage": true
   },
