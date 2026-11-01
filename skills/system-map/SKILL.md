@@ -1,6 +1,6 @@
 ---
 name: system-map
-description: Read and add to a repo's system model through the system-map tools. Use for questions about data models, how parts of a system connect, what a change touches, what is not built yet, where code is risky, or whether other worktrees are changing the same thing, before reading source files.
+description: Read and add to a repo's system model through the system-map tools. Use for questions about data models, how parts of a system connect, what a change touches, what is not built yet, where code is risky, or whether other worktrees are changing the same thing, before reading source files. Also use to test a what-if idea, map a use case, or save a view.
 ---
 
 # System Map
@@ -39,10 +39,36 @@ come from imports and direct table calls, so they do not show runtime wiring.
 
 `risk` shows `coverage: null` until a report is loaded, and then `covered` is null too. Its
 judgment rests on whether any test reaches the code through imports, which is weaker, so say
-so. Browser tests are not counted, so a screen at 0% may still have them.
+so. Browser tests are not in `risk`, so a screen at 0% may still have them. `use_cases` does
+count them, for the routes they open.
 
 In `worktrees`, `high` means a real trial merge conflicted, or two worktrees change one table.
 A merge is only tried on commits, so `merge: uncommitted` means nobody knows yet.
+
+## Exploring
+
+**What if.** Read the tables you will change first, so a proposal starts from the real schema.
+Use `propose` with `dry_run: true`, read its limits, fix what you can, then save it. Change
+order matters, because each change sees the ones before it.
+
+| Limit kind | Means |
+|---|---|
+| `refused` | Postgres says no. This is proven, so fix it |
+| `cannot_support` | The schema can't hold what is needed |
+| `breaks` | It runs, but something stops working, or it fails once rows exist |
+| `advice` | Worth saying: new findings, hot code, a worktree already there |
+
+Silence is not proof. The rules are a floor, so a clean proposal can still fail on something
+the model does not hold. To be sure, run it on real Postgres with `scripts/try_proposal.sh`.
+
+Only a person accepts a draft. Say what you drafted and where it stands. Never claim it is
+accepted, and never apply a proposal to a repo unless you are asked to build it.
+
+**Use cases.** Call `use_case` with the routes, tables and modules it takes. Name parts that do
+not exist yet, because a missing part is the point. Put what the schema must hold in `needs`.
+
+**Views.** When someone asks to see something, call `save_view`, then say it is in Explore.
+Look ids up first with `search`. A view can't name a part the model does not hold.
 
 ## Loading coverage
 

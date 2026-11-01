@@ -12,6 +12,10 @@ Status: early. It reads TypeScript projects, TanStack file routes, Postgres migr
 - **Risk.** Code that changes often, has many paths and few tests, worst first. It works from imports alone, and a coverage report gives it real numbers.
 - **Worktrees.** What each worktree is changing, live, and where two of them collide. A conflict comes from a real trial merge, and two worktrees on one table raise a warning. The Map, the Data model and the chat side panel show it too.
 - **Findings.** Rule checks such as a table without row level security or a foreign key with no index. Each one cites its file and line.
+- **Explore.** Think about what the system could be, with nothing touching your repo.
+  - **What if:** describe a change, and the Design chat drafts a proposal. You get a diff against today, what Postgres will refuse, what breaks, draft SQL, and which use case gaps it closes. Draw it on the Map or in the Data model, then go back to today.
+  - **Use cases:** map what someone needs to do to its routes, tables and tests. Gaps show what is missing, untested, or more than the schema can hold.
+  - **Views:** ask for a picture in chat, and the app draws and keeps it.
 - **Design chat.** A chat beside the map, and an Ask button on everything.
 - **Agent tools.** Any session can read the model through MCP tools.
 
@@ -25,7 +29,7 @@ Status: early. It reads TypeScript projects, TanStack file routes, Postgres migr
 | `backend/` | HTTP API for the dashboard pages. Stdlib only. |
 | `ui/` | The app page and the chat side panel tab. |
 | `skills/system-map/` | How agents should read and write the model. |
-| `scripts/` | Replay migrations on a throwaway Postgres. |
+| `scripts/` | Replay migrations and try proposals on a throwaway Postgres. |
 | `docs/` | Context rules and platform notes. |
 
 ## Install from a local clone
@@ -81,6 +85,24 @@ python3 -m core verify-risk <repo> /tmp/truth.json <coverage-summary.json>
 ```
 
 Paths are counted from text, so screen copy can fool them a little. They must stay within 0.5% of the compiler.
+
+## Prove limits against real Postgres
+
+The rules that say what Postgres will refuse are a floor. When one says refused, Postgres refuses. When they stay silent, Postgres may still refuse for a reason the model does not hold, such as a function that takes a table's row.
+
+Run one proposal on a throwaway server, with one file of changes as JSON:
+
+```bash
+python3 -m core proposal-sql changes.json /tmp/changes
+scripts/try_proposal.sh <repo> origin/main supabase/migrations /tmp/try /tmp/changes [bootstrap.sql]
+python3 -m core verify-proposal <repo> changes.json /tmp/try/results.json
+```
+
+Or hold every rule to a whole schema. This tries a drop, three new types and both null rules on every column, and a drop on every table. It fails only if a rule says refused and Postgres accepts:
+
+```bash
+scripts/sweep_limits.py <repo> origin/main supabase/migrations /tmp/sweep [bootstrap.sql]
+```
 
 ## Load a coverage report
 

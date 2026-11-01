@@ -58,6 +58,17 @@ An installed app's buttons get no default styling, so use the SDK's own controls
   `--full-history`, or a real commit goes missing.
 - `git log --follow` treats a copy as the same file, so it counts another file's history.
 
+## Reading Postgres dependencies
+
+- A policy depends on every column its expressions name, including columns of other tables
+  read in a subquery. So a policy on one table can stop a column on another being dropped.
+- Names need reading in scope. In `SELECT u.id FROM users u`, `id` is not this table's `id`.
+- A trigger's `UPDATE OF col` and `WHEN` clause tie it to those columns too.
+- A type change rebuilds checks. `jsonb_typeof(col)` stops compiling if `col` becomes text.
+- Migrations can seed rows, so an empty replay is not always empty.
+- Functions and policies on tables outside the model can block a change, and the model does not
+  read those. That is why the rules are called a floor.
+
 ## Updating an installed app
 
 Library, then the app's Details, then Sync reloads its files from the source folder. The

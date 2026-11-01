@@ -30,6 +30,16 @@ Risk and worktrees add little, because tools return only what is worst or what i
 | `worktrees` for one node | 1,573 | Who is on it, and their overlaps |
 | `overview` | 2,545 | With the worst modules and any collisions |
 
+Exploring stays cheap, because a proposal is its changes and a verdict, not a copy of the schema.
+This is a 12-change proposal on the same repo:
+
+| Tool call | Chars | Note |
+|---|---|---|
+| `propose`, dry run | 6,972 | Diff, 9 limits and SQL |
+| `proposals` | 309 | One row each |
+| `proposals` with an id | 8,762 | Everything about one proposal |
+| `use_cases` | 2,568 | One use case, its parts and gaps |
+
 ### Slices against the whole model
 
 One question, asked in two fresh Claude Code runs on the same model: which tables have a

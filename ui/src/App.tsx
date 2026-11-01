@@ -173,7 +173,9 @@ export default function SystemMapApp() {
   const chat = useDesignSlot(overview ? overview.manifest.repo : null)
 
   // The map inspects a single thing, not a whole area or group.
-  const inspected = view === 'map' ? (focus && !/^(area|group):/.test(focus) ? focus : null) : view === 'data' ? selected : null
+  const picked = view === 'map' ? (focus && !/^(area|group):/.test(focus) ? focus : null) : view === 'data' ? selected : null
+  // A proposed part doesn't exist yet, so there is nothing to look up.
+  const inspected = drawn && proposal?.diff.added.some((row) => row.id === picked) ? null : picked
   const node = useNode<NodeInfo>(inspected, repo)
 
   const flagged = useMemo(() => {
@@ -271,6 +273,9 @@ export default function SystemMapApp() {
   const clearOverlays = () => {
     setDrawn(false)
     setSavedView(null)
+    // What was selected may have been proposed, and today it doesn't exist.
+    setSelected(null)
+    setFocus(null)
   }
   const setPlanStatus = async (id: string, status: PlanStatus | null) => {
     await api.post(`${BASE}/plan-status`, { repo: overview?.manifest.repo_key, id, status })
