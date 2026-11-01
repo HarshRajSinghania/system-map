@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -119,4 +120,5 @@ class Server(HTTPServer):
 
 
 if __name__ == "__main__":
+    threading.Thread(target=store.refresh_all, daemon=True).start()
     Server(("127.0.0.1", PORT), Handler).serve_forever()

@@ -35,6 +35,20 @@ and the fix were confirmed in a live gateway. Tools appear as
 
 An installed app's buttons get no default styling, so use the SDK's own controls.
 
+## Building the page
+
+- Theme with the host's CSS variables, such as `--card`, `--text`, `--muted`, `--border`,
+  `--accent`, `--danger` and `--warn-text`, and give each a fallback.
+- `SegmentedControl` is listed in the SDK docs. This app uses `Btn` with `primary` instead.
+- Library mode leaves `process.env.NODE_ENV` in bundled packages, and a browser has no
+  `process`. Set it with Vite's `define`.
+- `style-src` allows inline styles, so a bundled library's CSS can be injected as a `<style>`.
+  Inject it at import. React Flow checks for it while mounting.
+- React Flow's `fitView` queues behind a store update, and with controlled nodes it did not
+  run here. This app works out the frame itself with `getViewportForBounds`.
+- Agents can't log in to the dashboard, so `ui/dev` stands in for the host for screenshots.
+  It proves layout and logic, not the host's own components.
+
 ## Reaching the backend
 
 - The page reaches the backend through `useAppApi` at `/apps/system-map/api/...`, with that

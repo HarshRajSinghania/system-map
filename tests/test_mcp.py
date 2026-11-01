@@ -87,8 +87,13 @@ class McpServerTests(unittest.TestCase):
     def test_unknown_node_is_an_error_result(self):
         self.assertTrue(self.tool("node", id="table:public.nope")["isError"])
 
+    def test_results_are_compact(self):
+        text = self.tool("node", id="table:public.users")["content"][0]["text"]
+        self.assertNotIn('\\n  "', text)
+        self.assertNotIn('": ', text)
+
     def test_export_all_returns_a_path_when_over_budget(self):
-        tables = 40
+        tables = 80
         migration = self.repo / "supabase" / "migrations" / "002.sql"
         migration.write_text(
             "\n".join(f"CREATE TABLE public.t{i} (id uuid PRIMARY KEY, note text);" for i in range(tables))

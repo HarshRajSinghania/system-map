@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  // Library mode leaves this for the host to supply, and a browser has no `process`.
+  define: { 'process.env.NODE_ENV': JSON.stringify('production') },
   build: {
     lib: {
       entry: { index: 'src/App.tsx', panel: 'src/Panel.tsx' },

@@ -30,8 +30,9 @@ from . import extractors, findings
 from .sources import canonical_root, git, open_source
 
 SCHEMA_VERSION = 2
-#: The most a tool hands back inline. Larger answers go to a slice file.
-DEFAULT_BUDGET_CHARS = 4000
+#: The most a tool hands back inline. Larger answers go to a slice file. This fits any
+#: one table, and sits well under the 20,000 chars proven to reach a model whole.
+DEFAULT_BUDGET_CHARS = 12000
 #: Past this the overview stops being a cheap first read, so it is a hard limit.
 OVERVIEW_LIMIT_CHARS = 6000
 KEEP_VERSIONS = 5
@@ -145,6 +146,33 @@ def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> 
     _write_json(target / "manifest.json", manifest)
     _prune(versions, version)
     return manifest
+
+
+def refresh_all(root: Path | None = None) -> list[str]:
+    """Rebuild every known model. A build with nothing new costs almost nothing.
+
+    Runs when the backend starts, so an app update carries models to its new format
+    and its new parser without anyone asking.
+    """
+    base = (root or data_root()) / "repos"
+    done = []
+    for path in sorted(base.iterdir()) if base.is_dir() else []:
+        if not (path / "manifest.json").is_file():
+            continue
+        try:
+            manifest = read_manifest(path)
+            ref = manifest.get("ref")
+            build(Path(manifest["repo"]), root, None if ref in (None, "working tree") else ref)
+            for leftover in ("facts", "overview.md"):
+                target = path / leftover
+                if target.is_dir():
+                    shutil.rmtree(target, ignore_errors=True)
+                elif target.exists():
+                    target.unlink()
+            done.append(path.name)
+        except (KeyError, ValueError, OSError):
+            continue
+    return done
 
 
 def _write_version(folder: Path, extraction: extractors.Extraction, found: list[dict]) -> dict[str, str]:

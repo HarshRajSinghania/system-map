@@ -15,7 +15,8 @@ Go from small to large, and stop as soon as you can answer:
 1. `overview`: the index. It shows the commit and whether the model is stale.
 2. `search`: find node ids by table, column or foreign key target.
 3. `node` or `neighbors`: one table or its links.
-4. `export_all`: only for a job that truly needs the whole schema.
+4. `findings`: rule checks, such as a foreign key with no index. Filter by node or severity.
+5. `export_all`: only for a job that truly needs the whole schema.
 
 If a result says `inline: false`, it was too large to return. It gives you a file
 path. Read that file in parts. Do not ask for it again with a bigger budget.

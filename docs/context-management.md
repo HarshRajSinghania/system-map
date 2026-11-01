@@ -5,14 +5,15 @@ and the rules that follow from it.
 
 ## Measured
 
-Test repo: a production app with 33 tables, 323 columns and 283 KB of migrations.
+Test repo: a production app with 33 tables, 324 columns and 283 KB of migrations.
 
 | Thing | Chars |
 |---|---|
-| `overview.md` | 1,372 |
-| Median table file | 3,555 |
-| Largest table file | 8,153 |
-| Every table together | 125,062 |
+| `overview.md` | 1,433 |
+| Median table, as a tool returns it | 4,043 |
+| Largest table, as a tool returns it | 10,330 |
+| All 24 findings, as a tool returns them | 8,587 |
+| Every table, as stored | 185,133 |
 
 The migrations cover the data model only. The same repo has 3.4 MB in `src` and
 433 KB in `docs`, so later layers will be far larger than the numbers above.
@@ -28,8 +29,8 @@ foreign key to `clients`, and what is each delete rule?
 | Whole model (`export_all`, then read it) | 77,984 | $0.0167 | 3 | Yes, 7 of 7 |
 
 Slices used about 6x less new context. The whole-model run would also carry that weight
-on every later turn until compaction. This is one question on one repo, so treat the
-ratio as a direction, not a constant.
+on every later turn until compaction. This is one question on one repo, measured before
+tables gained their policies and triggers, so treat the ratio as a direction, not a constant.
 
 ### Limits along the path
 
@@ -47,11 +48,13 @@ ratio as a direction, not a constant.
    files. A chat carries ids and paths.
 2. **Read small to large.** `overview`, then `search`, then `node`. The `system-map` skill
    tells agents to stop as soon as they can answer.
-3. **Every tool has a budget.** Results over 4,000 chars are written to a slice file and
-   the tool returns the path and a 600-char head. Staying well under the client's limit
-   means we choose what happens to a large answer, not the client.
-4. **The overview has a hard limit.** The build fails over 6,000 chars. When it is near,
-   the overview must group by area instead of listing every table.
+3. **Every tool has a budget.** Results over 12,000 chars are written to a slice file and
+   the tool returns the path and a 600-char head. That fits any one table, so a normal read
+   never needs a second step. Staying well under the client's limit means we choose what
+   happens to a large answer, not the client. Results are compact JSON, because indenting
+   a table cost about 30% more for nothing.
+4. **The overview has a hard limit of 6,000 chars.** Past that it lists names, then says how
+   many more there are. Agents reach the rest with `search`.
 5. **Send references, not content.** "Ask about this table" sends a node id. A sub-agent
    gets ids and paths, writes its results to files and returns a path.
 6. **Findings go in notes, not chat.** A note is a file with evidence, so it outlives the

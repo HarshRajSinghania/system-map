@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import store  # noqa: E402
 
 PROTOCOL_VERSION = "2025-06-18"
-BUDGET = {"type": "integer", "description": "Most chars to return inline. Default 4000."}
+BUDGET = {"type": "integer", "description": f"Most chars to return inline. Default {store.DEFAULT_BUDGET_CHARS}."}
 REPO = {"type": "string", "description": "Repo path or key. Optional when one model exists."}
 
 TOOLS = [
@@ -106,6 +106,11 @@ TOOLS = [
 ]
 
 
+def compact(value: object) -> str:
+    """JSON for a model to read: no spaces, since every char is context."""
+    return json.dumps(value, separators=(",", ":"))
+
+
 def call(name: str, args: dict) -> object:
     budget = int(args.get("budget_chars") or store.DEFAULT_BUDGET_CHARS)
     if name == "build":
@@ -128,11 +133,11 @@ def call(name: str, args: dict) -> object:
             if (not args.get("node") or finding["node"] == args["node"])
             and (not args.get("severity") or finding["severity"] == args["severity"])
         ]
-        return store.fit(target, "findings", json.dumps(found, indent=1), budget)
+        return store.fit(target, "findings", compact(found), budget)
     if name == "node":
-        return store.fit(target, "node", json.dumps(store.load_node(target, args["id"]), indent=1), budget)
+        return store.fit(target, "node", compact(store.load_node(target, args["id"])), budget)
     if name == "neighbors":
-        return store.fit(target, "neighbors", json.dumps(store.neighbors(target, args["id"]), indent=1), budget)
+        return store.fit(target, "neighbors", compact(store.neighbors(target, args["id"])), budget)
     if name == "search":
         return store.search(target, args["query"], int(args.get("limit") or 20))
     if name == "export_all":
@@ -151,7 +156,7 @@ def respond(request: dict) -> dict | None:
         result: dict = {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "system-map", "version": "0.0.1"},
+            "serverInfo": {"name": "system-map", "version": "0.1.0"},
         }
     elif method == "ping":
         result = {}
@@ -161,7 +166,7 @@ def respond(request: dict) -> dict | None:
         params = request.get("params") or {}
         try:
             value = call(params.get("name", ""), params.get("arguments") or {})
-            text = value if isinstance(value, str) else json.dumps(value)
+            text = value if isinstance(value, str) else compact(value)
             result = {"content": [{"type": "text", "text": text}]}
         except (KeyError, ValueError, OSError) as error:
             result = {"content": [{"type": "text", "text": str(error)}], "isError": True}

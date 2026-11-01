@@ -1,0 +1,326 @@
+import dagre from '@dagrejs/dagre'
+import { useTheme } from '@kirocrew/app-sdk'
+import {
+  Background,
+  Controls,
+  Handle,
+  MarkerType,
+  MiniMap,
+  Panel,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  getViewportForBounds,
+  useReactFlow,
+  useStore,
+} from '@xyflow/react'
+import type { Edge, Node, NodeProps } from '@xyflow/react'
+import flowCss from '@xyflow/react/dist/style.css?inline'
+import { memo, useEffect, useMemo, useRef } from 'react'
+import type { Graph, GraphColumn, GraphTable } from './model'
+import { MONO, MUTED } from './parts'
+
+export type Density = 'names' | 'keys' | 'columns'
+
+const WIDTH: Record<Density, number> = { names: 210, keys: 240, columns: 240 }
+const HEADER = 34
+const ROW = 20
+const INSPECTOR_ROOM = 370
+const MIN_ZOOM = 0.05
+
+const STYLE_ID = 'system-map-erd-css'
+const THEME_CSS = `
+.system-map-erd .react-flow {
+  --xy-background-color: transparent;
+  --xy-edge-stroke: var(--border-strong, #a1a1aa);
+  --xy-controls-button-background-color: var(--card, #fff);
+  --xy-controls-button-background-color-hover: var(--bg-hover, #f4f4f5);
+  --xy-controls-button-color: var(--text, #18181b);
+  --xy-controls-button-border-color: var(--border, #e4e4e7);
+  --xy-minimap-background-color: var(--card, #fff);
+  --xy-minimap-node-background-color: var(--border-strong, #a1a1aa);
+  --xy-attribution-background-color: transparent;
+}
+.system-map-erd .react-flow__handle { opacity: 0; pointer-events: none; min-width: 1px; min-height: 1px; }
+.system-map-erd .react-flow__node { cursor: pointer; }
+`
+
+// At import, not in an effect: React Flow checks for its styles as it mounts.
+if (!document.getElementById(STYLE_ID)) {
+  const style = document.createElement('style')
+  style.id = STYLE_ID
+  style.textContent = flowCss + THEME_CSS
+  document.head.appendChild(style)
+}
+
+interface CardData extends Record<string, unknown> {
+  table: GraphTable
+  columns: GraphColumn[]
+  hidden: number
+  flags: number
+  focused: boolean
+  width: number
+  large: boolean
+}
+
+type CardNode = Node<CardData, 'table'>
+
+const TableCard = memo(function TableCard({ data }: NodeProps<CardNode>) {
+  const { table, columns, hidden, flags, focused, width, large } = data
+  const external = table.status === 'external'
+  return (
+    <div
+      style={{
+        width,
+        borderRadius: 8,
+        overflow: 'hidden',
+        background: 'var(--card, #fff)',
+        color: 'var(--text, #18181b)',
+        border: `1px ${external ? 'dashed' : 'solid'} ${focused ? 'var(--accent, #2563eb)' : 'var(--border-strong, #a1a1aa)'}`,
+        boxShadow: focused ? '0 0 0 3px var(--accent-subtle, rgba(37,99,235,.2))' : undefined,
+        fontSize: 12,
+      }}
+    >
+      <Handle type="target" position={Position.Left} isConnectable={false} />
+      <Handle type="source" position={Position.Right} isConnectable={false} />
+      <div
+        style={{
+          height: HEADER,
+          boxSizing: 'border-box',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 6,
+          padding: '0 10px',
+          fontSize: large ? 16 : 13,
+          fontWeight: 600,
+          background: columns.length ? 'var(--bg-hover, #f4f4f5)' : undefined,
+        }}
+      >
+        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{table.name}</span>
+        <span style={{ display: 'flex', gap: 6, fontWeight: 400, fontSize: 11, flexShrink: 0 }}>
+          {flags > 0 && <span style={{ color: 'var(--warn-text, #b45309)' }}>{flags}</span>}
+          {table.rls === false && <span style={{ color: 'var(--danger, #dc2626)' }}>no RLS</span>}
+          {external && <span style={MUTED}>outside</span>}
+        </span>
+      </div>
+      {columns.map((column) => (
+        <div
+          key={column.name}
+          style={{ height: ROW, boxSizing: 'border-box', display: 'flex', alignItems: 'center', gap: 6, padding: '0 10px' }}
+        >
+          <span style={{ width: 16, color: 'var(--accent, #2563eb)', fontWeight: 600, fontSize: 10 }}>
+            {column.primary ? 'PK' : column.foreign ? 'FK' : ''}
+          </span>
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{column.name}</span>
+          <span style={{ ...MUTED, ...MONO, fontSize: 11, maxWidth: 90, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {column.type}
+          </span>
+        </div>
+      ))}
+      {hidden > 0 && <div style={{ ...MUTED, height: ROW, padding: '0 10px', lineHeight: `${ROW}px` }}>+{hidden} more</div>}
+    </div>
+  )
+})
+
+const NODE_TYPES = { table: TableCard }
+
+function shownColumns(table: GraphTable, density: Density): GraphColumn[] {
+  if (density === 'names') return []
+  return density === 'columns' ? table.columns : table.columns.filter((column) => column.primary || column.foreign)
+}
+
+function cardHeight(table: GraphTable, density: Density): number {
+  if (density === 'names') return HEADER + 2
+  const shown = shownColumns(table, density).length
+  return HEADER + shown * ROW + (shown < table.columns.length ? ROW : 0) + 2
+}
+
+/** Place every table left to right, so foreign keys read from child to parent. */
+function placeTables(graph: Graph, density: Density): Map<string, { x: number; y: number }> {
+  const width = WIDTH[density]
+  const layout = new dagre.graphlib.Graph({ multigraph: true })
+  const tight = density === 'names'
+  layout.setGraph({ rankdir: 'LR', nodesep: tight ? 12 : 24, ranksep: tight ? 70 : 110, marginx: 16, marginy: 16 })
+  layout.setDefaultEdgeLabel(() => ({}))
+  const known = new Set(graph.tables.map((table) => table.id))
+  for (const table of graph.tables) layout.setNode(table.id, { width, height: cardHeight(table, density) })
+  for (const edge of graph.edges) {
+    if (edge.source !== edge.target && known.has(edge.target)) layout.setEdge(edge.source, edge.target, {}, edge.id)
+  }
+  dagre.layout(layout)
+  const places = new Map<string, { x: number; y: number }>()
+  for (const table of graph.tables) {
+    const placed = layout.node(table.id)
+    places.set(table.id, { x: placed.x - width / 2, y: placed.y - cardHeight(table, density) / 2 })
+  }
+  return places
+}
+
+/** A table, the tables it touches, and only the lines that touch it. */
+function neighborhood(graph: Graph, id: string): Graph {
+  const edges = graph.edges.filter((edge) => edge.source === id || edge.target === id)
+  const ids = new Set([id, ...edges.flatMap((edge) => [edge.source, edge.target])])
+  return { tables: graph.tables.filter((table) => ids.has(table.id)), edges }
+}
+
+const RULES: [string, string][] = [
+  ['cascade', 'var(--danger, #dc2626)'],
+  ['set null', 'var(--warn-text, #b45309)'],
+  ['no action', 'var(--border-strong, #a1a1aa)'],
+]
+
+function edgeColor(rule: string): string {
+  return (RULES.find(([name]) => name === rule) ?? RULES[2])[1]
+}
+
+function Legend() {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        gap: 10,
+        padding: '4px 8px',
+        fontSize: 11,
+        borderRadius: 6,
+        background: 'var(--card, #fff)',
+        border: '1px solid var(--border, #e4e4e7)',
+        color: 'var(--text, inherit)',
+      }}
+    >
+      <span style={MUTED}>On delete</span>
+      {RULES.map(([name, color]) => (
+        <span key={name} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ width: 14, height: 2, background: color }} />
+          {name}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function Diagram({
+  graph,
+  selected,
+  flagged,
+  density,
+  onSelect,
+}: {
+  graph: Graph
+  selected: string | null
+  flagged: Map<string, number>
+  density: Density
+  onSelect: (id: string | null) => void
+}) {
+  const { mode } = useTheme()
+  const flow = useReactFlow()
+  // A selected table gets its own layout: it and its neighbors, large enough to read.
+  const scope = useMemo(() => (selected ? neighborhood(graph, selected) : graph), [graph, selected])
+  const shape: Density = selected && density === 'names' ? 'keys' : density
+  const places = useMemo(() => placeTables(scope, shape), [scope, shape])
+
+  const nodes = useMemo<CardNode[]>(
+    () =>
+      scope.tables.map((table) => {
+        const columns = shownColumns(table, shape)
+        return {
+          id: table.id,
+          type: 'table',
+          position: places.get(table.id) ?? { x: 0, y: 0 },
+          width: WIDTH[shape],
+          height: cardHeight(table, shape),
+          data: {
+            table,
+            columns,
+            hidden: shape === 'names' ? 0 : table.columns.length - columns.length,
+            flags: flagged.get(table.id) ?? 0,
+            focused: table.id === selected,
+            width: WIDTH[shape],
+            large: shape === 'names',
+          },
+        }
+      }),
+    [scope, shape, places, flagged, selected],
+  )
+
+  const edges = useMemo<Edge[]>(
+    () =>
+      scope.edges.map((edge) => {
+        const color = edgeColor(edge.on_delete)
+        return {
+          id: edge.id,
+          source: edge.source,
+          target: edge.target,
+          selectable: false,
+          markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color },
+          style: { stroke: color, strokeWidth: selected ? 2 : 1, opacity: 0.8 },
+        }
+      }),
+    [scope, selected],
+  )
+
+  // Frame from the sizes we already know, so the camera never waits on a measure pass.
+  const width = useStore((state) => state.width)
+  const height = useStore((state) => state.height)
+  const moved = useRef(false)
+  useEffect(() => {
+    if (!width || !height) return
+    const rects = scope.tables.map((table) => ({
+      ...(places.get(table.id) ?? { x: 0, y: 0 }),
+      width: WIDTH[shape],
+      height: cardHeight(table, shape),
+    }))
+    const left = Math.min(...rects.map((rect) => rect.x))
+    const top = Math.min(...rects.map((rect) => rect.y))
+    const right = Math.max(...rects.map((rect) => rect.x + rect.width))
+    const bottom = Math.max(...rects.map((rect) => rect.y + rect.height))
+    const room = selected ? Math.min(INSPECTOR_ROOM, width * 0.5) : 0
+    const view = getViewportForBounds(
+      { x: left, y: top, width: right - left, height: bottom - top },
+      width - room,
+      height,
+      MIN_ZOOM,
+      1,
+      0.04,
+    )
+    void flow.setViewport(view, { duration: moved.current ? 200 : 0 })
+    moved.current = true
+  }, [flow, scope, selected, places, shape, width, height])
+
+  return (
+    <ReactFlow
+      nodes={nodes}
+      edges={edges}
+      nodeTypes={NODE_TYPES}
+      colorMode={mode}
+      minZoom={MIN_ZOOM}
+      maxZoom={1.5}
+      nodesConnectable={false}
+      onNodeClick={(_event, node) => onSelect(node.id)}
+      onPaneClick={() => onSelect(null)}
+    >
+      <Background gap={24} size={1} />
+      <Controls showInteractive={false} />
+      <MiniMap pannable zoomable style={{ width: 120, height: 80 }} />
+      <Panel position="top-left">
+        <Legend />
+      </Panel>
+    </ReactFlow>
+  )
+}
+
+export function Erd(props: {
+  graph: Graph
+  selected: string | null
+  flagged: Map<string, number>
+  density: Density
+  onSelect: (id: string | null) => void
+}) {
+  return (
+    <div className="system-map-erd" style={{ position: 'absolute', inset: 0 }} data-testid="erd">
+      <ReactFlowProvider>
+        <Diagram {...props} />
+      </ReactFlowProvider>
+    </div>
+  )
+}

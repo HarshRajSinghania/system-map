@@ -120,6 +120,27 @@ class Versions(Fixture):
         path.write_text(json.dumps({**self.manifest, "schema_version": 1}))
         self.assertEqual(store.repos(self.data), [])
 
+    def test_startup_refresh_upgrades_an_old_format_model(self):
+        old = {"schema_version": 1, "repo": str(self.repo), "repo_key": self.target.name, "commit": self.first}
+        (self.target / "manifest.json").write_text(json.dumps(old))
+        (self.target / "facts" / "tables").mkdir(parents=True)
+        (self.target / "overview.md").write_text("old")
+        self.assertEqual(store.refresh_all(self.data), [self.target.name])
+        self.assertEqual(len(store.repos(self.data)), 1)
+        self.assertFalse((self.target / "facts").exists())
+        self.assertFalse((self.target / "overview.md").exists())
+
+    def test_startup_refresh_survives_a_repo_that_is_gone(self):
+        path = self.target / "manifest.json"
+        path.write_text(json.dumps({**self.manifest, "repo": str(self.base / "gone")}))
+        self.assertEqual(store.refresh_all(self.data), [])
+
+    def test_a_parser_change_makes_a_new_version(self):
+        original = store._builder_id
+        store._builder_id = lambda: "something else"
+        self.addCleanup(setattr, store, "_builder_id", original)
+        self.assertFalse(store.build(self.repo, self.data).get("unchanged"))
+
 
 class Freshness(Fixture):
     def test_a_commit_without_a_migration_is_behind_but_not_stale(self):
@@ -196,9 +217,10 @@ class Budgets(Fixture):
         self.assertTrue(store.fit(self.target, "x", "short")["inline"])
 
     def test_large_answers_go_to_a_file(self):
-        result = store.fit(self.target, "x", "y" * 5000)
+        text = "y" * (store.DEFAULT_BUDGET_CHARS + 1)
+        result = store.fit(self.target, "x", text)
         self.assertFalse(result["inline"])
-        self.assertEqual(Path(result["path"]).read_text(), "y" * 5000)
+        self.assertEqual(Path(result["path"]).read_text(), text)
         self.assertLessEqual(len(result["head"]), 600)
 
 
