@@ -21,10 +21,10 @@ app.json mcpServers
   -> the session array includes the server
 ```
 
-So after a first install the server is declared but not mounted. The docs for Claude
-sessions say the array is read per spawn, so a new session is not enough on its own. The
-source says gateway boot rebuilds the spec, so a restart should mount it. That is not yet
-confirmed by a run.
+So after a first install the server is declared but not mounted. A new session does not
+help, because the spec it reads still has no `tools` entry. A test in a fresh session
+confirmed the tools were missing. The source says gateway boot rebuilds the spec, so a
+restart should mount them. That is not yet confirmed by a run.
 
 ## Reaching the backend
 
