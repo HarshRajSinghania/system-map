@@ -442,7 +442,8 @@ def table_index(target: Path) -> list[dict]:
                 "columns": len(shard["columns"]),
                 "foreign_keys": sum(1 for c in shard["constraints"] if c["kind"] == "foreign_key"),
                 "policies": len(shard["policies"]),
-                "rls": shard["rls"],
+                # Row level security is a Postgres idea, so SQLite has no answer to give.
+                "rls": None if shard["schema"] == "main" else shard["rls"],
             }
         )
     return rows
@@ -465,7 +466,7 @@ def graph_of(shards: list[dict], externals: list[dict]) -> dict:
                 "id": shard["id"],
                 "name": shard["name"],
                 "status": shard["status"],
-                "rls": shard["rls"],
+                "rls": None if shard["schema"] == "main" else shard["rls"],
                 "columns": [
                     {
                         "name": c["name"],

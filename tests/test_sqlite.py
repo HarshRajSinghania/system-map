@@ -345,6 +345,9 @@ class InTheWholeModel(Repo):
         edges = {(edge["source"], edge["target"], edge["kind"]) for edge in self.system()["edges"]}
         self.assertIn(("route:/", "module:lib", "renders"), edges)
 
+    def test_the_diagram_makes_no_claim_about_row_level_security(self):
+        self.assertTrue(all(table["rls"] is None for table in store.graph(self.target)["tables"]))
+
     def test_the_routes_folder_is_saved(self):
         self.assertEqual(self.system()["routes_dir"], "app")
 

@@ -32,6 +32,10 @@ path. Read that file in parts. Do not ask for it again with a bigger budget.
 
 The tools use this session's project. Pass `repo` with a project's name only to read a different one.
 
+`overview` returns `read`, which says what the model covers and what it couldn't read. Check it before
+you say something doesn't exist. On SQLite, tables are named `main.<table>`, and limits don't run, so
+`propose` returns `limits_checked: false`. Say so rather than calling a proposal safe.
+
 If `overview` reports `stale` or `map_stale` as true, say so before relying on the model.
 Rebuild it with `build` when the answer depends on recent commits.
 

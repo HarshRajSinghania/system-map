@@ -70,8 +70,9 @@ class Index:
     """What exists at the commit, for looking claims up."""
 
     def __init__(self, source):
-        self.files = set(source.list_files())
-        self.dirs = {"/".join(f.split("/")[:i]) for f in self.files for i in range(1, f.count("/") + 1)}
+        # Sorted, so a name two files share picks the same file on every build.
+        self.files = dict.fromkeys(sorted(source.list_files()))
+        self.dirs = dict.fromkeys(sorted({"/".join(f.split("/")[:i]) for f in self.files for i in range(1, f.count("/") + 1)}))
         self.roots = {path.split("/")[0] for path in self.files}
         self.names = {f.rsplit("/", 1)[-1] for f in self.files}
         self.stems = {name.rsplit(".", 1)[0] for name in self.names}

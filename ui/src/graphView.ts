@@ -22,6 +22,8 @@ export interface Line {
 export interface MapView {
   cards: Card[]
   lines: Line[]
+  /** Thin links left out, so the legend only mentions them when it is true. */
+  hidden?: number
 }
 
 const UNBUILT = new Set(['planned', 'partial'])
@@ -29,7 +31,12 @@ export const GROUP_TABLES = 'group:tables'
 export const GROUP_ROUTES = 'group:routes'
 export const GROUP_JOBS = 'group:jobs'
 
+function sizeOf(node: SystemNode): string {
+  return `${node.files} ${node.files === 1 ? 'file' : 'files'}, ${node.lines} lines`
+}
+
 export function shortPath(path: string): string {
+  if (path === '.') return 'root files'
   return path.replace(/^src\//, '')
 }
 
@@ -39,14 +46,14 @@ function cardFor(node: SystemNode): Card {
   }
   switch (node.kind) {
     case 'area':
-      return { id: node.id, kind: 'area', title: shortPath(node.path ?? node.name), subtitle: `${node.files} files, ${node.lines} lines` }
+      return { id: node.id, kind: 'area', title: shortPath(node.path ?? node.name), subtitle: sizeOf(node) }
     case 'module': {
       const top = node.area === `area:${node.path}`
       return {
         id: node.id,
         kind: 'module',
         title: top ? `${node.name} (top level)` : node.name,
-        subtitle: `${node.files} files, ${node.lines} lines`,
+        subtitle: sizeOf(node),
       }
     }
     case 'plan':
@@ -89,6 +96,12 @@ interface Rollup {
 
 /** At the top level, links this thin are noise. Opening an area shows them all. */
 const WEAK_IMPORTS = 3
+/** With this few links nothing is crowded, and each one tells you something. */
+const FEW_LINES = 24
+
+function inRoutes(path: string | undefined, routesDir: string | null): boolean {
+  return Boolean(path && routesDir && (path === routesDir || path.startsWith(`${routesDir}/`)))
+}
 
 function display(id: string, rollup: Rollup): string | null {
   if (id.startsWith('table:')) return GROUP_TABLES
@@ -96,9 +109,7 @@ function display(id: string, rollup: Rollup): string | null {
   if (!node) return null
   // Something proposed stays its own card, so a what-if never hides inside a group.
   if (node.status === 'proposed') return id
-  if ((node.kind === 'module' || node.kind === 'area') && rollup.routesDir && node.path === rollup.routesDir) {
-    return GROUP_ROUTES
-  }
+  if ((node.kind === 'module' || node.kind === 'area') && inRoutes(node.path, rollup.routesDir)) return GROUP_ROUTES
   if (node.kind === 'module') return node.area === rollup.open ? id : (node.area ?? id)
   if (node.kind === 'route') return rollup.expanded === GROUP_ROUTES ? id : GROUP_ROUTES
   if (node.kind === 'job') return rollup.expanded === GROUP_JOBS ? id : GROUP_JOBS
@@ -140,15 +151,16 @@ function cardsFor(ids: Set<string>, rollup: Rollup, groups: Card[]): Card[] {
 /** Everything at the top: areas, routes, the database, services, unbuilt plans. */
 function systemLevel(system: SystemGraph, rollup: Rollup, tables: number, showPlans: boolean): MapView {
   const groups = groupCards(system, tables)
-  const lines = rollLines(system, rollup, showPlans, () => true).filter((line) => line.kind !== 'imports' || line.count >= WEAK_IMPORTS)
+  const every = rollLines(system, rollup, showPlans, () => true)
+  const lines = every.length <= FEW_LINES ? every : every.filter((line) => line.kind !== 'imports' || line.count >= WEAK_IMPORTS)
   const ids = new Set<string>(groups.map((card) => card.id))
   for (const node of system.nodes) {
-    if (node.kind === 'area' && node.path !== rollup.routesDir) ids.add(node.id)
+    if (node.kind === 'area' && !inRoutes(node.path, rollup.routesDir)) ids.add(node.id)
     if (node.kind === 'service') ids.add(node.id)
     if (node.kind === 'plan' && !isHiddenPlan(node, showPlans)) ids.add(node.id)
     if (node.status === 'proposed') ids.add(node.id)
   }
-  return { cards: cardsFor(ids, rollup, groups), lines: lines.filter((line) => ids.has(line.source) && ids.has(line.target)) }
+  return { cards: cardsFor(ids, rollup, groups), lines: lines.filter((line) => ids.has(line.source) && ids.has(line.target)), hidden: every.length - lines.length }
 }
 
 /**
@@ -212,6 +224,7 @@ export function savedView(system: SystemGraph, only: string[], tables: number): 
 }
 
 function routesFolder(system: SystemGraph): string | null {
+  if (system.routes_dir) return system.routes_dir
   const route = system.nodes.find((node) => node.kind === 'route')
   const file = route?.evidence[0]
   return file ? file.slice(0, file.lastIndexOf('/')) : null

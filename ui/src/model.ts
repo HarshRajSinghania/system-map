@@ -1,7 +1,7 @@
 import { useAppApi } from '@kirocrew/app-sdk'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { plainError } from './errors'
-import type { Project } from './projects'
+import type { BuildRead, Project } from './projects'
 
 export const BASE = '/apps/system-map/api'
 
@@ -29,7 +29,9 @@ export interface Overview {
     repo: string
     repo_key: string
     ref: string
-    commit: string
+    commit: string | null
+    engine: string | null
+    read?: BuildRead
     version: string
     built_at: number
     counts: {
@@ -75,6 +77,7 @@ export interface Constraint {
 export interface TableNode {
   id: string
   name: string
+  schema: string
   source: string
   rls: boolean
   columns: Column[]
@@ -164,6 +167,7 @@ export interface SystemEdge {
 export interface SystemGraph {
   nodes: SystemNode[]
   edges: SystemEdge[]
+  routes_dir?: string
 }
 
 export interface Link {
@@ -300,6 +304,7 @@ export interface Proposal extends Omit<ProposalRow, 'limits' | 'diff'> {
   counts: Record<LimitKind, number>
   diff: { added: DiffRow[]; changed: DiffRow[]; removed: DiffRow[]; touched: DiffRow[] }
   sql: { change: number; sql: string[] }[]
+  limits_checked?: boolean
   overlay: { nodes: SystemNode[]; edges: SystemEdge[] }
   graph: Graph
   closes: { id: string; title: string; before: number; after: number }[]

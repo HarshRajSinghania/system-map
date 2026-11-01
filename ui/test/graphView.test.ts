@@ -65,9 +65,10 @@ test('links between two areas add up', () => {
   assert.equal(line(buildView(system, null, 33, true), 'area:src/a', 'area:src/b')?.count, 4)
 })
 
-test('thin import links are hidden at the top only', () => {
+test('with few links at the top, thin ones stay', () => {
   const top = buildView(system, null, 33, true)
-  assert.equal(line(top, 'area:src/b', 'area:src/a'), undefined)
+  assert.ok(line(top, 'area:src/b', 'area:src/a'))
+  assert.equal(top.hidden, 0)
 })
 
 test('a link inside an area is not drawn at the top', () => {

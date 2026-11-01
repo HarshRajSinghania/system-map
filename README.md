@@ -19,6 +19,20 @@ Status: early. It reads TypeScript projects, TanStack file routes, Postgres migr
 - **Design chat.** A chat beside the map, and an Ask button on everything.
 - **Agent tools.** Any session can read the model through MCP tools.
 
+## What it reads
+
+| Part | Read from |
+|---|---|
+| Postgres | Migrations in `supabase/migrations`, `db/migrations` or `migrations` |
+| SQLite | Any `.sql` file, including what Prisma and Drizzle generate, or `CREATE TABLE` inside code. Real SQLite reads it, in memory |
+| Routes | Next.js App Router and Pages Router, TanStack and Remix file routes |
+| Code | TypeScript and JavaScript, with `paths` and `baseUrl` from `tsconfig.json` or `jsconfig.json` |
+| Plans | `docs/specs`, `docs/plans`, `specs`, and a `BRIEF`, `PLAN`, `ROADMAP`, `PRD`, `SPEC` or `TODO` file at the top of the repo |
+
+A project needs no git history, though Risk has no churn without it, and there are no worktrees.
+
+Each build records what it read, and the status menu shows it. If a build finds something it can't read, it names it: a Prisma or Drizzle schema with no SQL migrations, MySQL, MongoDB, or a Next.js app in a subfolder.
+
 ## Layout
 
 | Path | Job |
@@ -65,6 +79,22 @@ python3 -m core verify <repo> /tmp/replay/catalog.json
 ```
 
 `bootstrap.sql` is a repo path for anything the migrations expect to exist, such as a stub of Supabase's `auth` schema. The server listens on a socket only, and stops when the script ends.
+
+## Prove a SQLite model
+
+Load the schema into a separate real SQLite, then compare every table with its pragmas:
+
+```bash
+python3 -m core verify-sqlite <repo>
+```
+
+## Prove routes against Next.js
+
+Run `next build` in a copy of the app, then compare the routes Next wrote down:
+
+```bash
+python3 -m core verify-routes <repo> <copy>/.next/app-path-routes-manifest.json <copy>/.next/server/pages-manifest.json
+```
 
 ## Prove a model against the TypeScript compiler
 

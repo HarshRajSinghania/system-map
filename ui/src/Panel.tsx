@@ -40,7 +40,8 @@ function PanelBody({
       {overview && (
         <>
           <p style={{ ...MUTED, fontSize: 13, margin: '4px 0 8px' }} data-testid="panel-summary">
-            {countOf(overview.tables.length, 'table')} at {overview.manifest.commit.slice(0, 7)}. {status?.label}
+            {countOf(overview.tables.length, 'table')}
+            {overview.manifest.commit ? ` at ${overview.manifest.commit.slice(0, 7)}` : ''}. {status?.label}
           </p>
           {collisions.map((row) => (
             <p

@@ -379,7 +379,7 @@ def respond(request: dict) -> dict | None:
         result: dict = {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "system-map", "version": "0.5.0"},
+            "serverInfo": {"name": "system-map", "version": "0.6.0"},
         }
     elif method == "ping":
         result = {}

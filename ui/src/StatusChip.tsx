@@ -1,8 +1,8 @@
 import { Btn } from '@kirocrew/app-sdk/ui'
 import { Chevron, Dropdown } from './Menu'
 import { MUTED } from './parts'
-import { builtAgo } from './projects'
-import type { StatusView } from './projects'
+import { builtAgo, readLines } from './projects'
+import type { BuildRead, StatusView } from './projects'
 
 /** How current the model is, in one place, with Rebuild beside it. */
 export function StatusChip({
@@ -10,6 +10,7 @@ export function StatusChip({
   detail,
   commit,
   builtAt,
+  read,
   busy,
   result,
   onRebuild,
@@ -17,8 +18,9 @@ export function StatusChip({
   status: StatusView
   /** A sharper reason than the status gives on its own. */
   detail?: string
-  commit: string
+  commit: string | null
   builtAt: number
+  read?: BuildRead
   busy: boolean
   result: string | null
   onRebuild: () => void
@@ -50,8 +52,25 @@ export function StatusChip({
           <div style={{ padding: 8 }}>
             <div style={{ fontWeight: 600, marginBottom: 2, overflowWrap: 'anywhere' }}>{detail ?? status.detail}</div>
             <div style={{ ...MUTED, marginBottom: 10 }}>
-              <span className="sm-mono">{commit.slice(0, 7)}</span>, built {builtAgo(builtAt, Date.now() / 1000)}
+              {commit ? <span className="sm-mono">{commit.slice(0, 7)}</span> : 'This folder'}, built {builtAgo(builtAt, Date.now() / 1000)}
             </div>
+            {read && (
+              <div style={{ marginBottom: 10 }} data-testid="build-read">
+                {readLines(read).map((line) => (
+                  <div key={line}>{line}</div>
+                ))}
+                {read.unread.map((item) => (
+                  <div key={item.what} style={{ marginTop: 6 }}>
+                    Not read: {item.what}
+                    {item.where && (
+                      <div className="sm-mono" style={{ ...MUTED, overflowWrap: 'anywhere' }}>
+                        {item.where}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
             {status.label !== 'Folder missing' && (
               <Btn primary={status.rebuild} disabled={busy} onClick={onRebuild} autoFocus>
                 {busy ? 'Rebuilding' : 'Rebuild'}

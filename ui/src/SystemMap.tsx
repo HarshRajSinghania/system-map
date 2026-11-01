@@ -311,7 +311,7 @@ function Diagram({
         </CanvasTools>
       </Panel>
       <Panel position="bottom-center">
-        <Legend kinds={kinds} top={focus === null} risk={risk !== null} />
+        <Legend kinds={kinds} top={(view.hidden ?? 0) > 0} risk={risk !== null} />
       </Panel>
     </ReactFlow>
   )

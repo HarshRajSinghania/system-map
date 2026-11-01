@@ -153,7 +153,7 @@ export function SystemTree({
           if (needle && matches.length === 0 && !area.name.toLowerCase().includes(needle)) return null
           return (
             <div key={area.id}>
-              {row(area, 0, (area.path ?? area.name).replace(/^src\//, ''))}
+              {row(area, 0, area.path === '.' ? area.name : (area.path ?? area.name).replace(/^src\//, ''))}
               {open && matches.map((module) => row(module, 1, module.name))}
             </div>
           )
@@ -252,15 +252,17 @@ export function NodeDetail({ node, onAsk }: { node: TableNode; onAsk?: (finding:
           </ul>
         </Section>
       )}
-      <Section title={`Row level security: ${node.rls ? 'on' : 'off'}`}>
-        <ul style={LIST}>
-          {node.policies.map((policy) => (
-            <li key={policy.name} title={policy.source}>
-              {policy.name}: {policy.command} for {policy.roles.join(', ')}
-            </li>
-          ))}
-        </ul>
-      </Section>
+      {node.schema !== 'main' && (
+        <Section title={`Row level security: ${node.rls ? 'on' : 'off'}`}>
+          <ul style={LIST}>
+            {node.policies.map((policy) => (
+              <li key={policy.name} title={policy.source}>
+                {policy.name}: {policy.command} for {policy.roles.join(', ')}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
       {node.triggers.length > 0 && (
         <Section title="Triggers">
           <ul style={LIST}>

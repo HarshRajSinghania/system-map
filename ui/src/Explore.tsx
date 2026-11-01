@@ -151,6 +151,11 @@ function ProposalDetail({
       <DiffList title="Changes" rows={proposal.diff.changed} onShow={onNode} note={(row) => (row.what ?? []).join(', ')} />
       <DiffList title="Removes" rows={proposal.diff.removed} onShow={onNode} />
       <DiffList title="Touches today" rows={proposal.diff.touched} onShow={onNode} note={(row) => row.access ?? ''} />
+      {proposal.limits_checked === false && (
+        <p style={{ ...MUTED, fontSize: 13 }} data-testid="limits-note">
+          Limits check Postgres only, so this hasn't been checked against this project's database.
+        </p>
+      )}
       {sql.length > 0 && (
         <Group title="Draft SQL">
           <pre style={{ ...MONO, fontSize: 11, margin: 0, padding: 8, borderRadius: 6, background: 'var(--bg-hover, #f4f4f5)', overflowX: 'auto' }}>{sql.join('\n')}</pre>

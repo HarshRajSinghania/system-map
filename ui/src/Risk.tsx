@@ -94,7 +94,8 @@ export function RiskView({
   const worst = pool.filter((row) => row.hot && row.untested)
 
   const rows = useMemo(() => {
-    const chosen = onlyWorst ? worst : pool
+    // With nothing that bad, an empty list says less than the ranking does.
+    const chosen = onlyWorst && worst.length > 0 ? worst : pool
     if (sort === 'score') return chosen
     const sign = sort === 'cover' ? 1 : -1
     return [...chosen].sort((a, b) => sign * (a[sort] - b[sort]))
@@ -107,11 +108,16 @@ export function RiskView({
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 10, color: 'var(--text, inherit)' }}>
       <p style={{ margin: 0, fontSize: 14 }} data-testid="risk-summary">
-        <strong>{worst.length === 0 ? 'Nothing busy is short of tests.' : `${worst.length} busy ${noun}${worst.length === 1 ? ' has' : 's have'} little test cover.`}</strong>{' '}
+        <strong>{risk.test_files === 0 ? 'No tests yet.' : worst.length === 0 ? 'Nothing busy is short of tests.' : `${worst.length} busy ${noun}${worst.length === 1 ? ' has' : 's have'} little test cover.`}</strong>{' '}
         <span style={{ ...MUTED, fontSize: 13 }}>
           Busy means more commits than three in four others, over {risk.window_days} days. Little cover means under half.
         </span>
       </p>
+      {risk.test_files === 0 && (
+        <p style={{ ...MUTED, margin: 0, fontSize: 13 }} data-testid="no-tests">
+          This project has no tests yet, so everything counts as untested. The list below is ranked by how complex and busy each part is.
+        </p>
+      )}
       {!risk.history_known && <p style={{ ...MUTED, margin: 0, fontSize: 13 }}>No git history here, so commits are not counted.</p>}
       {risk.shallow && <p style={{ ...MUTED, margin: 0, fontSize: 13 }}>This is a shallow clone, so commits are undercounted.</p>}
       <CoverageLine risk={risk} canAsk={canAsk} error={error} onLoad={onLoad} onRun={onRun} />
@@ -123,9 +129,11 @@ export function RiskView({
           Files
         </Btn>
         <span style={{ width: 8 }} />
-        <Btn primary={onlyWorst} onClick={() => setOnlyWorst((value) => !value)}>
-          Hot and untested only
-        </Btn>
+        {worst.length > 0 && (
+          <Btn primary={onlyWorst} onClick={() => setOnlyWorst((value) => !value)}>
+            Hot and untested only
+          </Btn>
+        )}
         {level === 'files' && (
           <Btn primary={hideScreens} onClick={() => setHideScreens((value) => !value)} title="Browser tests cover screens, and they are not in this report">
             Hide screens

@@ -7,10 +7,12 @@ const LEVELS: Severity[] = ['high', 'medium', 'low', 'info']
 
 export function Findings({
   findings,
+  noSchema = false,
   onShow,
   onAsk,
 }: {
   findings: Finding[]
+  noSchema?: boolean
   onShow: (node: string) => void
   onAsk: (finding: Finding) => void
 }) {
@@ -34,7 +36,7 @@ export function Findings({
           </Btn>
         ))}
       </div>
-      {shown.length === 0 && <p style={MUTED}>No findings.</p>}
+      {shown.length === 0 && <p style={MUTED}>{noSchema ? "No schema was read, so the table rules didn't run." : 'No findings.'}</p>}
       {shown.map((finding) => (
         <div key={finding.id} style={{ padding: '10px 0', borderTop: '1px solid var(--border, #e4e4e7)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -27,7 +27,7 @@ def _unread(source, extraction, tables: int) -> list[dict]:
     found: list[dict] = []
     skipped = extraction.stats.get("statements_unknown", 0)
     if skipped:
-        found.append({"what": f"{skipped} SQL {'statement' if skipped == 1 else 'statements'} that couldn't run", "where": ""})
+        found.append({"what": f"{skipped} SQL {'statement' if skipped == 1 else 'statements'} it couldn't read", "where": ""})
     if tables:
         return found
     if "prisma/schema.prisma" in source.blobs:
@@ -41,6 +41,10 @@ def _unread(source, extraction, tables: int) -> list[dict]:
     for package in sorted(packages & set(OTHER_DATABASES)):
         found.append({"what": f"A {OTHER_DATABASES[package]} database", "where": f"package.json: {package}"})
     return found
+
+
+def _count(number: int, word: str) -> str:
+    return f"{number} {word}{'' if number == 1 else 's'}"
 
 
 def summary(source, extraction, joined: dict) -> dict:
@@ -62,9 +66,9 @@ def summary(source, extraction, joined: dict) -> dict:
 
 def tell(read: dict) -> str:
     """One line for the overview, so an agent knows the model's reach before relying on it."""
-    schema = f"{read['tables']} tables from {read['engine']}" if read["engine"] else "no schema"
-    routes = f"{read['routes']} routes ({read['route_style']})" if read["routes"] else "no routes"
-    parts = [schema, routes, f"{read['code_files']} code files, {read['links']} links"]
+    schema = f"{_count(read['tables'], 'table')} from {read['engine']}" if read["engine"] else "no schema"
+    routes = f"{_count(read['routes'], 'route')} ({read['route_style']})" if read["routes"] else "no routes"
+    parts = [schema, routes, f"{_count(read['code_files'], 'code file')}, {_count(read['links'], 'link')}"]
     if not read["git"]:
         parts.append("no git history, so risk has no churn and there are no worktrees")
     line = "Read: " + "; ".join(parts) + "."

@@ -15,7 +15,7 @@ import { PlanBoard, PlanHint } from './Plan'
 import { AddProject } from './ProjectDialogs'
 import { useProjectMenu } from './ProjectMenu'
 import { chatSlotName, readView, statusOf, statusView, writeView } from './projects'
-import type { Project, View } from './projects'
+import type { BuildRead, Project, View } from './projects'
 import { RiskView } from './Risk'
 import { StatusChip } from './StatusChip'
 import { SystemMap } from './SystemMap'
@@ -121,6 +121,31 @@ function Notice({ children, onDismiss }: { children: ReactNode; onDismiss?: () =
       <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{children}</span>
       {onDismiss && <Btn onClick={onDismiss}>Dismiss</Btn>}
     </div>
+  )
+}
+
+/** Says why the data model is empty, so it never reads as a broken page. */
+function NoTables({ read }: { read?: BuildRead }) {
+  const unread = read?.unread ?? []
+  return (
+    <EmptyState
+      testId="no-tables"
+      icon={<Mark />}
+      title="No tables found"
+      subtitle="System Map reads Postgres migrations and SQLite schemas, from .sql files or from code."
+      action={
+        unread.length > 0 && (
+          <div style={{ ...MUTED, fontSize: 13, textAlign: 'center' }}>
+            {unread.map((item) => (
+              <div key={item.what}>
+                Found, but not read: {item.what}
+                {item.where ? ` (${item.where})` : ''}
+              </div>
+            ))}
+          </div>
+        )
+      }
+    />
   )
 }
 
@@ -474,6 +499,7 @@ function ProjectPage({
               detail={fresh?.stale ? `${changed} schema ${changed === 1 ? 'file' : 'files'} changed on ${fresh.ref}` : undefined}
               commit={overview.manifest.commit}
               builtAt={overview.manifest.built_at}
+              read={overview.manifest.read}
               busy={rebuilding}
               result={rebuilt}
               onRebuild={() => void rebuild()}
@@ -552,7 +578,8 @@ function ProjectPage({
                     onOpenTables={() => setView('data')}
                   />
                 )}
-                {view === 'data' && shownGraph && (
+                {view === 'data' && overview.tables.length === 0 && !drawn && <NoTables read={overview.manifest.read} />}
+                {view === 'data' && shownGraph && (overview.tables.length > 0 || drawn) && (
                   <Erd graph={shownGraph} selected={selected} flagged={flagged} working={atWork} density={density} tools={dataTools} onSelect={setSelected} />
                 )}
                 {view === 'explore' && explore.value && (
@@ -587,7 +614,7 @@ function ProjectPage({
                 {view === 'worktrees' && worktrees && (
                   <WorktreesView state={worktrees} checkedAt={live.checkedAt} canAsk={chat.slot !== null} onShow={openNode} onAsk={askOverlap} />
                 )}
-                {view === 'findings' && findingList && <Findings findings={findings} onShow={showTable} onAsk={askFinding} />}
+                {view === 'findings' && findingList && <Findings findings={findings} noSchema={overview.tables.length === 0} onShow={showTable} onAsk={askFinding} />}
                 {node && inspected && (
                   <Inspector
                     node={node}

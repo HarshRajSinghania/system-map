@@ -25,6 +25,19 @@ export interface Freshness {
   error?: string
 }
 
+export interface BuildRead {
+  engine: string | null
+  schema_files: string[]
+  tables: number
+  route_style: string
+  routes: number
+  code_files: number
+  links: number
+  plans: number
+  git: boolean
+  unread: { what: string; where: string }[]
+}
+
 export const VIEWS = ['map', 'data', 'plan', 'risk', 'worktrees', 'findings', 'explore'] as const
 export type View = (typeof VIEWS)[number]
 
@@ -68,6 +81,19 @@ export function statusView(status: ProjectStatus, behind: number, ref: string): 
 
 export function countOf(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
+}
+
+const ENGINES: Record<string, string> = { postgres: 'Postgres', sqlite: 'SQLite' }
+
+/** What a build read, one fact a line, for the status menu. */
+export function readLines(read: BuildRead): string[] {
+  const lines = [
+    read.tables ? `${countOf(read.tables, 'table')} from ${ENGINES[read.engine ?? ''] ?? read.engine}` : 'No tables found',
+    read.routes ? `${countOf(read.routes, 'route')}, ${read.route_style}` : 'No routes found',
+    `${countOf(read.code_files, 'code file')}, ${countOf(read.links, 'link')}`,
+  ]
+  if (!read.git) lines.push('No git history, so no churn or worktrees')
+  return lines
 }
 
 /** The text a row shows beside its status dot. */

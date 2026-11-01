@@ -93,10 +93,12 @@ export function PlanBoard({
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 12, color: 'var(--text, inherit)' }}>
       <p style={{ margin: 0, fontSize: 14 }} data-testid="plan-summary">
-        <strong>{left === 0 ? 'Everything planned is built.' : `${left} of ${judged} planned units ${left === 1 ? 'is' : 'are'} not finished.`}</strong>{' '}
-        <span style={{ ...MUTED, fontSize: 13 }}>Read from the specs, checked against the code.</span>
+        <strong>{judged === 0 ? 'Nothing here can be checked yet.' : left === 0 ? 'Everything planned is built.' : `${left} of ${judged} planned units ${left === 1 ? 'is' : 'are'} not finished.`}</strong>{' '}
+        <span style={{ ...MUTED, fontSize: 13 }}>
+          {judged === 0 ? 'These plans name no files, so the code can\'t confirm them.' : 'Read from the specs, checked against the code.'}
+        </span>
       </p>
-      {plans.length === 0 && <p style={MUTED}>No specs found in docs/specs, docs/plans or specs.</p>}
+      {plans.length === 0 && <p style={MUTED}>No plans found. System Map looks in docs/specs, docs/plans and specs, and for a BRIEF, PLAN, ROADMAP, PRD, SPEC or TODO file at the top of the repo.</p>}
       <div style={{ flex: 1, minHeight: 0, display: 'grid', gap: 12, gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
         {COLUMNS.map((column) => {
           const items = plans.filter((plan) => plan.status === column.status)

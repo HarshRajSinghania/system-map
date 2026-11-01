@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core import read, store  # noqa: E402
+from core.extractors import plans  # noqa: E402
+from core.sources import open_source  # noqa: E402
 from tests.helpers import commit_all, git  # noqa: E402
 
 
@@ -63,14 +65,14 @@ class WhatABuildRead(Build):
         self.app()
         self.write("schema.sql", "CREATE TABLE a (id INTEGER);\nCREATE TYPE x AS ENUM ('a');\n")
         unread = self.build()["read"]["unread"]
-        self.assertEqual(unread[0]["what"], "1 SQL statement that couldn't run")
+        self.assertEqual(unread[0]["what"], "1 SQL statement it couldn't read")
 
     def test_the_overview_says_it_for_agents(self):
         self.app()
         self.write("db/schema.sql", "CREATE TABLE a (id INTEGER PRIMARY KEY);\n")
         manifest = self.build()
         text = (store.current(self.data / "repos" / manifest["repo_key"]) / "overview.md").read_text()
-        self.assertIn("Read: 1 tables from sqlite; 1 routes (Next.js App Router)", text)
+        self.assertIn("Read: 1 table from sqlite; 1 route (Next.js App Router)", text)
 
 
 class WhatItCouldntRead(Build):
@@ -138,6 +140,16 @@ class ProductBriefs(Build):
         self.app()
         self.write("vendor/thing/PLAN.md", "# Not ours\n")
         self.assertEqual(self.plans(), [])
+
+
+class PlansAreSteady(Build):
+    def test_a_name_two_files_share_picks_the_same_file_each_time(self):
+        self.app()
+        self.write("lib/z/fields.ts")
+        self.write("lib/a/fields.ts")
+        self.write("docs/specs/one.md", "# One\n\n- `fields.ts`\n")
+        index = plans.Index(open_source(self.root))
+        self.assertEqual(index.match("fields.ts"), (True, "lib/a/fields.ts"))
 
 
 class BackendRoutes(Build):
