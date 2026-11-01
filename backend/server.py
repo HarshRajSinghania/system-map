@@ -47,7 +47,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/health":
                 self._json(200, {"status": "ok"})
             elif path.endswith("/repos"):
-                self._json(200, {"repos": store.repos(), "data_root": str(store.data_root())})
+                self._json(200, {"repos": store.project_rows(), "data_root": str(store.data_root())})
             elif path.endswith("/overview"):
                 target = store.resolve_repo(repo)
                 keep = ("repo", "repo_key", "ref", "commit", "version", "built_at", "counts", "stats", "code_root")
@@ -93,6 +93,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "bad JSON"})
             return
         route = urlparse(self.path).path
+        if route.endswith("/repo-remove"):
+            try:
+                self._json(200, store.remove_project(str(body.get("repo", ""))))
+            except KeyError as error:
+                self._json(404, {"error": str(error).strip("'\"")})
+            except OSError as error:
+                self._json(400, {"error": str(error)})
+            return
         if route.endswith("/plan-status"):
             try:
                 target = store.resolve_repo(body.get("repo"))
@@ -121,9 +129,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             repo_path = body.get("repo_path")
-            if not repo_path:
-                repo_path = store.read_manifest(store.resolve_repo(body.get("repo")))["repo"]
-            manifest = store.build(Path(str(repo_path)).expanduser())
+            if repo_path:
+                path = store.check_folder(Path(str(repo_path)))
+            else:
+                path = Path(store.read_manifest(store.resolve_repo(body.get("repo")))["repo"])
+            manifest = store.build(path.expanduser())
         except (KeyError, ValueError, OSError) as error:
             self._json(400, {"error": str(error).strip("'\"")})
             return

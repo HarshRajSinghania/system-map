@@ -15,7 +15,7 @@ from core import explore, risk, store  # noqa: E402
 
 PROTOCOL_VERSION = "2025-06-18"
 BUDGET = {"type": "integer", "description": f"Most chars to return inline. Default {store.DEFAULT_BUDGET_CHARS}."}
-REPO = {"type": "string", "description": "Repo path or key. Optional when one model exists."}
+REPO = {"type": "string", "description": "Project name, path or key. Leave it out to use this session's project."}
 
 TOOLS = [
     {
@@ -278,7 +278,8 @@ def call(name: str, args: dict) -> object:
         keys = ("repo_key", "ref", "commit", "version", "counts", "unchanged")
         return {k: manifest[k] for k in keys if k in manifest}
 
-    target = store.resolve_repo(args.get("repo"))
+    # A session's tools run in its project, so no `repo` means the project being worked on.
+    target = store.resolve_repo(args.get("repo"), folder=Path.cwd())
     if name == "overview":
         state = store.worktree_state(target)
         return {

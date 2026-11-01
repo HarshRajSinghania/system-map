@@ -46,6 +46,7 @@ DEFAULT_BUDGET_CHARS = 12000
 OVERVIEW_LIMIT_CHARS = 6000
 KEEP_VERSIONS = 5
 PLAN_STATUSES = ("built", "partial", "planned", "unclear")
+INTENT_KINDS = ("proposals", "use_cases", "views")
 
 
 def data_root() -> Path:
@@ -298,22 +299,101 @@ def repos(root: Path | None = None) -> list[dict]:
     return found
 
 
-def resolve_repo(repo: str | None, root: Path | None = None) -> Path:
-    """Pick a model by repo path or key. With one model, that is the default."""
+def _project_names(known: list[dict]) -> str:
+    """Name projects the way a person would, using the key only where two share a name."""
+    names = [Path(manifest["repo"]).name for manifest in known]
+    shown = [m["repo_key"] if names.count(Path(m["repo"]).name) > 1 else Path(m["repo"]).name for m in known]
+    return ", ".join(sorted(shown))
+
+
+def resolve_repo(repo: str | None, root: Path | None = None, folder: Path | None = None) -> Path:
+    """Pick a model by repo path, key or name.
+
+    With no name, `folder` picks: a session's tools run in its project, or in a worktree of
+    it, so this is the project being worked on. With one model, that one is the default.
+    """
     known = repos(root)
+    base = (root or data_root()) / "repos"
     if repo:
         wanted = {repo}
         if repo.startswith(("/", "~")):
             wanted.add(str(canonical_root(Path(repo))))
         for manifest in known:
             if wanted & {manifest["repo"], manifest["repo_key"], Path(manifest["repo"]).name}:
-                return (root or data_root()) / "repos" / manifest["repo_key"]
+                return base / manifest["repo_key"]
         raise KeyError(f"no model for {repo!r}; build one first")
+    if folder is not None:
+        here = str(canonical_root(folder))
+        for manifest in known:
+            if manifest["repo"] == here:
+                return base / manifest["repo_key"]
     if len(known) == 1:
-        return (root or data_root()) / "repos" / known[0]["repo_key"]
+        return base / known[0]["repo_key"]
     if not known:
         raise KeyError("no model yet; build one first")
-    raise KeyError("several models exist; name a repo: " + ", ".join(m["repo_key"] for m in known))
+    raise KeyError(f"several projects have models, so name one with `repo`: {_project_names(known)}")
+
+
+def check_folder(path: Path) -> Path:
+    """Refuse a folder that can't become a project, in words a person can act on."""
+    path = path.expanduser()
+    if not path.is_absolute():
+        raise ValueError("Give the full path, starting with / or ~.")
+    if not path.is_dir():
+        raise ValueError(f"{path} isn't a folder on this machine.")
+    if not git(path, "rev-parse", "--git-dir"):
+        raise ValueError(f"{path} isn't a git repo. System Map reads git history, so pick a repo.")
+    return path
+
+
+def _project_status(fresh: dict) -> str:
+    if fresh.get("missing"):
+        return "missing"
+    if fresh.get("error"):
+        return "unknown"
+    if fresh.get("stale") or fresh.get("map_stale"):
+        return "stale"
+    return "behind" if fresh.get("commits_behind") else "current"
+
+
+def project_rows(root: Path | None = None) -> list[dict]:
+    """One short row per project: what it is, how current it is, and what it holds."""
+    base = (root or data_root()) / "repos"
+    rows = []
+    for manifest in repos(root):
+        target = base / manifest["repo_key"]
+        fresh = freshness(target)
+        repo = Path(manifest["repo"])
+        rows.append(
+            {
+                "repo": manifest["repo"],
+                "repo_key": manifest["repo_key"],
+                "name": repo.name,
+                "parent": repo.parent.name,
+                "ref": manifest["ref"],
+                "commit": manifest["commit"],
+                "built_at": manifest["built_at"],
+                "tables": manifest["counts"]["tables"],
+                "status": _project_status(fresh),
+                "behind": fresh.get("commits_behind", 0),
+                "intent": {kind: sum(1 for _ in (target / "intent" / kind).glob("*.json")) for kind in INTENT_KINDS},
+            }
+        )
+    return rows
+
+
+def remove_project(key: str, root: Path | None = None) -> dict:
+    """Delete one project's app data for good. Its repo is never touched.
+
+    The folder comes from the list of known models, never from the caller's text.
+    """
+    base = ((root or data_root()) / "repos").resolve()
+    for manifest in repos(root):
+        target = base / manifest["repo_key"]
+        if manifest["repo_key"] == key and target.resolve().parent == base:
+            shutil.rmtree(target)
+            return {"removed": key}
+    raise KeyError(f"no project {key!r}")
 
 
 def freshness(target: Path) -> dict:
@@ -323,6 +403,8 @@ def freshness(target: Path) -> dict:
     """
     manifest = read_manifest(target)
     repo = Path(manifest["repo"])
+    if not repo.is_dir():
+        return {"ref": manifest["ref"], "stale": False, "map_stale": False, "commits_behind": 0, "missing": True}
     try:
         source = open_source(repo, manifest["ref"] if manifest["commit"] else None)
     except (ValueError, OSError) as error:
