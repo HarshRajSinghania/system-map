@@ -11,7 +11,9 @@ through a chat. The layout is:
         findings.json                rule checks over the tables
         system.json                  areas, modules, routes, jobs, services, plans
         imports.json                 file-level links, for checking against a compiler
+        risk.json                    churn, complexity and test reach, per file
         types.json, externals.json
+      coverage.json                  the last coverage report loaded; it outlives a rebuild
       reads/<node>/<id>.json         agent notes; each one cites evidence
       intent/plan_status.json        statuses a person set; these beat derived ones
       slices/<hash>.md               answers too large to return inline
@@ -29,11 +31,11 @@ import shutil
 import time
 from pathlib import Path
 
-from . import extractors, findings, system
+from . import coverage, extractors, findings, risk, system, worktrees
 from .extractors import plans, postgres, typescript
 from .sources import canonical_root, git, open_source
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 #: The most a tool hands back inline. Larger answers go to a slice file. This fits any
 #: one table, and sits well under the 20,000 chars proven to reach a model whole.
 DEFAULT_BUDGET_CHARS = 12000
@@ -131,6 +133,7 @@ def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> 
     extraction = extractors.extract(source) if postgres.detect(source) else extractors.Extraction()
     found = findings.find(extraction.nodes, findings.code_tokens(source, extraction.usage_text))
     joined = system.build(source, extraction.nodes)
+    joined["risk"] = risk.build(source, joined)
     versions = target / "versions"
     staging = versions / f".staging-{os.getpid()}-{time.time_ns()}"
     try:
@@ -202,10 +205,14 @@ def _write_version(folder: Path, extraction: extractors.Extraction, found: list[
     _write_json(folder / "findings.json", found)
     _write_json(folder / "types.json", extraction.types)
     _write_json(folder / "externals.json", extraction.externals)
-    _write_json(folder / "system.json", {"nodes": joined["nodes"], "edges": joined["edges"]})
-    _write_json(folder / "imports.json", {"imports": joined["imports"], "table_calls": joined["table_calls"]})
-    path = folder / "system.json"
-    hashes["system.json"] = hashlib.sha256(path.read_bytes()).hexdigest()
+    _write_json(folder / "system.json", {"nodes": joined["nodes"], "edges": joined["edges"], "code_root": joined["code_root"]})
+    _write_json(
+        folder / "imports.json",
+        {"imports": joined["imports"], "table_calls": joined["table_calls"], "complexity": joined["complexity"]},
+    )
+    _write_json(folder / "risk.json", joined["risk"])
+    for name in ("system.json", "risk.json"):
+        hashes[name] = hashlib.sha256((folder / name).read_bytes()).hexdigest()
     return hashes
 
 
@@ -459,6 +466,93 @@ def load_findings(target: Path) -> list[dict]:
     return json.loads((current(target) / "findings.json").read_text(encoding="utf-8"))
 
 
+def load_coverage(target: Path) -> dict | None:
+    path = target / "coverage.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
+def set_coverage(target: Path, report: str | None = None, commit: str | None = None) -> dict:
+    """Load a coverage report. Omit `report` to look for one in the repo's own folder.
+
+    The numbers belong to the commit the tests ran on, so that is recorded too, and read
+    from the folder holding the report if it is a checkout of this repo.
+    """
+    manifest = read_manifest(target)
+    repo = Path(manifest["repo"])
+    path = Path(report).expanduser() if report else coverage.find_report(repo)
+    if path is None or not path.is_file():
+        raise ValueError(f"no coverage report at {report or repo / coverage.REPORTS[0]}")
+    source = open_source(repo, manifest["commit"] or None)
+    parsed = coverage.parse(path.read_text(encoding="utf-8", errors="replace"))
+    files, unmatched = coverage.match_paths(parsed, set(source.blobs))
+    if not files:
+        raise ValueError(f"no file in {path} is in this repo")
+    if commit is None and canonical_root(path.parent) == repo:
+        commit = git(path.parent, "rev-parse", "HEAD")
+    record = {
+        "report": str(path),
+        "commit": commit,
+        "loaded_at": int(time.time()),
+        "files": files,
+        "unmatched": len(unmatched),
+        "lines_total": sum(row["lines_total"] for row in files.values()),
+        "lines_hit": sum(row["lines_hit"] for row in files.values()),
+        "branches_total": sum(row["branches_total"] for row in files.values()),
+        "branches_hit": sum(row["branches_hit"] for row in files.values()),
+    }
+    _write_json(target / "coverage.json", record)
+    return {key: value for key, value in record.items() if key != "files"} | {"file_count": len(files)}
+
+
+def _coverage_drift(target: Path, record: dict | None) -> int | None:
+    """How many reported files have changed between the report and the model."""
+    manifest = read_manifest(target)
+    if not record or not record.get("commit") or not manifest["commit"]:
+        return None
+    changed = git(Path(manifest["repo"]), "diff", "--name-only", record["commit"], manifest["commit"])
+    if changed is None:
+        return None
+    return len(set(changed.split()) & set(record["files"]))
+
+
+def load_risk(target: Path) -> dict:
+    """Every file, module and area, worst first, with any coverage report joined in."""
+    facts = json.loads((current(target) / "risk.json").read_text(encoding="utf-8"))
+    record = load_coverage(target)
+    ranked = risk.rank(facts, record)
+    if ranked["coverage"]:
+        ranked["coverage"]["files_changed_since"] = _coverage_drift(target, record)
+    names = {node["id"]: node for node in load_system(target)["nodes"]}
+    for row in ranked["modules"] + ranked["areas"]:
+        node = names.get(row["id"], {})
+        row["name"] = node.get("name", row["id"])
+        row["path"] = node.get("path", row["id"])
+    return ranked
+
+
+def _risk_of(target: Path, node_id: str) -> dict | None:
+    """One module or area's risk, with the files that drive it."""
+    if not node_id.startswith(("module:", "area:")):
+        return None
+    ranked = load_risk(target)
+    level = "modules" if node_id.startswith("module:") else "areas"
+    row = next((item for item in ranked[level] if item["id"] == node_id), None)
+    if row is None:
+        return None
+    key = "module" if level == "modules" else "area"
+    files = [item for item in ranked["files"] if item[key] == node_id and item["score"] > 0][:5]
+    keep = ("path", "commits", "complexity", "tests", "covered", "score")
+    return {**row, "worst_files": [{name: item[name] for name in keep} for item in files], "window_days": ranked["window_days"]}
+
+
+def worktree_state(target: Path) -> dict:
+    """Live: what each worktree is changing, joined to this model."""
+    manifest = read_manifest(target)
+    tables = {row["id"] for row in table_index(target)}
+    model = worktrees.Model.of(load_system(target), tables)
+    return worktrees.snapshot(Path(manifest["repo"]), manifest["commit"], manifest["ref"], model)
+
+
 def _shard_path(target: Path, node_id: str) -> Path:
     match = re.fullmatch(r"table:([\w$-]+)\.([\w$-]+)", node_id)
     if not match:
@@ -472,7 +566,9 @@ def load_node(target: Path, node_id: str) -> dict:
         node = next((n for n in joined["nodes"] if n["id"] == node_id), None)
         if node is None:
             raise KeyError(f"no node {node_id!r}")
-        return {**node, "links": _links(joined, node_id), "reads": load_notes(target, node_id)}
+        found = {**node, "links": _links(joined, node_id), "reads": load_notes(target, node_id)}
+        risky = _risk_of(target, node_id)
+        return {**found, "risk": risky} if risky else found
     path = _shard_path(target, node_id)
     if not path.is_file():
         raise KeyError(f"no node {node_id!r}")

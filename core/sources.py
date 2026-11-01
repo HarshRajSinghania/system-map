@@ -24,6 +24,21 @@ def git(repo_root: Path, *args: str) -> str | None:
     return done.stdout.strip()
 
 
+def run_git(repo_root: Path, *args: str, env: dict | None = None, timeout: int = 120) -> subprocess.CompletedProcess | None:
+    """Run git and keep its exact output and exit code. None means it could not run."""
+    try:
+        return subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=timeout,
+            env=env,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def canonical_root(path: Path) -> Path:
     """Map a repo folder or any of its worktrees to the main checkout."""
     path = path.expanduser().resolve()

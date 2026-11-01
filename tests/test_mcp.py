@@ -99,6 +99,51 @@ class McpServerTests(unittest.TestCase):
         self.assertEqual((item["id"], item["status"], item["missing"]), ("plan:next", "planned", 3))
         self.assertEqual(item["not_found"][0], "src/a/x.ts")
 
+    def code_repo(self):
+        """A repo with history, so risk has something to say."""
+        for name, text in (("src/core/a.ts", "export const a = (b: boolean) => (b ? 1 : 2)\n"), ("src/core/b.ts", "export const b = 1\n")):
+            path = self.repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["-c", "user.name=t", "-c", "user.email=t@e.c", "commit", "-qm", "one"]):
+            subprocess.run(["git", "-C", str(self.repo), *args], check=True)
+        store.build(self.repo, self.data, "main")
+
+    def test_risk_lists_rows_and_says_where_coverage_stands(self):
+        self.code_repo()
+        value = json.loads(self.tool("risk", all=True, level="files")["content"][0]["text"])
+        body = json.loads(value["text"])
+        self.assertIsNone(body["coverage"])
+        self.assertEqual({row["path"] for row in body["files"]}, {"src/core/a.ts", "src/core/b.ts"})
+
+    def test_risk_refuses_an_unknown_level(self):
+        self.assertTrue(self.tool("risk", level="planets")["isError"])
+
+    def test_coverage_loads_a_report_for_risk_to_use(self):
+        self.code_repo()
+        report = self.repo.parent / "lcov.info"
+        report.write_text("SF:src/core/a.ts\nDA:1,0\nDA:2,0\nend_of_record\n")
+        reply = json.loads(self.tool("coverage", report=str(report), commit="abc")["content"][0]["text"])
+        self.assertEqual((reply["lines_total"], reply["file_count"]), (2, 1))
+        body = json.loads(json.loads(self.tool("risk", all=True, level="files")["content"][0]["text"])["text"])
+        self.assertEqual(body["coverage"]["commit"], "abc")
+
+    def test_worktrees_answers_for_one_node(self):
+        self.code_repo()
+        tree = self.repo.parent / "tree"
+        subprocess.run(["git", "-C", str(self.repo), "worktree", "add", "-q", "-b", "feat", str(tree), "main"], check=True)
+        (tree / "src" / "core" / "b.ts").write_text("export const b = 2\n")
+        whole = json.loads(json.loads(self.tool("worktrees")["content"][0]["text"])["text"])
+        self.assertEqual(len(whole["worktrees"]), 2)
+        one = json.loads(json.loads(self.tool("worktrees", node="module:src/core")["content"][0]["text"])["text"])
+        self.assertEqual(one["worktrees"], ["feat"])
+
+    def test_overview_points_at_risk_and_overlaps(self):
+        self.code_repo()
+        value = json.loads(self.tool("overview")["content"][0]["text"])
+        self.assertEqual(value["hot_and_untested"], [])
+        self.assertEqual(value["worktree_overlaps"], [])
+
     def test_results_are_compact(self):
         text = self.tool("node", id="table:public.users")["content"][0]["text"]
         self.assertNotIn('\\n  "', text)

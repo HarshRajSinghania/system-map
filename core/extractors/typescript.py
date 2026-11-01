@@ -56,11 +56,24 @@ URL_USE = re.compile(r"""\b(fetch|URL|Url|ENDPOINT|BASE|HOST)\b|=\s*["'`]https:/
 LINK_ONLY_HOSTS = re.compile(r"(^|\.)(example\.\w+|w3\.org|schema\.org|github\.com|localhost)$")
 
 
-def mask_code(text: str) -> str:
+#: Each place the code can take a second path. `?` needs care: `?.`, `??` and `x?:` are not one.
+DECISION = re.compile(
+    r"""(?<![.\w$])(?:if|while|for(?:\s+await)?|switch)\s*\(  # statements, with `switch` dropped below
+    |(?<![.\w$])catch\b\s*[({]
+    |(?<![.\w$])case\s[^:\n]*:
+    |&&=?|\|\|=?|\?\?=?
+    |(?<=[\w)\]"'`}])\s*\?(?![.?:=,)\]])(?=\s)
+    """,
+    re.X,
+)
+
+
+def mask_code(text: str, strings: bool = False) -> str:
     """Blank comments, keeping every offset and line. Strings stay, to read imports.
 
-    A quote only counts on its own line, except in a template string. So a stray quote
-    inside a regex literal can only confuse the rest of that one line.
+    With `strings` their contents go too, leaving only code. A quote only counts on its
+    own line, except in a template string. So a stray quote inside a regex literal can
+    only confuse the rest of that one line.
     """
     out = list(text)
     i, n = 0, len(text)
@@ -70,6 +83,8 @@ def mask_code(text: str) -> str:
         c = text[i]
         if quote:
             if c == "\\":
+                if strings:
+                    out[i : i + 2] = "  "[: len(out[i : i + 2])]
                 i += 2
                 continue
             if quote == "`" and text.startswith("${", i):
@@ -79,6 +94,8 @@ def mask_code(text: str) -> str:
                 continue
             if c == quote or (c == "\n" and quote != "`"):
                 quote = None
+            elif strings and c != "\n":
+                out[i] = " "
             i += 1
             continue
         if text.startswith("//", i):
@@ -196,6 +213,11 @@ def table_uses(masked: str) -> list[dict]:
     return uses
 
 
+def decision_points(text: str) -> int:
+    """How many extra paths a file has: branches, loops, catches, `&&`, `||`, `??` and `?:`."""
+    return sum(1 for match in DECISION.finditer(mask_code(text, strings=True)) if not match.group(0).startswith("switch"))
+
+
 def url_hosts(masked: str) -> list[tuple[str, int]]:
     """Hosts in URLs the code calls, not links it merely shows."""
     found = []
@@ -254,6 +276,9 @@ class Project:
     edges: dict[tuple[str, str, str], dict] = field(default_factory=dict)
     table_calls: dict[str, list[dict]] = field(default_factory=lambda: defaultdict(list))
     routes: dict[str, dict] = field(default_factory=dict)
+    #: file -> how many paths it has, and how long it is. Test files are left out.
+    complexity: dict[str, int] = field(default_factory=dict)
+    lines: dict[str, int] = field(default_factory=dict)
     unresolved: int = 0
 
     def edge(self, source: str, target: str, kind: str, evidence: str, access: str | None = None) -> None:
@@ -312,6 +337,8 @@ def scan(source, known_tables: set[str]) -> Project:
                 project.edge(f"module:{module}", _service(project, service, f"{path}:{line}"), "uses_service", f"{path}:{line}")
         if is_test:
             continue
+        project.complexity[path] = decision_points(contents.get(path, ""))
+        project.lines[path] = contents.get(path, "").count("\n") + 1
         for use in table_uses(masked):
             project.table_calls[path].append(use)
             if use["table"] in known_tables:

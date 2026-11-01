@@ -48,6 +48,31 @@ options.resolveJsonModule = true
 
 const imports = {}
 const tableCalls = {}
+const complexity = {}
+const DECISION_OPERATORS = new Set([
+  ts.SyntaxKind.AmpersandAmpersandToken,
+  ts.SyntaxKind.BarBarToken,
+  ts.SyntaxKind.QuestionQuestionToken,
+  ts.SyntaxKind.AmpersandAmpersandEqualsToken,
+  ts.SyntaxKind.BarBarEqualsToken,
+  ts.SyntaxKind.QuestionQuestionEqualsToken,
+])
+
+/** One for each place the code can take a second path, read from the syntax tree. */
+function isDecision(node) {
+  return (
+    ts.isIfStatement(node) ||
+    ts.isForStatement(node) ||
+    ts.isForInStatement(node) ||
+    ts.isForOfStatement(node) ||
+    ts.isWhileStatement(node) ||
+    ts.isDoStatement(node) ||
+    ts.isCaseClause(node) ||
+    ts.isCatchClause(node) ||
+    ts.isConditionalExpression(node) ||
+    (ts.isBinaryExpression(node) && DECISION_OPERATORS.has(node.operatorToken.kind))
+  )
+}
 
 function literal(node) {
   return ts.isStringLiteralLike(node) ? node.text : null
@@ -76,8 +101,10 @@ for (const file of files) {
   const kind = /\.(tsx|jsx)$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS
   const source = ts.createSourceFile(full, text, ts.ScriptTarget.Latest, true, kind)
   const named = new Set()
+  let paths = 0
 
   const visit = (node) => {
+    if (isDecision(node)) paths += 1
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
       named.add(literal(node.moduleSpecifier))
     }
@@ -98,6 +125,7 @@ for (const file of files) {
     ts.forEachChild(node, visit)
   }
   visit(source)
+  if (!/\.test\.|\.spec\.|__tests__/.test(file)) complexity[file] = paths
 
   const resolved = new Set()
   for (const specifier of named) {
@@ -110,5 +138,5 @@ for (const file of files) {
   if (resolved.size) imports[file] = [...resolved].sort()
 }
 
-fs.writeFileSync(out, JSON.stringify({ files, imports, tableCalls }))
+fs.writeFileSync(out, JSON.stringify({ files, imports, tableCalls, complexity }))
 console.log(`read ${files.length} files`)

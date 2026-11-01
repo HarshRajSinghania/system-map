@@ -4,6 +4,10 @@
     python3 -m core stats <repo>
     python3 -m core verify <repo> <catalog.json>
     python3 -m core verify-code <repo> <truth.json>
+    python3 -m core coverage <repo> [report] [commit]
+    python3 -m core risk <repo>
+    python3 -m core worktrees <repo>
+    python3 -m core verify-risk <repo> <truth.json> <coverage-summary.json>
 """
 from __future__ import annotations
 
@@ -12,7 +16,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import store, verify
+from . import risk, store, verify
 from .sources import open_source
 
 
@@ -84,6 +88,51 @@ def check_code(repo_root: Path, truth_path: Path) -> int:
     return 1 if diffs else 0
 
 
+def load_coverage(repo_root: Path, report: str | None, commit: str | None) -> int:
+    print(json.dumps(store.set_coverage(store.repo_dir(repo_root), report, commit), indent=2))
+    return 0
+
+
+def show_risk(repo_root: Path) -> int:
+    ranked = store.load_risk(store.repo_dir(repo_root))
+    print(json.dumps({"coverage": ranked["coverage"], "test_files": ranked["test_files"]}, indent=2))
+    keep = ("commits", "complexity", "cover", "hot", "untested", "score")
+    for level, name in (("modules", "id"), ("files", "path")):
+        print(f"\n{level}: hot and untested")
+        for row in risk.worst(ranked, level):
+            print(row[name], {key: row[key] for key in keep})
+    return 0
+
+
+def show_worktrees(repo_root: Path) -> int:
+    state = store.worktree_state(store.repo_dir(repo_root))
+    for item in state["worktrees"]:
+        print(f"{item['name']}: +{item['ahead']} -{item['behind']}, {len(item['files'])} files, {len(item['modules'])} modules")
+    print(json.dumps(state["counts"]))
+    for row in state["overlaps"]:
+        print(f"[{row['severity']}] {row['summary']}")
+    return 0
+
+
+def check_risk(repo_root: Path, truth_path: Path, summary_path: Path) -> int:
+    """Compare complexity with the compiler, churn with git, and coverage with the test runner."""
+    target = store.repo_dir(repo_root)
+    manifest = store.read_manifest(target)
+    folder = store.current(target)
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))["complexity"]
+    ours = json.loads((folder / "imports.json").read_text(encoding="utf-8"))["complexity"]
+    complexity = verify.compare_complexity(ours, truth)
+    facts = json.loads((folder / "risk.json").read_text(encoding="utf-8"))
+    churn = verify.compare_churn(facts, Path(manifest["repo"]), manifest["commit"])
+    record = store.load_coverage(target)
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    tested = verify.compare_coverage(record["files"], summary) if record else []
+    print(json.dumps({"complexity": complexity["summary"], "churn_differences": len(churn), "coverage_differences": len(tested)}, indent=2))
+    for diff in (complexity["worst"] + churn + tested)[:30]:
+        print(json.dumps(diff))
+    return 1 if churn or tested or not complexity["summary"]["close_enough"] else 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) >= 2 and argv[0] == "build":
         return build(Path(argv[1]).expanduser(), argv[2] if len(argv) > 2 else None)
@@ -93,6 +142,14 @@ def main(argv: list[str]) -> int:
         return check(Path(argv[1]).expanduser(), Path(argv[2]))
     if len(argv) == 3 and argv[0] == "verify-code":
         return check_code(Path(argv[1]).expanduser(), Path(argv[2]))
+    if len(argv) >= 2 and argv[0] == "coverage":
+        return load_coverage(Path(argv[1]).expanduser(), argv[2] if len(argv) > 2 else None, argv[3] if len(argv) > 3 else None)
+    if len(argv) == 2 and argv[0] == "risk":
+        return show_risk(Path(argv[1]).expanduser())
+    if len(argv) == 2 and argv[0] == "worktrees":
+        return show_worktrees(Path(argv[1]).expanduser())
+    if len(argv) == 4 and argv[0] == "verify-risk":
+        return check_risk(Path(argv[1]).expanduser(), Path(argv[2]), Path(argv[3]))
     print(__doc__, file=sys.stderr)
     return 2
 

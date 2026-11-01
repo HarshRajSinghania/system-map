@@ -10,6 +10,7 @@ import re
 from pathlib import Path
 
 from . import store
+from .sources import run_git
 
 DELETE_RULES = {"a": "no action", "r": "restrict", "c": "cascade", "n": "set null", "d": "set default"}
 COMMANDS = {"r": "select", "a": "insert", "w": "update", "d": "delete", "*": "all"}
@@ -197,6 +198,85 @@ def compare_routes(nodes: list[dict], tree: set[str]) -> list[dict]:
     ours = {node["path"] for node in nodes if node["kind"] == "route"}
     diffs: list[dict] = []
     _compare_sets(diffs, "*", "route", ours, tree)
+    return diffs
+
+
+#: Text can't always tell a `?` in screen copy from a real one, so this count is held to a limit.
+COMPLEXITY_TOLERANCE = 0.005
+
+
+def compare_complexity(model: dict[str, int], truth: dict[str, int]) -> dict:
+    """How far the text count of code paths sits from the syntax tree's count."""
+    files = sorted(set(model) | set(truth))
+    gaps = [
+        {"file": path, "model": model.get(path, 0), "compiler": truth.get(path, 0)}
+        for path in files
+        if model.get(path, 0) != truth.get(path, 0)
+    ]
+    off = sum(abs(row["model"] - row["compiler"]) for row in gaps)
+    total = sum(truth.values())
+    return {
+        "summary": {
+            "files": len(files),
+            "exact": len(files) - len(gaps),
+            "model_total": sum(model.values()),
+            "compiler_total": total,
+            "paths_off": off,
+            "share_off": round(off / total, 4) if total else 0,
+            "close_enough": off <= total * COMPLEXITY_TOLERANCE,
+        },
+        "worst": sorted(gaps, key=lambda row: -abs(row["model"] - row["compiler"]))[:10],
+    }
+
+
+def _names_of(repo_root: Path, commit: str, since: int) -> dict[str, set[str]]:
+    """Each file's older names, from git's list of renames."""
+    done = run_git(repo_root, "log", commit, "--no-merges", "-M", "--diff-filter=R", "--name-status", "-z", f"--since=@{since}", "--format=")
+    fields = [item for item in (done.stdout if done else "").replace("\n", "").split("\0") if item]
+    older: dict[str, set[str]] = {}
+    for at in range(0, len(fields) - 2, 3):
+        older.setdefault(fields[at + 2], set()).add(fields[at + 1])
+    return older
+
+
+def compare_churn(facts: dict, repo_root: Path, commit: str) -> list[dict]:
+    """Ask git for each file's log under every name it has had, and compare the counts.
+
+    `--follow` would treat a copy as the same file, and so count another file's history.
+    """
+    since = facts["since"]
+    older = _names_of(repo_root, commit, since)
+    diffs = []
+    for path, row in facts["files"].items():
+        names, stack = {path}, [path]
+        while stack:
+            for name in older.get(stack.pop(), ()):
+                if name not in names:
+                    names.add(name)
+                    stack.append(name)
+        done = run_git(repo_root, "log", commit, "--no-merges", "--full-history", f"--since=@{since}", "--format=%H", "--", *sorted(names))
+        real = len(done.stdout.split()) if done else None
+        if real != row["commits"]:
+            diffs.append({"file": path, "what": "commits", "model": row["commits"], "git": real})
+    return diffs
+
+
+def _suffixes(path: str) -> list[str]:
+    parts = path.lstrip("/").split("/")
+    return ["/".join(parts[start:]) for start in range(len(parts))]
+
+
+def compare_coverage(model: dict[str, dict], summary: dict) -> list[dict]:
+    """Compare each file's numbers with the test runner's own summary."""
+    diffs = []
+    for path, row in summary.items():
+        ours = next((model[key] for key in _suffixes(path) if key in model), None)
+        if path == "total" or ours is None:
+            continue
+        real = (row["lines"]["total"], row["lines"]["covered"], row["branches"]["total"], row["branches"]["covered"])
+        mine = (ours["lines_total"], ours["lines_hit"], ours["branches_total"], ours["branches_hit"])
+        if real != mine:
+            diffs.append({"file": path, "what": "coverage", "model": mine, "runner": real})
     return diffs
 
 

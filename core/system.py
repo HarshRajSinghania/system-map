@@ -106,4 +106,7 @@ def build(source, tables: list[dict]) -> dict:
         "stats": stats,
         "imports": {path: sorted(targets) for path, targets in project.imports.items()} if project else {},
         "table_calls": dict(project.table_calls) if project else {},
+        "complexity": dict(project.complexity) if project else {},
+        "lines": dict(project.lines) if project else {},
+        "code_root": project.code_root if project else "",
     }

@@ -665,28 +665,71 @@ def _apply(schema: Schema, stmt: Stmt) -> None:
     schema.applied += 1
 
 
-def _do_block(schema: Schema, stmt: Stmt) -> None:
-    """Replay the plain DDL inside a `DO` body, taking every guarded branch as run.
+def _do_statements(stmt: Stmt) -> list[Stmt] | None:
+    """The plain DDL inside a `DO` body, taking every guarded branch as run.
 
     Migrations use `IF NOT EXISTS (...) THEN ALTER TABLE ...` to stay safe to re-run, so
-    block keywords become statement breaks. Dynamic `EXECUTE` strings stay unread and
-    are counted, since only a real database can say what they do.
+    block keywords become statement breaks.
     """
     body = re.search(r"\$([A-Za-z_]*)\$(.*)\$\1\$", stmt.raw, re.S)
     if not body:
-        schema.unknown["do block"] += 1
-        return
-    code = body.group(2)
-    schema.usage.append(code)
-    if re.search(r"\bexecute\s+(?!function\b|procedure\b)", code, re.I):
-        schema.unknown["do block with dynamic sql"] += 1
+        return None
     line = stmt.line + stmt.raw.count("\n", 0, body.start(2))
-    breaks = re.sub(r"\b(begin|then|else|loop)\b", lambda m: ";" + " " * (len(m.group(0)) - 1), code, flags=re.I)
+    breaks = re.sub(r"\b(begin|then|else|loop)\b", lambda m: ";" + " " * (len(m.group(0)) - 1), body.group(2), flags=re.I)
+    found = []
     for inner in statements_of(breaks, stmt.path):
         inner.line += line - 1
         if re.match(r"(create|alter|drop)\s", inner.mask, re.I):
-            _apply(schema, inner)
+            found.append(inner)
+    return found
+
+
+def _do_block(schema: Schema, stmt: Stmt) -> None:
+    """Replay a `DO` body. Dynamic `EXECUTE` strings stay unread and are counted, since
+    only a real database can say what they do."""
+    inner = _do_statements(stmt)
+    if inner is None:
+        schema.unknown["do block"] += 1
+        return
+    code = re.search(r"\$([A-Za-z_]*)\$(.*)\$\1\$", stmt.raw, re.S).group(2)
+    schema.usage.append(code)
+    if re.search(r"\bexecute\s+(?!function\b|procedure\b)", code, re.I):
+        schema.unknown["do block with dynamic sql"] += 1
+    for item in inner:
+        _apply(schema, item)
     schema.applied += 1
+
+
+#: Each statement that changes a table, and which group of its pattern names that table.
+TABLE_CHANGES = (
+    (CREATE_TABLE, 1),
+    (DROP_TABLE, 1),
+    (ALTER_TABLE, 1),
+    (CREATE_INDEX, 4),
+    (CREATE_POLICY, 2),
+    (DROP_POLICY, 2),
+    (ALTER_POLICY, 2),
+    (CREATE_TRIGGER, 4),
+    (DROP_TRIGGER, 2),
+)
+
+
+def tables_changed(sql: str, path: str = "") -> set[str]:
+    """Every table one SQL file changes, as `schema.name`. Used to spot two changes meeting."""
+    found: set[str] = set()
+
+    def visit(stmt: Stmt) -> None:
+        for pattern, group in TABLE_CHANGES:
+            if match := pattern.match(stmt.mask):
+                found.add(qualified(match.group(group)))
+                return
+        if DO_BLOCK.match(stmt.mask):
+            for inner in _do_statements(stmt) or []:
+                visit(inner)
+
+    for stmt in statements_of(sql, path):
+        visit(stmt)
+    return found
 
 
 def detect(source) -> bool:

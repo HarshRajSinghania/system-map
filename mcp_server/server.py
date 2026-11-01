@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import store  # noqa: E402
+from core import risk, store  # noqa: E402
 
 PROTOCOL_VERSION = "2025-06-18"
 BUDGET = {"type": "integer", "description": f"Most chars to return inline. Default {store.DEFAULT_BUDGET_CHARS}."}
@@ -21,8 +21,8 @@ TOOLS = [
     {
         "name": "overview",
         "description": (
-            "Start here. Returns the short index of a repo's system model: the commit, whether "
-            "it is stale, and one line per table. Open a single table with `node`."
+            "Start here. Returns the short index of a repo's system model: the commit, whether it is "
+            "stale, one line per table, the riskiest modules, and any worktrees that overlap."
         ),
         "inputSchema": {"type": "object", "properties": {"repo": REPO}},
     },
@@ -38,6 +38,55 @@ TOOLS = [
                 "status": {"type": "string", "enum": ["planned", "partial", "unclear", "built"]},
                 "repo": REPO,
                 "budget_chars": BUDGET,
+            },
+        },
+    },
+    {
+        "name": "risk",
+        "description": (
+            "Answer 'where is a change most likely to hurt?'. Lists code that changes often, has many "
+            "paths and few tests, worst first, with commits, complexity and coverage for each."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "level": {"type": "string", "enum": ["modules", "files"], "description": "Default modules."},
+                "all": {"type": "boolean", "description": "Every row, not only the hot and untested."},
+                "limit": {"type": "integer", "description": "Most rows to return. Default 15."},
+                "repo": REPO,
+                "budget_chars": BUDGET,
+            },
+        },
+    },
+    {
+        "name": "worktrees",
+        "description": (
+            "Live: what each git worktree is changing, and where two of them collide. A conflict comes "
+            "from a real trial merge. Two worktrees on one table raise a warning. Pass a node id to see "
+            "only who is working on it. Check this before changing something others may be changing."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "node": {"type": "string", "description": "Only this node, for example table:public.users."},
+                "repo": REPO,
+                "budget_chars": BUDGET,
+            },
+        },
+    },
+    {
+        "name": "coverage",
+        "description": (
+            "Load a test coverage report (coverage-final.json or lcov.info) so `risk` uses real numbers. "
+            "Omit `report` to read the one in the repo's coverage folder. Give `commit` if the tests ran "
+            "somewhere other than a checkout of this repo. Never changes the repo."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "report": {"type": "string", "description": "Path to the report."},
+                "commit": {"type": "string", "description": "The commit the tests ran on."},
+                "repo": REPO,
             },
         },
     },
@@ -138,12 +187,39 @@ def call(name: str, args: dict) -> object:
 
     target = store.resolve_repo(args.get("repo"))
     if name == "overview":
+        state = store.worktree_state(target)
         return {
             "text": (store.current(target) / "overview.md").read_text(encoding="utf-8"),
             "freshness": store.freshness(target),
             "facts_changed_since_build": store.verify_facts(target),
             "model_dir": str(store.current(target)),
+            "hot_and_untested": [row["id"] for row in risk.worst(store.load_risk(target), "modules", 5)],
+            "worktree_overlaps": [row["summary"] for row in state["overlaps"] if row["severity"] in ("high", "medium")],
         }
+    if name == "risk":
+        ranked = store.load_risk(target)
+        level = args.get("level") or "modules"
+        if level not in ("modules", "files"):
+            raise ValueError("level must be modules or files")
+        limit = int(args.get("limit") or 15)
+        rows = ranked[level][:limit] if args.get("all") else risk.worst(ranked, level, limit)
+        keep = ("id", "path", "lines", "complexity", "commits", "covered", "branches", "tests", "reached_files", "hot", "untested", "score")
+        meta = {key: ranked[key] for key in ("window_days", "history_known", "shallow", "test_files")}
+        loaded = ranked["coverage"]
+        meta["coverage"] = {key: loaded[key] for key in ("commit", "lines_hit", "lines_total", "files_changed_since")} if loaded else None
+        body = {**meta, level: [{key: row[key] for key in keep if key in row} for row in rows]}
+        return store.fit(target, "risk", compact(body), budget)
+    if name == "worktrees":
+        state = store.worktree_state(target)
+        wanted = args.get("node")
+        if wanted:
+            names = state["by_node"].get(wanted, [])
+            overlaps = [row for row in state["overlaps"] if row["a"] in names and row["b"] in names]
+            return store.fit(target, "worktrees", compact({"node": wanted, "worktrees": names, "overlaps": overlaps}), budget)
+        body = {key: state[key] for key in ("ref", "commit", "counts", "overlaps", "worktrees")}
+        return store.fit(target, "worktrees", compact(body), budget)
+    if name == "coverage":
+        return store.set_coverage(target, args.get("report"), args.get("commit"))
     if name == "findings":
         found = [
             finding
@@ -189,7 +265,7 @@ def respond(request: dict) -> dict | None:
         result: dict = {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "system-map", "version": "0.2.0"},
+            "serverInfo": {"name": "system-map", "version": "0.3.0"},
         }
     elif method == "ping":
         result = {}

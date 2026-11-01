@@ -92,8 +92,26 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, 404)
 
     def test_worktrees_lists_the_repo(self):
-        found = self.get("/worktrees")["worktrees"]
-        self.assertEqual(len(found), 1)
+        found = self.get("/worktrees")
+        self.assertEqual(len(found["worktrees"]), 1)
+        self.assertEqual(found["overlaps"], [])
+        self.assertEqual(found["counts"]["high"], 0)
+
+    def test_coverage_with_no_report_is_a_400_saying_why(self):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post("/coverage", {})
+        self.assertEqual(caught.exception.code, 400)
+        self.assertIn("no coverage report", json.load(caught.exception)["error"])
+
+    def test_risk_reads_with_or_without_a_report(self):
+        value = self.get("/risk")
+        self.assertIsNone(value["coverage"])
+        self.assertEqual(value["window_days"], 90)
+        report = Path(self._tmp.name) / "lcov.info"
+        report.write_text("SF:supabase/migrations/001.sql\nDA:1,1\nDA:2,0\nend_of_record\n")
+        reply = json.load(self.post("/coverage", {"report": str(report), "commit": "abc"}))
+        self.assertEqual((reply["lines_hit"], reply["lines_total"]), (1, 2))
+        self.assertEqual(self.get("/risk")["coverage"]["commit"], "abc")
 
     def test_build_refuses_a_folder_without_migrations(self):
         with self.assertRaises(urllib.error.HTTPError) as caught:

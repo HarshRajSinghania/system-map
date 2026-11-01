@@ -1,7 +1,8 @@
 """System Map's HTTP backend: serves the model to the dashboard pages.
 
 Stdlib only. The gateway starts it, binds it to loopback and proxies it at
-`/apps/system-map/api/...`. Everything here reads the model, except `POST build`.
+`/apps/system-map/api/...`. It reads the model. The only writes are to the app's own data,
+through `POST build`, `POST coverage` and `POST plan-status`. No route writes to a repo.
 """
 from __future__ import annotations
 
@@ -9,6 +10,7 @@ import json
 import os
 import sys
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -16,30 +18,24 @@ from urllib.parse import parse_qs, urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from core import store  # noqa: E402
-from core.sources import git  # noqa: E402
 
 PORT = int(os.environ.get("PORT", 9100))
+#: The page and the side panel both poll, so one answer serves both for this long.
+WORKTREE_TTL_SECONDS = 5
+_worktree_cache: dict[str, tuple[float, dict]] = {}
+_worktree_lock = threading.Lock()
 
 
-def worktrees(repo_root: Path) -> list[dict]:
-    """Each worktree of a repo, with how many files it has uncommitted."""
-    listing = git(repo_root, "worktree", "list", "--porcelain") or ""
-    found: list[dict] = []
-    for block in listing.split("\n\n"):
-        fields = dict(line.split(" ", 1) for line in block.splitlines() if " " in line)
-        if "worktree" not in fields:
-            continue
-        path = Path(fields["worktree"])
-        changed = git(path, "status", "--porcelain") or ""
-        found.append(
-            {
-                "path": str(path),
-                "branch": fields.get("branch", "").replace("refs/heads/", ""),
-                "readable": git(path, "rev-parse", "HEAD") is not None,
-                "uncommitted_files": len([line for line in changed.splitlines() if line.strip()]),
-            }
-        )
-    return found
+def worktree_state(target: Path) -> dict:
+    """What each worktree is changing. It runs many git commands, so a few seconds of reuse helps."""
+    key = str(target)
+    with _worktree_lock:
+        found = _worktree_cache.get(key)
+        if found and time.monotonic() - found[0] < WORKTREE_TTL_SECONDS:
+            return found[1]
+        state = store.worktree_state(target)
+        _worktree_cache[key] = (time.monotonic(), state)
+        return state
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -77,8 +73,9 @@ class Handler(BaseHTTPRequestHandler):
             elif path.endswith("/neighbors"):
                 self._json(200, store.neighbors(store.resolve_repo(repo), query["id"][0]))
             elif path.endswith("/worktrees"):
-                manifest = store.read_manifest(store.resolve_repo(repo))
-                self._json(200, {"worktrees": worktrees(Path(manifest["repo"]))})
+                self._json(200, worktree_state(store.resolve_repo(repo)))
+            elif path.endswith("/risk"):
+                self._json(200, store.load_risk(store.resolve_repo(repo)))
             else:
                 self._json(404, {"error": f"not found: {path}", "seen_path": self.path})
         except KeyError as error:
@@ -99,6 +96,15 @@ class Handler(BaseHTTPRequestHandler):
             except KeyError as error:
                 self._json(404, {"error": str(error).strip("'\"")})
             except ValueError as error:
+                self._json(400, {"error": str(error)})
+            return
+        if route.endswith("/coverage"):
+            try:
+                target = store.resolve_repo(body.get("repo"))
+                self._json(200, store.set_coverage(target, body.get("report"), body.get("commit")))
+            except KeyError as error:
+                self._json(404, {"error": str(error).strip("'\"")})
+            except (ValueError, OSError) as error:
                 self._json(400, {"error": str(error)})
             return
         if not route.endswith("/build"):
