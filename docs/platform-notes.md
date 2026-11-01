@@ -80,6 +80,15 @@ backend restarts and upgrades models. A new tool reaches new sessions only.
   path listed in `permissions.api`.
 - The backend runs in the gateway's sandbox wrapper. It can still read repos and run git.
 
+## App icon
+
+- `assets/icon.svg` is the source. `assets/icon.png` is that file drawn at 512x512, and it is
+  what `iconPath` points at.
+- The sidebar draws the image at 16px with an 8px radius, so it crops to a circle. Judge an
+  icon at that size, in light and dark.
+- A `ui.pages[].icon` name only works for built-in apps. `iconPathDark` gives the dark theme
+  its own image.
+
 ## App Store
 
 - Kiro Crew accepts no new built-in apps. An app lives in its own public GitHub repo.
