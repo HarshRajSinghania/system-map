@@ -9,12 +9,13 @@ import { plainError } from './errors'
 import { ExploreView } from './Explore'
 import type { Tab } from './Explore'
 import { Findings } from './Findings'
+import { columnsFor, SHOW_CHAT, SHOW_LIST } from './fit'
 import { Inspector } from './Inspector'
 import { Layers, Showing } from './Layers'
 import { PlanBoard, PlanHint } from './Plan'
 import { AddProject } from './ProjectDialogs'
 import { useProjectMenu } from './ProjectMenu'
-import { chatSlotName, readView, statusOf, statusView, writeView } from './projects'
+import { chatSlotName, hasSideList, readListOpen, readView, statusOf, statusView, writeListOpen, writeView } from './projects'
 import type { BuildRead, Project, View } from './projects'
 import { RiskView } from './Risk'
 import { StatusChip } from './StatusChip'
@@ -31,8 +32,6 @@ const GAP = 12
 const CHECK_WORKTREES_MS = 20000
 const CHECK_EXPLORE_MS = 8000
 const RESULT_MS = 4000
-/** Below this the canvas needs the room, and the host's own side panel can hold a chat. */
-const SHOW_CHAT = 560
 const DENSITIES: { key: Density; label: string }[] = [
   { key: 'names', label: 'Names' },
   { key: 'keys', label: 'Keys' },
@@ -49,14 +48,6 @@ const VIEW_TABS: { value: View; label: string; counts?: string }[] = [
   { value: 'findings', label: 'Findings', counts: 'findings' },
   { value: 'explore', label: 'Explore', counts: 'draft proposals' },
 ]
-
-/** Columns by the width the page really has, which depends on the host's sidebar and panel. */
-function columnsFor(width: number): string {
-  if (width >= 1100) return '220px minmax(0, 1fr) minmax(320px, 26%)'
-  if (width >= 760) return '170px minmax(0, 1fr) 260px'
-  if (width >= SHOW_CHAT) return 'minmax(0, 1fr) 240px'
-  return 'minmax(0, 1fr)'
-}
 
 /** Open this project's own chat, pointed at its folder. */
 function useDesignSlot(repo: string | null, repoKey: string) {
@@ -249,6 +240,9 @@ function ProjectPage({
   const [coverageError, setCoverageError] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [density, setDensity] = useState<Density>('names')
+  const [listOpen, setListOpen] = useState(() => readListOpen(localStorage))
+  const listToggle = useRef<HTMLButtonElement>(null)
+  const listToggled = useRef(false)
   const [rebuilding, setRebuilding] = useState(false)
   const [rebuilt, setRebuilt] = useState<string | null>(null)
   const { ref, height, width } = useFillHeight()
@@ -262,6 +256,12 @@ function ProjectPage({
     },
     [repo],
   )
+
+  // The button you pressed is gone, so keyboard focus moves to the one that replaced it.
+  useEffect(() => {
+    if (listToggled.current) listToggle.current?.focus()
+    listToggled.current = false
+  }, [listOpen])
 
   useEffect(() => {
     if (!rebuilt) return
@@ -416,7 +416,21 @@ function ProjectPage({
     else showOnMap(id)
   }
 
-  const onLeftOfTree = view === 'map' || view === 'plan'
+  const toggleList = () => {
+    listToggled.current = true
+    writeListOpen(localStorage, !listOpen)
+    setListOpen(!listOpen)
+  }
+
+  const listed = hasSideList(view)
+  const listShown = listed && listOpen
+  const listName = view === 'map' ? 'modules' : 'tables'
+  const showList =
+    listed && !listOpen && width >= SHOW_LIST ? (
+      <button ref={listToggle} type="button" className="sm-plain sm-layers sm-show-list" onClick={toggleList}>
+        Show {listName}
+      </button>
+    ) : null
   const showing = overlaid?.title ?? savedView?.title
   const banner = showing ? <Showing title={showing} onBack={clearOverlays} /> : null
   // A zero says nothing, so it doesn't earn a badge.
@@ -427,26 +441,32 @@ function ProjectPage({
 
   const mapTools = (
     <>
-      <Layers
-        layers={[
-          PlanHint(unbuilt, showPlans, () => setShowPlans((value) => !value)),
-          { key: 'risk', label: 'Risk', on: showRisk, title: 'Mark hot and untested code on the map', onToggle: () => setShowRisk((value) => !value) },
-          { key: 'work', label: 'Worktrees', on: showWork, title: 'Show what each worktree is changing', onToggle: () => setShowWork((value) => !value) },
-        ]}
-      />
+      <div className="sm-tool-row">
+        {showList}
+        <Layers
+          layers={[
+            PlanHint(unbuilt, showPlans, () => setShowPlans((value) => !value)),
+            { key: 'risk', label: 'Risk', on: showRisk, title: 'Mark hot and untested code on the map', onToggle: () => setShowRisk((value) => !value) },
+            { key: 'work', label: 'Worktrees', on: showWork, title: 'Show what each worktree is changing', onToggle: () => setShowWork((value) => !value) },
+          ]}
+        />
+      </div>
       {banner}
     </>
   )
   const dataTools = (
     <>
-      <SegmentedControl
-        ariaLabel="How much of each table to show"
-        layoutId="system-map-density"
-        collapse={false}
-        segments={DENSITIES}
-        value={density}
-        onChange={(key) => setDensity(key as Density)}
-      />
+      <div className="sm-tool-row">
+        {showList}
+        <SegmentedControl
+          ariaLabel="How much of each table to show"
+          layoutId="system-map-density"
+          collapse={false}
+          segments={DENSITIES}
+          value={density}
+          onChange={(key) => setDensity(key as Density)}
+        />
+      </div>
       {banner}
     </>
   )
@@ -530,14 +550,19 @@ function ProjectPage({
                 minHeight: 0,
                 display: 'grid',
                 gap: GAP,
-                gridTemplateColumns: columnsFor(width),
+                gridTemplateColumns: columnsFor(width, listShown),
                 gridTemplateRows: 'minmax(0, 1fr)',
               }}
             >
-              {width >= 760 && (
-                <Card style={COLUMN}>
-                  <CardTitle>{onLeftOfTree ? 'Modules' : 'Tables'}</CardTitle>
-                  {onLeftOfTree ? (
+              {listShown && width >= SHOW_LIST && (
+                <Card style={COLUMN} data-testid="side-list">
+                  <div className="sm-list-head">
+                    <CardTitle>{view === 'map' ? 'Modules' : 'Tables'}</CardTitle>
+                    <button ref={listToggle} type="button" className="sm-plain sm-hide-list" aria-label={`Hide ${listName}`} onClick={toggleList}>
+                      Hide
+                    </button>
+                  </div>
+                  {view === 'map' ? (
                     <SystemTree nodes={system?.nodes ?? []} focus={focus} onSelect={showOnMap} />
                   ) : (
                     <TableList tables={overview.tables} selected={selected} flagged={flagged} working={atWork} onSelect={showTable} />

@@ -41,6 +41,12 @@ const CSS = `
 .sm-layer { padding: 3px 8px; border-radius: 6px; color: var(--muted, #71717a); white-space: nowrap; }
 .sm-layer:hover { background: var(--bg-hover, #f4f4f5); }
 .sm-layer[aria-pressed="true"] { background: var(--accent-subtle, rgba(47, 125, 92, .18)); color: var(--text, #18181b); }
+.sm-tool-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.sm-show-list { padding: 5px 10px; white-space: nowrap; color: var(--muted, #71717a); }
+.sm-show-list:hover { color: var(--text, #18181b); border-color: var(--border-strong, #a1a1aa); }
+.sm-list-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.sm-hide-list { padding: 1px 6px; border-radius: 6px; font-size: 12px; color: var(--muted, #71717a); }
+.sm-hide-list:hover { background: var(--bg-hover, #f4f4f5); color: var(--text, #18181b); }
 .sm-notice { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid var(--border, #e4e4e7); border-radius: 8px; background: var(--bg-elevated, #fff); color: var(--text, #18181b); font-size: 13px; }
 .sm-manage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .sm-manage-row { padding: 10px 12px; border: 1px solid var(--border, #e4e4e7); border-radius: 8px; font-size: 13px; }

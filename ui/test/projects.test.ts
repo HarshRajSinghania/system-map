@@ -5,6 +5,8 @@ import {
   builtAgo,
   chatSlotName,
   filterProjects,
+  hasSideList,
+  readListOpen,
   readView,
   recentToAdd,
   removalWarning,
@@ -12,6 +14,8 @@ import {
   rowStatus,
   statusOf,
   statusView,
+  VIEWS,
+  writeListOpen,
   writeView,
 } from '../src/projects.ts'
 import type { Project } from '../src/projects.ts'
@@ -122,6 +126,22 @@ test('each project remembers its own view', () => {
 
 test('a view that no longer exists opens the map', () => {
   assert.equal(readView(memory({ 'system-map.view.one': 'gone' }), 'one'), 'map')
+})
+
+test('only the views a list can steer have one', () => {
+  assert.deepEqual(VIEWS.filter(hasSideList), ['map', 'data'])
+})
+
+test('the side list starts open', () => {
+  assert.equal(readListOpen(memory()), true)
+})
+
+test('the side list stays hidden until it is shown again', () => {
+  const store = memory()
+  writeListOpen(store, false)
+  assert.equal(readListOpen(store), false)
+  writeListOpen(store, true)
+  assert.equal(readListOpen(store), true)
 })
 
 test('each project gets its own chat', () => {

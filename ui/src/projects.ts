@@ -174,6 +174,22 @@ export function writeView(store: Store, repoKey: string, view: View): void {
   store.setItem(viewKey(repoKey), view)
 }
 
+const LIST_KEY = 'system-map.side-list'
+
+/** The side list steers the canvas, so only views it can steer have one. */
+export function hasSideList(view: View): boolean {
+  return view === 'map' || view === 'data'
+}
+
+/** Hiding the list is one choice for the browser, not one per project. */
+export function readListOpen(store: Store): boolean {
+  return store.getItem(LIST_KEY) !== 'hidden'
+}
+
+export function writeListOpen(store: Store, open: boolean): void {
+  store.setItem(LIST_KEY, open ? 'shown' : 'hidden')
+}
+
 /** A design chat per project, so one project's talk never reaches another's. */
 export function chatSlotName(repoKey: string): string {
   return `system-map-design-${repoKey}`
