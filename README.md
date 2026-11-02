@@ -24,14 +24,16 @@ Status: early. It reads TypeScript projects, TanStack file routes, Postgres migr
 | Part | Read from |
 |---|---|
 | Postgres | Migrations in `supabase/migrations`, `db/migrations` or `migrations` |
-| SQLite | Any `.sql` file, including what Prisma and Drizzle generate, or `CREATE TABLE` inside code. Real SQLite reads it, in memory |
+| SQLite | Any `.sql` file, including what Prisma and Drizzle generate, `CREATE TABLE` inside code, or a Drizzle schema in TypeScript. Real SQLite reads it, in memory |
 | Routes | Next.js App Router and Pages Router, TanStack and Remix file routes |
 | Code | TypeScript and JavaScript, with `paths` and `baseUrl` from `tsconfig.json` or `jsconfig.json` |
 | Plans | `docs/specs`, `docs/plans`, `specs`, and a `BRIEF`, `PLAN`, `ROADMAP`, `PRD`, `SPEC` or `TODO` file at the top of the repo |
 
-A project needs no git history, though Risk has no churn without it, and there are no worktrees.
+A project needs no git history, though Risk has no churn without it, and there are no worktrees. Add project lists git repos and any folder with a `package.json`. Use a full path for anything else.
 
-Each build records what it read, and the status menu shows it. If a build finds something it can't read, it names it: a Prisma or Drizzle schema with no SQL migrations, MySQL, MongoDB, or a Next.js app in a subfolder.
+Each build records what it read, and the status menu shows it. If a build finds something it can't read, it names it: a Prisma schema with no SQL migrations, a Drizzle schema for anything but SQLite, any part of a Drizzle schema that only running it could answer, MySQL, MongoDB, or a Next.js app in a subfolder.
+
+A Drizzle schema is read as text and never run. SQL files win where a project has both, since they are what the database ran. Code links to Drizzle tables either way.
 
 ## Layout
 
@@ -43,7 +45,7 @@ Each build records what it read, and the status menu shows it. If a build finds 
 | `backend/` | HTTP API for the dashboard pages. Stdlib only. |
 | `ui/` | The app page and the chat side panel tab. |
 | `skills/system-map/` | How agents should read and write the model. |
-| `scripts/` | Replay migrations and try proposals on a throwaway Postgres. |
+| `scripts/` | Replay migrations and try proposals on a throwaway Postgres, and hold the readers to the compiler and to `drizzle-kit`. |
 | `docs/` | Context rules, platform notes and the backlog. |
 
 ## Install from a local clone
@@ -86,6 +88,21 @@ Load the schema into a separate real SQLite, then compare every table with its p
 
 ```bash
 python3 -m core verify-sqlite <repo>
+```
+
+## Prove a Drizzle model
+
+Have the tool write its SQL in a copy of the project, then compare that with the reader. Use `generate`, because `export` ignores `casing`:
+
+```bash
+(cd <copy> && npx drizzle-kit generate --name proof)
+python3 -m core verify-drizzle <repo> <copy>/drizzle/0000_proof.sql
+```
+
+To try every form the reader knows against the real tool, give the sweep any `node_modules` with `drizzle-kit` and `drizzle-orm` installed. The same seed gives the same schemas:
+
+```bash
+scripts/sweep_drizzle.py <node_modules> /tmp/sweep [rounds] [tables] [seed]
 ```
 
 ## Prove routes against Next.js

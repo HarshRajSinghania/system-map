@@ -5,8 +5,8 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 ## Before you start
 
 - Everything so far is on stacked branches with no `main` and no remote. Work from the tip,
-  `feat/add-project-picker`, on version 0.7.1.
-- Run the checks in the README's Checks section. All pass at the tip: 579 Python tests and
+  `feat/drizzle-reader`, on version 0.8.1.
+- Run the checks in the README's Checks section. All pass at the tip: 692 Python tests and
   74 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
@@ -67,7 +67,14 @@ These are named on screen, not hidden. Each is a choice, not a bug.
 | Limit | Where | Note |
 |---|---|---|
 | Uncommitted work doesn't show | `GitSource` in `core/sources.py` | A git repo is read at the main branch's last commit, and requirement M7 says so. Reading a checkout needs a spec. `TreeSource` already reads folders with no git |
-| Prisma or Drizzle with no SQL migrations gives no tables | `_unread` in `core/read.py` | Their schemas aren't SQL, so each needs its own reader. Hold it to the tool's generated SQL |
+| Prisma with no SQL migrations gives no tables | `_unread` in `core/read.py` | Its schema isn't SQL, so it needs its own reader. Hold it to the tool's generated SQL, as `scripts/sweep_drizzle.py` does |
+| Drizzle for Postgres or MySQL gives no tables | `core/extractors/drizzle.py` | Only `sqliteTable` is read. Its calls don't link either, and the build names the gap |
+| Drizzle schema built by running code | `unread` in `core/extractors/drizzle.py` | Loops, `sqliteTableCreator`, custom column types and defaults from variables are named by file and line, never guessed |
+| A repo with SQL files and a Drizzle schema | `replay_source` in `core/extractors/sqlite.py` | SQL gives the tables, even if the schema has moved on. Drizzle still gives the code links |
+| Drizzle `with: { guest: true }` adds no link | `drizzle_uses` in `core/extractors/typescript.py` | Only calls that name a table count, on both sides of the compiler check |
+| A parameter named like an imported table | `drizzle_names` in `core/extractors/typescript.py` | Text can't see scopes, so `function f(users) { Array.from(users) }` links. `ts_truth.mjs` catches it |
+| Worktrees and Drizzle schema edits | `tables_at` in `core/extractors/drizzle.py` | Deleting a whole `sqliteTable`, or editing a helper a table spreads, marks no table. The shared file still shows |
+| Stored or virtual generated columns | `table_shard` in `core/extractors/sqlite.py` | The model only says a column is generated, for every kind of schema |
 | Monorepos | `_unread` in `core/read.py` | A Next.js app in a subfolder is named, not read |
 | MySQL and MongoDB | `core/extractors/` | Each needs its own module behind the boundary |
 | Limits on what-ifs are Postgres only | `limits_apply` in `core/explore.py` | They are proven against real Postgres. SQLite needs its own sweep |
