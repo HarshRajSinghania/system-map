@@ -1,8 +1,8 @@
 """System Map's HTTP backend: serves the model to the dashboard pages.
 
 Stdlib only. The gateway starts it, binds it to loopback and proxies it at
-`/apps/system-map/api/...`. It reads the model. Every POST writes only to the app's own data.
-No route writes to a repo.
+`/apps/system-map/api/...`. It reads the model and lists folder names. Every POST writes only
+to the app's own data. No route writes to a repo.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import explore, store  # noqa: E402
+from core import explore, folders, store  # noqa: E402
 
 PORT = int(os.environ.get("PORT", 9100))
 #: The page and the side panel both poll, so one answer serves both for this long.
@@ -48,6 +48,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"status": "ok"})
             elif path.endswith("/repos"):
                 self._json(200, {"repos": store.project_rows(), "data_root": str(store.data_root())})
+            elif path.endswith("/workspaces"):
+                folder = (query.get("folder") or [None])[0]
+                self._json(200, folders.workspaces(Path(folder)) if folder else folders.default_workspaces())
+            elif path.endswith("/browse"):
+                self._json(200, folders.browse(Path((query.get("path") or ["~"])[0])))
             elif path.endswith("/overview"):
                 target = store.resolve_repo(repo)
                 keep = ("repo", "repo_key", "ref", "commit", "engine", "read", "version", "built_at", "counts", "stats", "code_root")
@@ -84,6 +89,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(404, {"error": f"not found: {path}", "seen_path": self.path})
         except KeyError as error:
             self._json(404, {"error": str(error).strip("'\"")})
+        except (ValueError, OSError) as error:
+            self._json(400, {"error": str(error)})
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -93,6 +100,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "bad JSON"})
             return
         route = urlparse(self.path).path
+        if route.endswith("/default-folder"):
+            try:
+                self._json(200, {"default_folder": folders.set_default_folder(Path(str(body.get("folder", ""))))})
+            except (ValueError, OSError) as error:
+                self._json(400, {"error": str(error)})
+            return
         if route.endswith("/repo-remove"):
             try:
                 self._json(200, store.remove_project(str(body.get("repo", ""))))
