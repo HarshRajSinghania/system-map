@@ -342,7 +342,10 @@ def resolve_repo(repo: str | None, root: Path | None = None, folder: Path | None
 
 def check_folder(path: Path) -> Path:
     """Refuse a folder that can't become a project, in words a person can act on."""
-    path = path.expanduser()
+    try:
+        path = path.expanduser()
+    except RuntimeError:  # `~someone` with no such person.
+        raise ValueError("Give the full path, starting with / or ~.") from None
     if not path.is_absolute():
         raise ValueError("Give the full path, starting with / or ~.")
     if not path.is_dir():

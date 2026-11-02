@@ -170,6 +170,10 @@ class FindWorkspaces(Tree):
         with self.assertRaisesRegex(ValueError, "full path"):
             folders.workspaces(Path("code"))
 
+    def test_a_home_that_doesnt_exist_is_refused_in_words(self):
+        with self.assertRaisesRegex(ValueError, "full path"):
+            folders.workspaces(Path("~nobody-here/code"))
+
     def test_an_unreadable_folder_is_skipped(self):
         make_repo(self.code / "shop")
         locked = self.code / "locked"
@@ -278,7 +282,13 @@ class Routes(unittest.TestCase):
             cls.port = probe.getsockname()[1]
         cls.server = subprocess.Popen(
             [sys.executable, str(ROOT / "backend" / "server.py")],
-            env={**os.environ, "PORT": str(cls.port), "SYSTEM_MAP_DATA": str(base / "data"), "PYTHONDONTWRITEBYTECODE": "1"},
+            env={
+                **os.environ,
+                "PORT": str(cls.port),
+                "SYSTEM_MAP_DATA": str(base / "data"),
+                "SYSTEM_MAP_NO_WINDOW": "1",
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
         )
         deadline = time.time() + 10
         while time.time() < deadline:
@@ -324,6 +334,11 @@ class Routes(unittest.TestCase):
             code, reply = self.failure(path)
             self.assertEqual(code, 400)
             self.assertIn("isn't a folder", reply["error"])
+
+    def test_with_no_window_to_open_the_page_is_told(self):
+        self.assertEqual(self.call("/folder-window", {"start": str(self.code)})["status"], "unavailable")
+        self.assertEqual(self.call("/folder-window")["status"], "unavailable")
+        self.assertEqual(self.call("/folder-window-close", {})["status"], "unavailable")
 
     def test_a_bad_default_folder_is_refused(self):
         code, reply = self.failure("/default-folder", {"folder": "relative"})

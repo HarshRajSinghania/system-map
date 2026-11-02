@@ -2,7 +2,8 @@
 
 Stdlib only. The gateway starts it, binds it to loopback and proxies it at
 `/apps/system-map/api/...`. It reads the model and lists folder names. Every POST writes only
-to the app's own data. No route writes to a repo.
+to the app's own data, except one that opens the computer's folder window. No route writes to
+a repo.
 """
 from __future__ import annotations
 
@@ -17,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import explore, folders, store  # noqa: E402
+from core import explore, folder_window, folders, store  # noqa: E402
 
 PORT = int(os.environ.get("PORT", 9100))
 #: The page and the side panel both poll, so one answer serves both for this long.
@@ -51,6 +52,8 @@ class Handler(BaseHTTPRequestHandler):
             elif path.endswith("/workspaces"):
                 folder = (query.get("folder") or [None])[0]
                 self._json(200, folders.workspaces(Path(folder)) if folder else folders.default_workspaces())
+            elif path.endswith("/folder-window"):
+                self._json(200, folder_window.read())
             elif path.endswith("/browse"):
                 self._json(200, folders.browse(Path((query.get("path") or ["~"])[0])))
             elif path.endswith("/overview"):
@@ -100,6 +103,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": "bad JSON"})
             return
         route = urlparse(self.path).path
+        if route.endswith("/folder-window"):
+            start = body.get("start")
+            self._json(200, folder_window.open_window(start if isinstance(start, str) else None))
+            return
+        if route.endswith("/folder-window-close"):
+            self._json(200, folder_window.close())
+            return
         if route.endswith("/default-folder"):
             try:
                 self._json(200, {"default_folder": folders.set_default_folder(Path(str(body.get("folder", ""))))})
