@@ -17,14 +17,15 @@ import time
 from collections import Counter
 
 from ..sources import package_dependencies
-from . import postgres, typescript
+from . import drizzle, postgres, typescript
 
 ENGINE = "sqlite"
 SCHEMA = "main"
 #: Packages that ship with the app and talk to SQLite. A dev dependency proves nothing, since
 #: test tools often use SQLite in projects that run on something else.
 DRIVERS = {"better-sqlite3", "sqlite3", "sqlite", "@libsql/client", "libsql"}
-BUILT_IN_DRIVERS = re.compile(r"""["'](?:node|bun):sqlite["']""")
+#: Imports that mean SQLite with no driver package. Hosted SQLite, as on D1, has none.
+DRIVER_IMPORTS = re.compile(rf"""["'](?:node:sqlite|bun:sqlite|{drizzle.CORE})["']""")
 PRISMA_SQLITE = re.compile(r"""provider\s*=\s*["']sqlite["']""")
 DATABASE_FILE = re.compile(r"\.(db|sqlite|sqlite3)$")
 #: Past this many files, reading them all to look for a driver stops being cheap.
@@ -68,7 +69,7 @@ def detect(source) -> bool:
     paths = typescript.code_files(source)
     if len(paths) > SCAN_CODE_LIMIT:
         return False
-    return any(BUILT_IN_DRIVERS.search(text) for text in source.read_many(paths).values())
+    return any(DRIVER_IMPORTS.search(text) for text in source.read_many(paths).values())
 
 
 def sql_files(source) -> list[str]:
@@ -136,6 +137,8 @@ class Replay:
         self.made: dict[tuple[str, str], tuple[str, int, str]] = {}
         self.added: dict[tuple[str, str], str] = {}
         self.usage: list[str] = []
+        #: `file:line` of Drizzle schema that needs its code to run before it can be known.
+        self.drizzle_unread: list[str] = []
 
     def run(self, path: str, line: int, text: str) -> None:
         for start, _end, statement in statements(text):
@@ -329,6 +332,12 @@ def replay_source(source) -> Replay:
         replay.run(path, 1, text.replace("--> statement-breakpoint", ""))
     for path, line, text in code_schema(source):
         replay.run(path, line, text)
+    # SQL is what the database ran, so a Drizzle schema only speaks when there is none.
+    if not any(kind == "table" for kind, _name in replay.made):
+        schema = drizzle.read(source)
+        replay.drizzle_unread = schema.unread
+        for path, line, text in schema.statements:
+            replay.run(path, line, text)
     replay.retry()
     return replay
 
@@ -369,6 +378,7 @@ def extract(source) -> dict:
             "statements_ignored": replay.ignored,
             "statements_unknown": sum(replay.unknown.values()),
             "unknown": dict(replay.unknown.most_common()),
+            "drizzle_unread": replay.drizzle_unread,
             "files": len(used),
         },
         "inputs": {path: source.blobs[path] for path in sorted(used)},
@@ -405,9 +415,14 @@ def differences(shards: list[dict], truth: sqlite3.Connection) -> list[str]:
         modelled = {column["name"]: column for column in shard["columns"]}
         if [row[1] for row in columns] != [column["name"] for column in shard["columns"]]:
             found.append(f"{name}: columns differ")
-        for _cid, column, kind, not_null, default, key, _hidden in columns:
+        for _cid, column, kind, not_null, default, key, hidden in columns:
             row = modelled.get(column)
-            if row and (row["type"] != (kind or "BLOB") or row["default"] != default or row["nullable"] != (not not_null and not key)):
+            if row and (
+                row["type"] != (kind or "BLOB")
+                or row["default"] != default
+                or row["nullable"] != (not not_null and not key)
+                or row["generated"] != (hidden in (2, 3))
+            ):
                 found.append(f"{name}.{column}: differs")
         keys = sorted((row for row in columns if row[5]), key=lambda row: row[5])
         modelled_keys = [row["columns"] for row in shard["constraints"] if row["kind"] == "primary_key"]
@@ -416,22 +431,27 @@ def differences(shards: list[dict], truth: sqlite3.Connection) -> list[str]:
         groups: dict[int, list[tuple]] = {}
         for row in _rows(truth, "foreign_key_list", name):
             groups.setdefault(row[0], []).append(row)
-        wanted = sorted(
-            (rows[0][2], rows[0][6].lower(), rows[0][5].lower(), tuple(row[3] for row in sorted(rows, key=lambda item: item[1]))) for rows in groups.values()
-        )
+        wanted = []
+        for rows in groups.values():
+            rows.sort(key=lambda item: item[1])
+            wanted.append((rows[0][2], rows[0][6].lower(), rows[0][5].lower(), tuple(row[3] for row in rows), tuple(row[4] for row in rows if row[4]) or ("id",)))
         got = sorted(
-            (row["references"].removeprefix(f"{SCHEMA}."), row["on_delete"], row["on_update"], tuple(row["columns"]))
+            (row["references"].removeprefix(f"{SCHEMA}."), row["on_delete"], row["on_update"], tuple(row["columns"]), tuple(row["reference_columns"]))
             for row in shard["constraints"]
             if row["kind"] == "foreign_key"
         )
-        if wanted != got:
+        if sorted(wanted) != got:
             found.append(f"{name}: foreign keys differ")
         indexes = _rows(truth, "index_list", name)
         unique = sorted(tuple(row[2] for row in _rows(truth, "index_info", item[1])) for item in indexes if item[3] == "u")
         if unique != sorted(tuple(row["columns"]) for row in shard["constraints"] if row["kind"] == "unique"):
             found.append(f"{name}: unique rules differ")
-        made = sorted((item[1], tuple(row[2] for row in _rows(truth, "index_info", item[1]))) for item in indexes if item[3] == "c")
-        if made != sorted((row["name"], tuple(row["columns"])) for row in shard["indexes"]):
+        # The model leaves out an index with no plain column, and the expressions in any other.
+        made = [(item[1], tuple(row[2] for row in _rows(truth, "index_info", item[1]) if row[2]), bool(item[2]), bool(item[4])) for item in indexes if item[3] == "c"]
+        if sorted(row for row in made if row[1]) != sorted((row["name"], tuple(row["columns"]), row["unique"], row["partial"]) for row in shard["indexes"]):
             found.append(f"{name}: indexes differ")
+        sql = truth.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)).fetchone()[0] or ""
+        if sorted(_checks(sql)) != sorted(row["expression"] for row in shard["constraints"] if row["kind"] == "check"):
+            found.append(f"{name}: checks differ")
     return found
 

@@ -47,6 +47,12 @@ ROOT_NAME = "root files"
 FIRST_VERB = re.compile(r"\.(select|insert|upsert|update|delete)\s*[(<]")
 WRITE_VERBS = {"insert", "upsert", "update", "delete"}
 
+#: Drizzle takes the table itself and not its name, as in `db.insert(users)`.
+DRIZZLE_WRITE = re.compile(r"\.(?:insert|update|delete)\(\s*([\w$.]+)\s*\)")
+DRIZZLE_READ = re.compile(r"\.(?:from|innerJoin|leftJoin|rightJoin|fullJoin|crossJoin|\$count)\(\s*(?:alias\(\s*)?([\w$.]+)\s*[,)]")
+DRIZZLE_QUERY = re.compile(r"\.query\.([\w$]+)\.find(?:Many|First)\b")
+IMPORT_NAMES = re.compile(r"""(?:^|[\s;}])import\s+([\w$*{}\s,]+?)\s+from\s*(["'])([^"'\n]+)\2""")
+
 #: Packages that mean the code talks to an outside service.
 SERVICE_PACKAGES = {
     "@anthropic-ai/sdk": "Anthropic",
@@ -267,6 +273,54 @@ def table_uses(masked: str) -> list[dict]:
     return uses
 
 
+def drizzle_files(contents: dict[str, str], tables: dict[str, dict], files: set[str], aliases: list[tuple[str, str]]) -> set[str]:
+    """Files that hand out Drizzle tables: each schema file, and any that re-exports one."""
+    reach = {row["path"] for row in tables.values()}
+    exports = {path: [match.group(2) for match in EXPORT_FROM.finditer(text)] for path, text in contents.items()}
+    grew = True
+    while grew:
+        grew = False
+        for path, specifiers in exports.items():
+            if path not in reach and any(resolve(specifier, path, files, aliases) in reach for specifier in specifiers):
+                reach.add(path)
+                grew = True
+    return reach
+
+
+def drizzle_names(masked: str, path: str, tables: dict[str, dict], reach: set[str], aliases: list[tuple[str, str]]) -> dict[str, str]:
+    """What one file calls each Drizzle table: `users`, `u` or `schema.users`.
+
+    Only a name that came from the schema counts, so `map.delete(key)` and `Array.from(rows)`
+    never do, even where a table has that name.
+    """
+    found = {name: row["table"] for name, row in tables.items() if row["path"] == path}
+    for match in IMPORT_NAMES.finditer(masked):
+        clause = match.group(1)
+        if re.match(r"type\b", clause) or resolve(match.group(3), path, reach, aliases) is None:
+            continue
+        for space in re.findall(r"\*\s+as\s+([\w$]+)", clause):
+            found.update({f"{space}.{name}": row["table"] for name, row in tables.items()})
+        for block in re.findall(r"\{([^}]*)\}", clause):
+            for item in filter(None, (part.strip() for part in block.split(","))):
+                real, _, local = item.partition(" as ")
+                if real.strip() in tables:
+                    found[local.strip() or real.strip()] = tables[real.strip()]["table"]
+    return found
+
+
+def drizzle_uses(masked: str, names: dict[str, str], tables: dict[str, dict]) -> list[dict]:
+    """Every table a file reaches through Drizzle. `db.query.x` goes by the schema's own name."""
+    uses = []
+    for pattern, access in ((DRIZZLE_WRITE, "write"), (DRIZZLE_READ, "read")):
+        for match in pattern.finditer(masked):
+            if match.group(1) in names:
+                uses.append({"table": names[match.group(1)], "access": access, "line": _line(masked, match.start())})
+    for match in DRIZZLE_QUERY.finditer(masked):
+        if match.group(1) in tables:
+            uses.append({"table": tables[match.group(1)]["table"], "access": "read", "line": _line(masked, match.start())})
+    return uses
+
+
 def decision_points(text: str) -> int:
     """How many extra paths a file has: branches, loops, catches, `&&`, `||`, `??` and `?:`."""
     return sum(1 for match in DECISION.finditer(mask_code(text, strings=True)) if not match.group(0).startswith("switch"))
@@ -381,6 +435,8 @@ class Project:
     complexity: dict[str, int] = field(default_factory=dict)
     lines: dict[str, int] = field(default_factory=dict)
     unresolved: int = 0
+    #: What it takes to read Drizzle calls later: `tables`, `reach` and `aliases`.
+    drizzle: dict = field(default_factory=dict)
 
     def edge(self, source: str, target: str, kind: str, evidence: str, access: str | None = None) -> None:
         if source == target:
@@ -451,8 +507,9 @@ def code_root_of(source) -> str:
     return "" if any(source.list_files(folder, CODE_SUFFIXES) for folder in TOP_CODE_DIRS) else "src/"
 
 
-def scan(source, known_tables: set[str], schema: str = "public") -> Project:
+def scan(source, known_tables: set[str], schema: str = "public", drizzle_tables: dict[str, dict] | None = None) -> Project:
     """Read every code file once, and build modules and their links."""
+    drizzle_tables = drizzle_tables or {}
     every = set(source.list_files())
     paths = code_files(source)
     root = code_root_of(source)
@@ -462,6 +519,9 @@ def scan(source, known_tables: set[str], schema: str = "public") -> Project:
     contents = source.read_many(paths)
     readers = route_readers(source, set(paths))
     project.nodes, stats = _modules(paths, contents, root)
+    reach = drizzle_files(contents, drizzle_tables, every, aliases) if drizzle_tables else set()
+    if drizzle_tables:
+        project.drizzle = {"tables": drizzle_tables, "reach": sorted(reach), "aliases": aliases}
 
     for path in paths:
         area, module = module_of(path, root)
@@ -483,7 +543,10 @@ def scan(source, known_tables: set[str], schema: str = "public") -> Project:
             continue
         project.complexity[path] = decision_points(contents.get(path, ""))
         project.lines[path] = contents.get(path, "").count("\n") + 1
-        for use in table_uses(masked):
+        uses = table_uses(masked)
+        if drizzle_tables:
+            uses += drizzle_uses(masked, drizzle_names(masked, path, drizzle_tables, reach, aliases), drizzle_tables)
+        for use in uses:
             project.table_calls[path].append(use)
             if use["table"] in known_tables:
                 project.edge(f"module:{module}", f"table:{schema}.{use['table']}", "uses_table", f"{path}:{use['line']}", use["access"])

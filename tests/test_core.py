@@ -365,6 +365,24 @@ class CodeScan(unittest.TestCase):
         tokens = findings.code_tokens(TreeSource(root), "from_sql")
         self.assertEqual(tokens & {"generated_only", "test_only", "real_use", "from_sql"}, {"real_use", "from_sql"})
 
+    def test_a_seed_file_is_not_usage(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / "db").mkdir()
+        (root / "db" / "seed.ts").write_text("seed_only")
+        (root / "db" / "a.ts").write_text("real_use")
+        self.assertEqual(findings.code_tokens(TreeSource(root), "") & {"seed_only", "real_use"}, {"real_use"})
+
+    def test_what_counts_as_a_seed_file(self):
+        seeds = ["seed.ts", "db/seed.ts", "prisma/seed.mjs", "db/seeds/users.ts", "db/seeders/a.js", "scripts/seed-db.ts", "seed_data.py", "seedData.ts", "lib/runSeed.ts", "db.seed.ts"]
+        for path in seeds:
+            with self.subTest(path):
+                self.assertTrue(findings.SEED_FILE.search(path))
+        for path in ("lib/seedling.ts", "app/seeded-random.ts", "lib/users.ts", "components/Aseedy.tsx"):
+            with self.subTest(path):
+                self.assertFalse(findings.SEED_FILE.search(path))
+
 
 class Compare(unittest.TestCase):
     def shard(self, **changes) -> dict:

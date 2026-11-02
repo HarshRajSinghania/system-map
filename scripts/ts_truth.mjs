@@ -163,5 +163,81 @@ for (const file of files) {
   if (resolved.size) imports[file] = [...resolved].sort()
 }
 
+const DRIZZLE_WRITES = new Set(['insert', 'update', 'delete'])
+const DRIZZLE_READS = new Set(['from', 'innerJoin', 'leftJoin', 'rightJoin', 'fullJoin', 'crossJoin', '$count'])
+const DRIZZLE_QUERIES = new Set(['findMany', 'findFirst'])
+
+/** A called function's name in its own module, seen through `import { a as b }`. */
+function calledName(checker, callee) {
+  if (ts.isPropertyAccessExpression(callee)) return callee.name.text
+  const named = checker.getSymbolAtLocation(callee)?.declarations?.find(ts.isImportSpecifier)
+  return named ? (named.propertyName ?? named.name).text : callee.getText()
+}
+
+/** The SQL name of the table a `const` was made as, or null if it wasn't made by `sqliteTable`. */
+function tableMadeBy(checker, declaration) {
+  const call = declaration && ts.isVariableDeclaration(declaration) ? declaration.initializer : null
+  if (!call || !ts.isCallExpression(call) || calledName(checker, call.expression) !== 'sqliteTable') return null
+  return call.arguments[0] ? literal(call.arguments[0]) : null
+}
+
+/** The table a name in code points at, following imports and re-exports as the compiler does. */
+function tableAt(checker, node) {
+  const at = ts.isPropertyAccessExpression(node) ? node.name : node
+  if (!ts.isIdentifier(at)) return null
+  let symbol = checker.getSymbolAtLocation(at)
+  if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol)
+  return tableMadeBy(checker, symbol?.valueDeclaration)
+}
+
+/**
+ * Drizzle takes the table itself, as in `db.insert(users)`. Only the type checker can say what
+ * such a name points at, so these calls are read through a whole program.
+ */
+function readDrizzle() {
+  const program = ts.createProgram(files.map((file) => path.join(root, file)), options)
+  const checker = program.getTypeChecker()
+  const exported = new Map()
+  const collect = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      const table = tableMadeBy(checker, node)
+      if (table) exported.set(node.name.text, table)
+    }
+    ts.forEachChild(node, collect)
+  }
+  for (const file of files) collect(program.getSourceFile(path.join(root, file)))
+
+  for (const file of files) {
+    if (/\.test\.|\.spec\.|__tests__/.test(file)) continue
+    const add = (table, access) => (tableCalls[file] ??= []).push({ table, access })
+    const visit = (node) => {
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+        const callee = node.expression
+        const name = callee.name.text
+        const owner = callee.expression
+        if (
+          DRIZZLE_QUERIES.has(name) &&
+          ts.isPropertyAccessExpression(owner) &&
+          ts.isPropertyAccessExpression(owner.expression) &&
+          owner.expression.name.text === 'query' &&
+          exported.has(owner.name.text)
+        ) {
+          add(exported.get(owner.name.text), 'read')
+        }
+        if (DRIZZLE_WRITES.has(name) || DRIZZLE_READS.has(name)) {
+          let first = node.arguments[0]
+          if (first && ts.isCallExpression(first) && calledName(checker, first.expression) === 'alias') first = first.arguments[0]
+          const table = first ? tableAt(checker, first) : null
+          if (table) add(table, DRIZZLE_WRITES.has(name) ? 'write' : 'read')
+        }
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(program.getSourceFile(path.join(root, file)))
+  }
+}
+
+if (files.some((file) => fs.readFileSync(path.join(root, file), 'utf8').includes('drizzle-orm/sqlite-core'))) readDrizzle()
+
 fs.writeFileSync(out, JSON.stringify({ files, imports, tableCalls, complexity }))
 console.log(`read ${files.length} files`)

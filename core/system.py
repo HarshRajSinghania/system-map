@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 
-from .extractors import plans, typescript
+from .extractors import drizzle, plans, typescript
 
 CRON_SCHEDULE = re.compile(r"cron\.schedule\(\s*'([\w-]+)'\s*,\s*'([^']+)'")
 API_PATH = re.compile(r"/api/[\w-]+")
@@ -71,7 +71,8 @@ def plan_edges(plan: dict, module_for) -> list[dict]:
 def build(source, tables: list[dict]) -> dict:
     schema = "main" if any(table["schema"] == "main" for table in tables) else "public"
     known = {table["name"] for table in tables if table["schema"] == schema}
-    project = typescript.scan(source, known, schema) if typescript.detect(source) else None
+    # Drizzle code names its tables through the schema, even where SQL files made them.
+    project = typescript.scan(source, known, schema, drizzle.read(source).tables) if typescript.detect(source) else None
     nodes: list[dict] = []
     edges: list[dict] = []
     if project:
@@ -116,4 +117,5 @@ def build(source, tables: list[dict]) -> dict:
         "code_root": project.code_root if project else "",
         "routes_dir": project.routes_dir if project else "",
         "route_style": project.route_style if project else "",
+        "drizzle": project.drizzle if project else {},
     }

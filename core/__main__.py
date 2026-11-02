@@ -4,6 +4,7 @@
     python3 -m core stats <repo>
     python3 -m core verify <repo> <catalog.json>
     python3 -m core verify-sqlite <repo>
+    python3 -m core verify-drizzle <repo> <generated.sql>
     python3 -m core verify-routes <repo> <next-manifest.json>...
     python3 -m core verify-code <repo> <truth.json>
     python3 -m core coverage <repo> [report] [commit]
@@ -197,6 +198,22 @@ def check_sqlite(repo_root: Path) -> int:
     return 1 if found else 0
 
 
+def check_drizzle(repo_root: Path, generated: Path) -> int:
+    """Compare a Drizzle read with the SQL that `drizzle-kit generate` wrote."""
+    read = sqlite.extract(open_source(repo_root))
+    truth = sqlite.Replay()
+    truth.run(str(generated), 1, generated.read_text(encoding="utf-8").replace("--> statement-breakpoint", ""))
+    truth.retry()
+    found = sqlite.differences(read["nodes"], truth.connection)
+    for line in found:
+        print(line)
+    unread = read["stats"]["drizzle_unread"]
+    for place in unread:
+        print(f"unread: {place}")
+    print(f"{len(read['nodes'])} tables, {len(found)} differences, {len(unread)} unread, {sum(truth.unknown.values())} tool statements not loaded")
+    return 1 if found or unread or truth.unknown else 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) == 3 and argv[0] == "proposal-sql":
         return proposal_sql(Path(argv[1]), Path(argv[2]))
@@ -212,6 +229,8 @@ def main(argv: list[str]) -> int:
         return check_routes(Path(argv[1]).expanduser(), [Path(item) for item in argv[2:]])
     if len(argv) == 2 and argv[0] == "verify-sqlite":
         return check_sqlite(Path(argv[1]).expanduser())
+    if len(argv) == 3 and argv[0] == "verify-drizzle":
+        return check_drizzle(Path(argv[1]).expanduser(), Path(argv[2]).expanduser())
     if len(argv) == 3 and argv[0] == "verify-code":
         return check_code(Path(argv[1]).expanduser(), Path(argv[2]))
     if len(argv) >= 2 and argv[0] == "coverage":

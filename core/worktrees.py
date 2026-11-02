@@ -14,7 +14,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .extractors import postgres, sqlite, typescript
+from .extractors import drizzle, postgres, sqlite, typescript
 from .sources import git, run_git
 
 SEVERITIES = ("high", "medium", "low", "info")
@@ -86,13 +86,19 @@ def changed_lines(folder: str, base: str, path: str) -> set[int] | None:
     return lines
 
 
-def tables_touched(text: str, lines: set[int] | None) -> set[str]:
+def tables_touched(text: str, lines: set[int] | None, path: str = "", orm: dict | None = None) -> set[str]:
     """Tables whose queries sit near a changed line.
 
-    A file can call dozens of tables, so a change to the file is not a change to each.
+    A file can call dozens of tables, so a change to the file is not a change to each. `orm`
+    is the model's Drizzle record, which says what names in this file mean.
     """
     found = set()
-    for use in typescript.table_uses(typescript.mask_code(text)):
+    masked = typescript.mask_code(text)
+    uses = typescript.table_uses(masked)
+    if orm:
+        names = typescript.drizzle_names(masked, path, orm["tables"], set(orm["reach"]), orm["aliases"])
+        uses += typescript.drizzle_uses(masked, names, orm["tables"])
+    for use in uses:
         reach = range(use["line"] - 1, use["line"] + QUERY_REACH_LINES + 1)
         if lines is None or not lines.isdisjoint(reach):
             # The caller keeps the ids that exist, which settles which schema this is.
@@ -126,6 +132,8 @@ class Model:
     nodes: set[str]
     #: file -> routes, plans and jobs built from it.
     by_file: dict[str, set[str]]
+    #: What it takes to read Drizzle calls. Empty in a project with none.
+    drizzle: dict = field(default_factory=dict)
 
     @classmethod
     def of(cls, system: dict, tables: set[str]) -> "Model":
@@ -138,7 +146,7 @@ class Model:
                 where.append(node["path"])
             for path in where:
                 by_file.setdefault(path, set()).add(node["id"])
-        return cls(system.get("code_root", ""), {node["id"] for node in system["nodes"]} | tables, by_file)
+        return cls(system.get("code_root", ""), {node["id"] for node in system["nodes"]} | tables, by_file, system.get("drizzle") or {})
 
 
 @dataclass
@@ -187,7 +195,13 @@ def join(changes: Changes, folder: str, model: Model) -> None:
             changes.modules |= {f"module:{module}", f"area:{area}"}
             if not typescript.TEST_FILE.search(path):
                 text = _read(folder, path) or ""
-                changes.code |= tables_touched(text, changed_lines(folder, changes.base, path)) & model.nodes
+                changes.code |= tables_touched(text, changed_lines(folder, changes.base, path), path, model.drizzle) & model.nodes
+        # A Drizzle schema is a schema, wherever it sits and even in a file the model hasn't seen.
+        if path.endswith(typescript.CODE_SUFFIXES) and not typescript.TEST_FILE.search(path):
+            text = _read(folder, path) or ""
+            if drizzle.CORE in text:
+                made = drizzle.tables_at(text, changed_lines(folder, changes.base, path))
+                changes.schema |= {f"table:{sqlite.SCHEMA}.{name}" for name in made} & model.nodes
 
 
 def _count(number: int, word: str) -> str:

@@ -7,11 +7,10 @@ from __future__ import annotations
 
 import re
 
-from .extractors import typescript
+from .extractors import drizzle, typescript
 from .sources import package_dependencies
 
 ROUTE_STYLES = {"next-app": "Next.js App Router", "next-pages": "Next.js Pages Router", "file-routes": "file routes"}
-DRIZZLE_CONFIG = re.compile(r"^drizzle\.config\.\w+$")
 NESTED_NEXT = re.compile(r"^.+/next\.config\.\w+$")
 CREATE_TABLE = re.compile(r"\bCREATE\s+TABLE\b", re.I)
 #: Packages for databases the app has no reader for yet.
@@ -28,12 +27,15 @@ def _unread(source, extraction, tables: int) -> list[dict]:
     skipped = extraction.stats.get("statements_unknown", 0)
     if skipped:
         found.append({"what": f"{skipped} SQL {'statement' if skipped == 1 else 'statements'} it couldn't read", "where": ""})
+    unread = extraction.stats.get("drizzle_unread", [])
+    if unread:
+        found.append({"what": f"{_count(len(unread), 'part')} of a Drizzle schema it couldn't read", "where": unread[0]})
     if tables:
         return found
     if "prisma/schema.prisma" in source.blobs:
         found.append({"what": "A Prisma schema with no SQL migrations", "where": "prisma/schema.prisma"})
     for path in source.blobs:
-        if DRIZZLE_CONFIG.match(path):
+        if drizzle.CONFIG.match(path):
             found.append({"what": "A Drizzle schema with no SQL migrations", "where": path})
         elif NESTED_NEXT.match(path):
             found.append({"what": "A Next.js app in a subfolder", "where": path})

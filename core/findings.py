@@ -11,6 +11,8 @@ SEVERITIES = ("high", "medium", "low", "info")
 CODE_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".java", ".go", ".rb", ".cs", ".php")
 GENERATED = re.compile(r"(^|/)(database\.types\.ts|supabase/types\.ts|[^/]*\.generated\.\w+)$")
 NOT_CODE = re.compile(r"(^|/)(node_modules|dist|build|vendor)/|\.(test|spec)\.\w+$")
+#: `seed.ts`, `seeds/a.ts`, `seed-db.js`, `seedData.ts`, `runSeed.ts`, but never `seedling.ts`.
+SEED_FILE = re.compile(r"(?:^|[/._-]|(?<=[a-z]))[Ss]eed(?:s|ers?|ing)?(?=[/._-]|[A-Z]|$)")
 TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
@@ -22,10 +24,15 @@ def code_files(source) -> list[str]:
     ]
 
 
-def code_tokens(source, usage_text: str) -> set[str]:
-    """Every word in the code, plus words in SQL that uses columns."""
+def code_tokens(source, usage_text: str, skip: set[str] | None = None) -> set[str]:
+    """Every word in the code, plus words in SQL that uses columns.
+
+    A schema written in code names every column, so `skip` leaves those files out. A seed
+    file only writes sample rows, so a column it names can still go unused by the app.
+    """
     tokens = set(TOKEN.findall(usage_text))
-    for text in source.read_many(code_files(source)).values():
+    paths = [path for path in code_files(source) if path not in (skip or set()) and not SEED_FILE.search(path)]
+    for text in source.read_many(paths).values():
         tokens.update(TOKEN.findall(text))
     return tokens
 
@@ -133,12 +140,13 @@ def check_table(node: dict) -> list[dict]:
     return found
 
 
-def check_unused(node: dict, tokens: set[str]) -> list[dict]:
+def check_unused(node: dict, tokens: set[str], fields: dict[tuple[str, str], str] | None = None) -> list[dict]:
+    """`fields` gives a column's name in code, where that differs from its name in SQL."""
     found = []
     keys = {c for constraint in node["constraints"] for c in constraint.get("columns", [])}
     for column in node["columns"]:
         name = column["name"]
-        if name in tokens or name in keys:
+        if name in tokens or name in keys or (fields or {}).get((node["name"], name)) in tokens:
             continue
         found.append(
             _finding(
@@ -146,7 +154,7 @@ def check_unused(node: dict, tokens: set[str]) -> list[dict]:
                 "info",
                 node,
                 f"{node['name']}.{name} may be unused",
-                "No code, function or policy names this column. Dynamic access would not show here.",
+                "No code, function or policy names this column, outside seed files. Dynamic access would not show here.",
                 [column["source"]],
                 name,
             )
@@ -154,11 +162,11 @@ def check_unused(node: dict, tokens: set[str]) -> list[dict]:
     return found
 
 
-def find(nodes: list[dict], tokens: set[str]) -> list[dict]:
+def find(nodes: list[dict], tokens: set[str], fields: dict[tuple[str, str], str] | None = None) -> list[dict]:
     found = []
     for node in nodes:
         found += check_table(node)
-        found += check_unused(node, tokens)
+        found += check_unused(node, tokens, fields)
     order = {severity: rank for rank, severity in enumerate(SEVERITIES)}
     return sorted(found, key=lambda f: (order[f["severity"]], f["check"], f["id"]))
 

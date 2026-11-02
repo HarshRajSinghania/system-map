@@ -36,7 +36,7 @@ from pathlib import Path
 
 from . import coverage, extractors, findings, risk, system, worktrees
 from . import read as build_read
-from .extractors import plans, typescript
+from .extractors import drizzle, plans, typescript
 from .sources import canonical_root, git, open_source
 
 SCHEMA_VERSION = 5
@@ -137,7 +137,8 @@ def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> 
         return previous
 
     extraction = extractors.extract(source)
-    found = findings.find(extraction.nodes, findings.code_tokens(source, extraction.usage_text))
+    schema = drizzle.read(source)
+    found = findings.find(extraction.nodes, findings.code_tokens(source, extraction.usage_text, set(schema.files)), schema.fields)
     joined = system.build(source, extraction.nodes)
     joined["risk"] = risk.build(source, joined)
     versions = target / "versions"
@@ -213,7 +214,7 @@ def _write_version(folder: Path, extraction: extractors.Extraction, found: list[
     _write_json(folder / "findings.json", found)
     _write_json(folder / "types.json", extraction.types)
     _write_json(folder / "externals.json", extraction.externals)
-    kept = ("nodes", "edges", "code_root", "routes_dir", "route_style")
+    kept = ("nodes", "edges", "code_root", "routes_dir", "route_style", "drizzle")
     _write_json(folder / "system.json", {key: joined[key] for key in kept})
     _write_json(
         folder / "imports.json",

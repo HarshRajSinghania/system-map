@@ -111,9 +111,9 @@ backend restarts and upgrades models. A new tool reaches new sessions only.
 
 - SQLite runs in memory through Python's own `sqlite3`. Only schema statements run, attaching a
   file is refused, and a time limit stops a statement that never ends.
-- A SQLite project is told apart by a driver it ships with, `node:sqlite`, `bun:sqlite`, a
-  Prisma schema, or a database file. A driver that is only a dev dependency proves nothing, and
-  `supabase/migrations` always means Postgres.
+- A SQLite project is told apart by a driver it ships with, `node:sqlite`, `bun:sqlite`,
+  `drizzle-orm/sqlite-core`, a Prisma schema, or a database file. A driver that is only a dev
+  dependency proves nothing, and `supabase/migrations` always means Postgres.
 - Next.js routes are held to `next build`, and SQL in strings is held to the TypeScript compiler.
 
 ## Host components
