@@ -1,15 +1,15 @@
 import { jsx as t, jsxs as i, Fragment as v } from "react/jsx-runtime";
 import { ContentSkeleton as h, Btn as x } from "@kirocrew/app-sdk/ui";
 import { useState as S } from "react";
-import { u as b, k, x as M, m as j, E, F as z, H as B, M as N, R as O, S as C, N as H, T as P, y as R } from "./chunks/ProjectMenu-BIN5FjvL.mjs";
-const T = 3e4, w = { padding: 12, fontSize: 13 };
+import { u as b, k, x as M, m as j, E, F as z, H as B, M as N, W as O, S as C, N as H, T as P, y as T } from "./chunks/ProjectMenu-DhWNY-iF.mjs";
+const W = 3e4, w = { padding: 12, fontSize: 13 };
 function A({
   repo: s,
   projects: l,
   choose: r,
   reload: c
 }) {
-  const { overview: e, error: d } = k(s), [f, u] = S(null), m = M(f, s), a = j("/worktrees", s, T).value, g = ((a == null ? void 0 : a.overlaps) ?? []).filter((n) => n.severity === "high" || n.severity === "medium"), o = e == null ? void 0 : e.freshness, p = o ? E(z(o), o.commits_behind, o.ref) : null, y = B({ projects: l, activeKey: s, compact: !0, onPick: r, onReload: () => void c() });
+  const { overview: e, error: d } = k(s), [f, u] = S(null), m = M(f, s), a = j("/worktrees", s, W).value, g = ((a == null ? void 0 : a.overlaps) ?? []).filter((n) => n.severity === "high" || n.severity === "medium"), o = e == null ? void 0 : e.freshness, p = o ? E(z(o), o.commits_behind, o.ref) : null, y = B({ projects: l, activeKey: s, compact: !0, onPick: r, onReload: () => void c() });
   return /* @__PURE__ */ i("div", { style: { padding: 12, height: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", minHeight: 0 }, children: [
     y.menu,
     y.dialogs,
@@ -40,7 +40,7 @@ function A({
           /* @__PURE__ */ t("span", { style: { fontWeight: 600 }, children: m.name })
         ] }),
         /* @__PURE__ */ t(H, { node: m })
-      ] }) : /* @__PURE__ */ t(P, { tables: e.tables, selected: f, working: R(a), onSelect: u })
+      ] }) : /* @__PURE__ */ t(P, { tables: e.tables, selected: f, working: T(a), onSelect: u })
     ] })
   ] });
 }

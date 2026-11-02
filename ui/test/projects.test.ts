@@ -6,6 +6,7 @@ import {
   chatSlotName,
   filterProjects,
   hasSideList,
+  readChatStarted,
   readListOpen,
   readView,
   removalWarning,
@@ -13,11 +14,13 @@ import {
   rowStatus,
   searchLabel,
   shortPath,
+  slotHasMessages,
   splitWorkspaces,
   statusOf,
   statusView,
   suggestFolder,
   VIEWS,
+  writeChatStarted,
   writeListOpen,
   writeView,
 } from '../src/projects.ts'
@@ -137,6 +140,28 @@ test('the search box counts what is left to add', () => {
   assert.equal(searchLabel(rows, []), 'Search 2 workspaces')
   assert.equal(searchLabel(rows, [project({ repo_key: 'blog-1' })]), 'Search 1 workspace')
   assert.equal(searchLabel(rows, [project({ repo_key: 'blog-1' }), project({ repo_key: 'shop-1' })]), 'Search workspaces')
+})
+
+test('a chat counts as started per project, once something was sent', () => {
+  const store = memory()
+  assert.equal(readChatStarted(store, 'app-1'), false)
+  writeChatStarted(store, 'app-1')
+  assert.equal(readChatStarted(store, 'app-1'), true)
+  assert.equal(readChatStarted(store, 'app-2'), false)
+})
+
+test('only a used chat for this project counts as one to reopen', () => {
+  const name = chatSlotName('app-1')
+  assert.equal(slotHasMessages([{ key: name, messages: 2 }], 'app-1'), true)
+  assert.equal(slotHasMessages([{ key: name, messages: 0 }], 'app-1'), false)
+  assert.equal(slotHasMessages([{ key: name }], 'app-1'), false)
+  assert.equal(slotHasMessages([{ key: chatSlotName('app-2'), messages: 2 }], 'app-1'), false)
+})
+
+test('a list that is not a list means no chat to reopen', () => {
+  assert.equal(slotHasMessages(null, 'app-1'), false)
+  assert.equal(slotHasMessages({ error: 'no' }, 'app-1'), false)
+  assert.equal(slotHasMessages([null, 3], 'app-1'), false)
 })
 
 test('the remove warning counts only what exists', () => {

@@ -228,3 +228,21 @@ export function writeListOpen(store: Store, open: boolean): void {
 export function chatSlotName(repoKey: string): string {
   return `system-map-design-${repoKey}`
 }
+
+const chatKey = (repoKey: string) => `system-map.chat.${repoKey}`
+
+/** Whether this browser has sent this project's chat anything. */
+export function readChatStarted(store: Store, repoKey: string): boolean {
+  return store.getItem(chatKey(repoKey)) === 'started'
+}
+
+export function writeChatStarted(store: Store, repoKey: string): void {
+  store.setItem(chatKey(repoKey), 'started')
+}
+
+/** Whether the host's open chats hold a used one for this project. Anything else reads as no. */
+export function slotHasMessages(rows: unknown, repoKey: string): boolean {
+  if (!Array.isArray(rows)) return false
+  const name = chatSlotName(repoKey)
+  return rows.some((row: { key?: unknown; messages?: unknown }) => row?.key === name && typeof row.messages === 'number' && row.messages > 0)
+}

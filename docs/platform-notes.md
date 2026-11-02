@@ -89,6 +89,9 @@ backend restarts and upgrades models. A new tool reaches new sessions only.
 - `/api/recent-projects` isn't in the app docs. Add project uses it to suggest a default folder
   when the host allows it, and a refusal just means no suggestion.
 - Removing a project deletes its app data for good. It never touches the repo.
+- A chat a page opens through `useAppApi` counts as the person's, with origin `user`, so it shows
+  in their session list. No host option hides it. So the Design chat opens on its first message.
+  `ChatEmbed` needs a chat to exist, so a plain box stands in until then.
 
 ## Picking a folder
 

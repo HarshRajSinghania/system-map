@@ -1,5 +1,5 @@
 import { ChatEmbed, useAppApi } from '@kirocrew/app-sdk'
-import { Btn, Card, CardTitle, ContentSkeleton, EmptyState, PageHeader, SegmentedControl } from '@kirocrew/app-sdk/ui'
+import { Btn, Card, CardTitle, ContentSkeleton, EmptyState, Input, PageHeader, SegmentedControl } from '@kirocrew/app-sdk/ui'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { AddProject } from './AddProject'
@@ -15,7 +15,19 @@ import { Inspector } from './Inspector'
 import { Layers, Showing } from './Layers'
 import { PlanBoard, PlanHint } from './Plan'
 import { useProjectMenu } from './ProjectMenu'
-import { chatSlotName, hasSideList, readListOpen, readView, statusOf, statusView, writeListOpen, writeView } from './projects'
+import {
+  chatSlotName,
+  hasSideList,
+  readChatStarted,
+  readListOpen,
+  readView,
+  slotHasMessages,
+  statusOf,
+  statusView,
+  writeChatStarted,
+  writeListOpen,
+  writeView,
+} from './projects'
 import type { BuildRead, Project, View } from './projects'
 import { RiskView } from './Risk'
 import { StatusChip } from './StatusChip'
@@ -49,36 +61,88 @@ const VIEW_TABS: { value: View; label: string; counts?: string }[] = [
   { value: 'explore', label: 'Explore', counts: 'draft proposals' },
 ]
 
-/** Open this project's own chat, pointed at its folder. */
+/**
+ * This project's own chat, pointed at its folder. Every open chat sits in the person's session
+ * list, so it opens on its first message, or on load once it has been used.
+ */
 function useDesignSlot(repo: string | null, repoKey: string) {
   const api = useAppApi()
-  const [slot, setSlot] = useState<string | null>(null)
+  const [opened, setOpened] = useState<{ repoKey: string; slot: string } | null>(null)
+  const [unused, setUnused] = useState<string | null>(null)
+  const [opening, setOpening] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const slot = opened?.repoKey === repoKey ? opened.slot : null
+
+  const open = useCallback(async () => {
+    const created = await api.post<{ key: string }>('/api/chat/slots', { name: chatSlotName(repoKey) })
+    await api.post(`/api/chat/slots/${encodeURIComponent(created.key)}/project`, { project: repo })
+    setOpened({ repoKey, slot: created.key })
+    return created.key
+  }, [api, repo, repoKey])
 
   useEffect(() => {
     if (!repo) return
     let live = true
-    const open = async () => {
-      const created = await api.post<{ key: string }>('/api/chat/slots', { name: chatSlotName(repoKey) })
-      await api.post(`/api/chat/slots/${encodeURIComponent(created.key)}/project`, { project: repo })
-      if (live) setSlot(created.key)
+    setError(null)
+    const used = async () => {
+      if (readChatStarted(localStorage, repoKey)) return true
+      // A chat used from another browser counts too. A refusal just means none to reopen.
+      return slotHasMessages(await api.get<unknown>('/api/chat/slots').catch(() => []), repoKey)
     }
-    open().catch((caught: unknown) => {
-      if (live) setError(plainError(caught, 'open the design chat'))
-    })
+    used()
+      .then(async (found) => {
+        if (!live) return
+        if (found) await open()
+        else setUnused(repoKey)
+      })
+      .catch((caught: unknown) => {
+        if (live) setError(plainError(caught, 'open the design chat'))
+      })
     return () => {
       live = false
     }
-  }, [api, repo, repoKey])
+  }, [api, open, repo, repoKey])
 
   const send = useCallback(
     (message: string) => {
-      if (slot) void api.post('/api/chat?ws=1', { message, slot, agent: '' })
+      setOpening(true)
+      setError(null)
+      const deliver = async () => {
+        const target = slot ?? (await open())
+        writeChatStarted(localStorage, repoKey)
+        await api.post('/api/chat?ws=1', { message, slot: target, agent: '' })
+      }
+      deliver()
+        .catch((caught: unknown) => setError(plainError(caught, 'send that to the design chat')))
+        .finally(() => setOpening(false))
     },
-    [api, slot],
+    [api, open, repoKey, slot],
   )
 
-  return { slot, error, send }
+  return { slot, error, send, opening, canAsk: repo !== null, startable: unused === repoKey && slot === null }
+}
+
+/** The chat's box before the chat exists. Typed text stays if the send fails. */
+function ChatStarter({ disabled, onSend }: { disabled: boolean; onSend: (message: string) => void }) {
+  const [text, setText] = useState('')
+  return (
+    <form
+      style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (text.trim()) onSend(text.trim())
+      }}
+    >
+      <Input
+        aria-label="Ask about the system"
+        placeholder="Ask about the system"
+        value={text}
+        disabled={disabled}
+        onChange={(event) => setText(event.target.value)}
+        style={{ width: '100%', boxSizing: 'border-box' }}
+      />
+    </form>
+  )
 }
 
 /** Fill the window below this element, whatever the host page around it does. */
@@ -612,7 +676,7 @@ function ProjectPage({
                     data={explore.value}
                     proposal={proposal}
                     shownProposal={drawn ? openProposal : null}
-                    canAsk={chat.slot !== null}
+                    canAsk={chat.canAsk}
                     tab={tab}
                     onTab={setTab}
                     onSend={chat.send}
@@ -628,7 +692,7 @@ function ProjectPage({
                 {view === 'risk' && risk && (
                   <RiskView
                     risk={risk}
-                    canAsk={chat.slot !== null}
+                    canAsk={chat.canAsk}
                     error={coverageError}
                     onShow={showOnMap}
                     onAsk={askRisk}
@@ -637,7 +701,7 @@ function ProjectPage({
                   />
                 )}
                 {view === 'worktrees' && worktrees && (
-                  <WorktreesView state={worktrees} checkedAt={live.checkedAt} canAsk={chat.slot !== null} onShow={openNode} onAsk={askOverlap} />
+                  <WorktreesView state={worktrees} checkedAt={live.checkedAt} canAsk={chat.canAsk} onShow={openNode} onAsk={askOverlap} />
                 )}
                 {view === 'findings' && findingList && <Findings findings={findings} noSchema={overview.tables.length === 0} onShow={showTable} onAsk={askFinding} />}
                 {node && inspected && (
@@ -645,7 +709,7 @@ function ProjectPage({
                     node={node}
                     work={worktrees?.by_node[inspected] ?? []}
                     overlaps={overlapsOn(inspected, worktrees)}
-                    canAsk={chat.slot !== null}
+                    canAsk={chat.canAsk}
                     onAsk={askNode}
                     onAskFinding={askFinding}
                     onOpen={openLink}
@@ -663,6 +727,7 @@ function ProjectPage({
                       <ChatEmbed slotKey={chat.slot} frameless startAtBottom placeholder="Ask about the system" />
                     </div>
                   )}
+                  {chat.startable && <ChatStarter disabled={chat.opening} onSend={chat.send} />}
                 </div>
               </Card>
             </div>
