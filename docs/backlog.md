@@ -25,7 +25,6 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 |---|---|---|
 | Project picker | Sync, then click another project in the header menu | Fixed in `8126792`, proven only in `ui/dev` |
 | Show button | Press Hide on Map or Data model, then Show modules or Show tables | Hide was seen for real, Show was not |
-| Add project | Sync, open Add project, press Browse, pick a folder, add a repo | The folder window ran on Windows from a script, not yet from the installed backend. The dialog is proven only in `ui/dev` |
 | Folder window on a Mac and Linux | Press Browse on each | Only WSL has run for real. The others are stubbed |
 
 ## Small fixes
