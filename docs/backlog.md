@@ -5,9 +5,9 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 ## Before you start
 
 - Everything so far is on stacked branches with no `main` and no remote. Work from the tip,
-  `fix/project-picker`, on version 0.6.0.
-- Run the checks in the README's Checks section. All pass at the tip: 514 Python tests and
-  65 UI tests.
+  `feat/add-project-picker`, on version 0.7.0.
+- Run the checks in the README's Checks section. All pass at the tip: 579 Python tests and
+  71 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
 - Look at screenshots before you commit UI. Checks have passed while pictures showed faults.
@@ -25,7 +25,8 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 |---|---|---|
 | Project picker | Sync, then click another project in the header menu | Fixed in `8126792`, proven only in `ui/dev` |
 | Show button | Press Hide on Map or Data model, then Show modules or Show tables | Hide was seen for real, Show was not |
-| Recent projects in Add project | Open Add project and look for the recent list | `/api/recent-projects` has only run stubbed |
+| Add project | Sync, open Add project, press Browse, pick a folder, add a repo | The folder window ran on Windows from a script, not yet from the installed backend. The dialog is proven only in `ui/dev` |
+| Folder window on a Mac and Linux | Press Browse on each | Only WSL has run for real. The others are stubbed |
 
 ## Small fixes
 

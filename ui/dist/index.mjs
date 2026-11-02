@@ -5,7 +5,7 @@ import { jsx as h, jsxs as A, Fragment as we } from "react/jsx-runtime";
 import { useTheme as ya, useAppApi as wa, ChatEmbed as cd } from "@kirocrew/app-sdk";
 import { Badge as xe, Btn as de, Input as dd, PageHeader as ii, ContentSkeleton as Do, EmptyState as ba, Card as mo, CardTitle as Pi, SegmentedControl as ud } from "@kirocrew/app-sdk/ui";
 import si, { memo as pe, forwardRef as va, useState as re, createContext as Cr, useCallback as Le, useMemo as le, useContext as Vt, useRef as oe, useEffect as ce, useLayoutEffect as ai } from "react";
-import { M as K, a as Fe, A as Ie, S as bn, s as vn, p as Mr, N as fd, D as xa, b as hd, r as pd, C as _a, c as gd, d as md, e as yd, f as wd, w as bd, t as vd, G as xd, g as _d, h as kd, i as Ed, u as Sd, j as Nd, k as Cd, l as Kt, m as Di, n as Md, o as Id, q as $d, v as Ad, x as Td, y as Ld, z as zd, B as Od, E as Pd, F as Dd, H as Rd, I as Hd, T as Bd, J as Wd, K as or, L as Zt, O as Vd, P as Fd, Q as jd } from "./chunks/ProjectMenu-BCAlWh2e.mjs";
+import { M as K, a as Fe, A as Ie, S as bn, s as vn, p as Mr, N as fd, D as xa, b as hd, r as pd, C as _a, c as gd, d as md, e as yd, f as wd, w as bd, t as vd, G as xd, g as _d, h as kd, i as Ed, u as Sd, j as Nd, k as Cd, l as Kt, m as Di, n as Md, o as Id, q as $d, v as Ad, x as Td, y as Ld, z as zd, B as Od, E as Pd, F as Dd, H as Rd, I as Hd, T as Bd, J as Wd, K as or, L as Zt, O as Vd, P as Fd, Q as jd } from "./chunks/ProjectMenu-BIN5FjvL.mjs";
 import "react-dom";
 function ka(e) {
   return e && e.__esModule && Object.prototype.hasOwnProperty.call(e, "default") ? e.default : e;

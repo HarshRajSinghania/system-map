@@ -86,9 +86,23 @@ backend restarts and upgrades models. A new tool reaches new sessions only.
   folder, and a worktree counts as its main repo.
 - The app proxy strips the session key, and no documented API names a chat's project. So the
   side panel can't follow its chat. It names its project and offers the same menu.
-- `/api/recent-projects` isn't in the app docs. It fills Add project when the host allows it,
-  and a refusal just leaves the path field.
+- `/api/recent-projects` isn't in the app docs. Add project uses it to suggest a default folder
+  when the host allows it, and a refusal just means no suggestion.
 - Removing a project deletes its app data for good. It never touches the repo.
+
+## Picking a folder
+
+- A web page can't get a folder's path. `showDirectoryPicker` gives a name and a handle, so the
+  backend opens the computer's own window on the machine it runs on.
+- The window can stay open for minutes, and the server answers one request at a time. So the
+  page starts it and polls, which also keeps it clear of any proxy time limit.
+- On WSL, `powershell.exe` runs through Windows interop, even from the sandbox wrapper. Only the
+  newer folder window reaches `\\wsl.localhost`. `wslpath` converts the path each way, and
+  killing the process closes the window. A window from a background process can't take focus,
+  so a hidden topmost owner keeps it above the browser.
+- `/api/browse-dirs` needs the owner's dashboard session, so an app's token can't use it. The
+  backend's own `/browse` route lists folders for the page instead.
+- Set `SYSTEM_MAP_NO_WINDOW=1` to turn the window off, as the tests do. The page's list takes over.
 
 ## Reading a project
 
