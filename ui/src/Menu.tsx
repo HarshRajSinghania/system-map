@@ -74,8 +74,11 @@ export function Dropdown({
         'aria-haspopup': popup,
       })}
       {open && (
+        // The host's main can take focus, so a click on anything here that can't would land
+        // there and close this before the click arrives. Focus stops here instead.
         <div
           className="sm-pop"
+          tabIndex={-1}
           role={popup === 'dialog' ? 'dialog' : undefined}
           aria-label={popup === 'dialog' ? label : undefined}
           style={{ top: 'calc(100% + 6px)', [align]: 0, width: `min(${width}px, calc(100vw - 24px))` }}

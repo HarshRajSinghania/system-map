@@ -1,6 +1,6 @@
 import { jsxs as m, jsx as d, Fragment as T } from "react/jsx-runtime";
 import { SearchInput as F, Badge as ne, Modal as q, Input as re, Btn as I } from "@kirocrew/app-sdk/ui";
-import { useState as g, useCallback as N, useEffect as x, useRef as j } from "react";
+import { useState as g, useCallback as N, useEffect as v, useRef as j } from "react";
 import { useAppApi as w } from "@kirocrew/app-sdk";
 const U = "system-map-chrome-css", ie = `
 .sm-page { padding: 0 16px; }
@@ -13,7 +13,7 @@ const U = "system-map-chrome-css", ie = `
 .sm-project.sm-compact { font-size: 13px; font-weight: 600; padding: 3px 6px; margin-left: -6px; max-width: 100%; }
 .sm-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .sm-pop {
-  position: absolute; z-index: 60; box-sizing: border-box; padding: 6px; border-radius: 10px;
+  position: absolute; z-index: 60; box-sizing: border-box; padding: 6px; border-radius: 10px; outline: none;
   background: var(--bg-elevated, #fff); color: var(--text, #18181b); border: 1px solid var(--border-strong, #a1a1aa);
   box-shadow: 0 10px 28px rgba(0, 0, 0, .22); font-size: 13px; font-weight: 400; letter-spacing: normal; line-height: 1.35;
 }
@@ -336,7 +336,7 @@ function be(e, t, n, a) {
     s.kind === "area" && !J(s.path, t.routesDir) && o.add(s.id), s.kind === "service" && o.add(s.id), s.kind === "plan" && !Q(s, a) && o.add(s.id), s.status === "proposed" && o.add(s.id);
   return { cards: L(o, t, r), lines: l.filter((s) => o.has(s.source) && o.has(s.target)), hidden: i.length - l.length };
 }
-function ve(e, t, n, a) {
+function xe(e, t, n, a) {
   const r = new Set(e.nodes.filter((o) => o.area === t.open && o.kind === "module").map((o) => o.id)), i = P(
     e,
     t,
@@ -347,7 +347,7 @@ function ve(e, t, n, a) {
     l.add(o.source), l.add(o.target);
   return { cards: L(l, t, O(e, n)), lines: i };
 }
-function xe(e, t, n, a) {
+function ve(e, t, n, a) {
   const r = t.expanded === y ? "route" : "job", i = new Set(e.nodes.filter((s) => s.kind === r).map((s) => s.id)), l = P(e, t, a, (s, c) => i.has(s) || i.has(c)), o = new Set(i);
   for (const s of l)
     o.add(s.source), o.add(s.target);
@@ -375,7 +375,7 @@ function X(e) {
 }
 function Ue(e, t, n, a) {
   const r = new Map(e.nodes.map((h) => [h.id, h])), i = X(e), l = t === `area:${i}` ? y : t, o = l != null && l.startsWith("area:") ? l : null, s = l === y || l === S ? l : null, c = { byId: r, open: o, expanded: s, routesDir: i };
-  return l ? o ? ve(e, c, n, a) : s ? xe(e, c, n, a) : ye(e, c, l) : be(e, c, n, a);
+  return l ? o ? xe(e, c, n, a) : s ? ve(e, c, n, a) : ye(e, c, l) : be(e, c, n, a);
 }
 function Ve(e, t) {
   const n = [{ id: null, label: "System" }];
@@ -453,9 +453,9 @@ function et() {
       r(!0);
     }
   }, [e]);
-  x(() => {
+  v(() => {
     o();
-  }, [o]), x(() => {
+  }, [o]), v(() => {
     const f = () => {
       l(localStorage.getItem(M)), o();
     };
@@ -483,13 +483,13 @@ function tt(e) {
       a(null), i(z(s, "load this project"));
     }
   }, [t, e]);
-  return x(() => {
+  return v(() => {
     i(null), o();
   }, [o]), { overview: (n == null ? void 0 : n.manifest.repo_key) === e ? n : null, error: r, refresh: o };
 }
 function nt(e, t, n) {
   const a = w(), [r, i] = g({ repo: t, value: null, failed: !1 });
-  return x(() => {
+  return v(() => {
     if (!n) return;
     let l = !0;
     return a.get(R(e, t)).then((o) => {
@@ -503,7 +503,7 @@ function nt(e, t, n) {
 }
 function rt(e, t, n) {
   const a = w(), [r, i] = g(null);
-  return x(() => {
+  return v(() => {
     if (!e) {
       i(null);
       return;
@@ -531,7 +531,7 @@ function it(e, t, n) {
         s.current === t && i({ repo: t, value: null, failed: !0 });
       }
   }, [a, e, t]);
-  x(() => {
+  v(() => {
     c();
     const p = window.setInterval(() => {
       document.visibilityState === "visible" && c();
@@ -543,7 +543,7 @@ function it(e, t, n) {
 }
 function at(e, t = null) {
   const n = w(), [a, r] = g(null);
-  return x(() => {
+  return v(() => {
     if (!e) {
       r(null);
       return;
@@ -653,7 +653,7 @@ function ft(e) {
 }
 function Ne(e, t) {
   const n = w(), [a, r] = g([]);
-  return x(() => {
+  return v(() => {
     if (!e) return;
     let i = !0;
     return n.get("/api/recent-projects").then((l) => {
@@ -672,16 +672,16 @@ function je({
   onBuilt: a
 }) {
   const r = w(), i = Ne(e, t), [l, o] = g(""), [s, c] = g(null), [h, p] = g(null);
-  x(() => {
+  v(() => {
     e && (o(""), p(null), c(null));
   }, [e]);
   const f = async (u) => {
     c(u), p(null);
     try {
-      const v = await r.post(`${_}/build`, { repo_path: u });
-      a(v.repo_key);
-    } catch (v) {
-      p(z(v, "add this project"));
+      const x = await r.post(`${_}/build`, { repo_path: u });
+      a(x.repo_key);
+    } catch (x) {
+      p(z(x, "add this project"));
     } finally {
       c(null);
     }
@@ -749,7 +749,7 @@ function Le({
     } finally {
       s(null);
     }
-  }, v = async () => {
+  }, x = async () => {
     s("Removing"), h(null);
     try {
       await a(e.repo_key);
@@ -782,7 +782,7 @@ function Le({
         " for good. The repo itself isn't touched."
       ] }),
       /* @__PURE__ */ m("div", { style: { display: "flex", gap: 8 }, children: [
-        /* @__PURE__ */ d(I, { danger: !0, disabled: o !== null, onClick: () => void v(), autoFocus: !0, children: o === "Removing" ? "Removing" : "Remove project" }),
+        /* @__PURE__ */ d(I, { danger: !0, disabled: o !== null, onClick: () => void x(), autoFocus: !0, children: o === "Removing" ? "Removing" : "Remove project" }),
         /* @__PURE__ */ d(I, { disabled: o !== null, onClick: () => l(!1), children: "Keep it" })
       ] })
     ] }),
@@ -817,11 +817,11 @@ function ze({
     var f;
     s(!1), (f = h.current) == null || f.focus();
   }, []);
-  return x(() => {
+  return v(() => {
     if (!o) return;
     const f = (u) => {
-      var v;
-      (v = c.current) != null && v.contains(u.target) || s(!1);
+      var x;
+      (x = c.current) != null && x.contains(u.target) || s(!1);
     };
     return document.addEventListener("pointerdown", f), () => document.removeEventListener("pointerdown", f);
   }, [o]), /* @__PURE__ */ m(
@@ -833,9 +833,9 @@ function ze({
         f.key === "Escape" && o && (f.stopPropagation(), p());
       },
       onBlur: (f) => {
-        var v;
+        var x;
         const u = f.relatedTarget;
-        u && !((v = c.current) != null && v.contains(u)) && s(!1);
+        u && !((x = c.current) != null && x.contains(u)) && s(!1);
       },
       children: [
         e({
@@ -847,10 +847,13 @@ function ze({
           "aria-expanded": o,
           "aria-haspopup": r
         }),
-        o && /* @__PURE__ */ d(
+        o && // The host's main can take focus, so a click on anything here that can't would land
+        // there and close this before the click arrives. Focus stops here instead.
+        /* @__PURE__ */ d(
           "div",
           {
             className: "sm-pop",
+            tabIndex: -1,
             role: r === "dialog" ? "dialog" : void 0,
             "aria-label": r === "dialog" ? i : void 0,
             style: { top: "calc(100% + 6px)", [a]: 0, width: `min(${n}px, calc(100vw - 24px))` },
@@ -863,7 +866,7 @@ function ze({
 }
 function mt({ label: e, children: t }) {
   const n = j(null);
-  return x(() => {
+  return v(() => {
     var r, i;
     (i = (r = n.current) == null ? void 0 : r.querySelector('[role="menuitem"]')) == null || i.focus();
   }, []), /* @__PURE__ */ d("div", { ref: n, role: "menu", "aria-label": e, onKeyDown: (r) => {
@@ -908,7 +911,7 @@ function Oe({
         }
       }
     ),
-    /* @__PURE__ */ d("ul", { id: "system-map-project-list", className: "sm-list", role: "listbox", "aria-label": "Projects", children: s.map((u, v) => {
+    /* @__PURE__ */ d("ul", { id: "system-map-project-list", className: "sm-list", role: "listbox", "aria-label": "Projects", children: s.map((u, x) => {
       const $ = Z(u, e);
       return /* @__PURE__ */ m(
         "li",
@@ -917,9 +920,9 @@ function Oe({
           role: "option",
           className: "sm-row",
           "aria-selected": u.repo_key === t,
-          "data-active": v === p,
+          "data-active": x === p,
           title: u.repo,
-          onMouseEnter: () => h(v),
+          onMouseEnter: () => h(x),
           onClick: () => {
             n(), a(u.repo_key);
           },

@@ -105,6 +105,10 @@ Use only names listed in the host's vendor stubs, `kirocrew-ui.mjs` and `kirocre
 Naming any other export fails the whole app at load. `IconButton` is in the app kit's source,
 but not in the stub.
 
+The host wraps every page in `<main id="main-content" tabindex="-1">`, and `ui/dev` does too. A
+click on anything that can't take focus moves focus to that `main`. So a popup that closes when
+focus leaves must be focusable itself, or it closes before the click lands.
+
 ## App icon
 
 - `assets/icon.svg` is the source. `assets/icon.png` is that file drawn at 512x512, and it is
