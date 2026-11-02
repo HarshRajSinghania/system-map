@@ -44,7 +44,7 @@ Each build records what it read, and the status menu shows it. If a build finds 
 | `ui/` | The app page and the chat side panel tab. |
 | `skills/system-map/` | How agents should read and write the model. |
 | `scripts/` | Replay migrations and try proposals on a throwaway Postgres. |
-| `docs/` | Context rules and platform notes. |
+| `docs/` | Context rules, platform notes and the backlog. |
 
 ## Install from a local clone
 

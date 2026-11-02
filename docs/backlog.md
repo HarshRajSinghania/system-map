@@ -1,0 +1,80 @@
+# Backlog
+
+What's left, written so another agent can pick it up cold. Nothing here is started.
+
+## Before you start
+
+- Everything so far is on stacked branches with no `main` and no remote. Work from the tip,
+  `fix/project-picker`, on version 0.6.0.
+- Run the checks in the README's Checks section. All pass at the tip: 514 Python tests and
+  65 UI tests.
+- Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
+  press Sync and look. Say what has and hasn't been seen for real.
+- Look at screenshots before you commit UI. Checks have passed while pictures showed faults.
+- Hold every number to the tool that owns it: the compiler, real Postgres, real SQLite, a real
+  `next build`, git. Prefer a sweep over a hand-written fixture.
+- Read each check's own exit code. A pipe to `tail` has hidden failures here.
+- Host rules are in `docs/platform-notes.md`. Only names in the host's vendor stubs may be
+  imported, and any other name fails the whole app at load.
+- No personal, employer or private project names in this repo or its history. Anything that
+  needs one goes in `.local/`, which git ignores.
+
+## Check in the real dashboard
+
+| Check | How | Why it is open |
+|---|---|---|
+| Project picker | Sync, then click another project in the header menu | Fixed in `8126792`, proven only in `ui/dev` |
+| Show button | Press Hide on Map or Data model, then Show modules or Show tables | Hide was seen for real, Show was not |
+| Recent projects in Add project | Open Add project and look for the recent list | `/api/recent-projects` has only run stubbed |
+
+## Small fixes
+
+| Fix | Where | Done when |
+|---|---|---|
+| Singular wording: "0 of 1 files", "1 of 1 worktrees have changes" | `ui/src/Risk.tsx:42`, `ui/src/Worktrees.tsx:183` | One thing reads as one, with a test |
+| Table list labels: "at work" is vague, and two numbers have no heading | `TableList` in `ui/src/parts.tsx` | Someone new can read a row without hovering |
+| Scope document is out of date | KiroCrew artifact `system-map-app-scope` | It says slices 0 to 6, and drops the done risk and store items |
+
+The numbers in a table row are findings, then columns. Hovering shows that, and nothing else does.
+
+## Planned features
+
+From the scope document. Each needs a short spec first, kept as an artifact like
+`system-map-slice-6-spec`.
+
+| ID | Feature | Priority | Note |
+|---|---|---|---|
+| A3 | Decisions attached to nodes | Soon | Intent layer, so it survives rebuilds |
+| A4 | Export decisions and proposals as files | Soon | The app never writes them to a repo itself |
+| C6 | Sub-agents get ids and paths, write results to files and return a path | Soon | See `docs/context-management.md` |
+| M6 | Scheduled refresh | Later | Crons and `permissions.spawn` are in the SDK, not tried |
+| E6 | Agents propose Intent edits for you to accept | Later | Drafts work for proposals only. Only a person may accept |
+
+## Store listing
+
+| Step | Note |
+|---|---|
+| Hero image and screenshot | `docs/platform-notes.md`, App Store. The 512x512 icon is done |
+| Public repo with a `main` branch | Decide how the stacked branches land on `main`. Keep `ui/dist` committed |
+| Publish check of all git history | Scan every commit and message, not just the tip |
+| Listing request | An issue on the Kiro Crew repo. A maintainer writes the catalog entry |
+
+## Known limits
+
+These are named on screen, not hidden. Each is a choice, not a bug.
+
+| Limit | Where | Note |
+|---|---|---|
+| Uncommitted work doesn't show | `GitSource` in `core/sources.py` | A git repo is read at the main branch's last commit, and requirement M7 says so. Reading a checkout needs a spec. `TreeSource` already reads folders with no git |
+| Prisma or Drizzle with no SQL migrations gives no tables | `_unread` in `core/read.py` | Their schemas aren't SQL, so each needs its own reader. Hold it to the tool's generated SQL |
+| Monorepos | `_unread` in `core/read.py` | A Next.js app in a subfolder is named, not read |
+| MySQL and MongoDB | `core/extractors/` | Each needs its own module behind the boundary |
+| Limits on what-ifs are Postgres only | `limits_apply` in `core/explore.py` | They are proven against real Postgres. SQLite needs its own sweep |
+| SQL built from pieces at runtime | `sql_uses` in `core/extractors/typescript.py` | Only SQL seen as one whole string links to its tables |
+
+## Screen walks
+
+The walks that drive `ui/dev` name private projects, so they stay out of git, in `.local/walks/`.
+Its README says how to run them. Bringing them in needs public fixtures in place of those
+projects, and a `playwright-core` that isn't tied to one machine. Until then, the stand-in host
+in `ui/dev` is the only part of them in this repo.
