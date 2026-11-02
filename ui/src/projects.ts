@@ -118,6 +118,8 @@ export interface Workspace {
   name: string
   /** The project key a build of this repo would write, so a match means it's added already. */
   key: string
+  /** False for a folder that shows only because it has a `package.json`. */
+  git: boolean
   worktrees: number
   touched: number
 }

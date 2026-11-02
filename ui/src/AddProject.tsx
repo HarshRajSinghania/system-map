@@ -259,6 +259,7 @@ function WorkspaceRow({
         {workspace.name}
       </span>
       {workspace.worktrees > 0 && <span style={{ ...MUTED, fontSize: 12, whiteSpace: 'nowrap' }}>{countOf(workspace.worktrees, 'worktree')}</span>}
+      {!workspace.git && <span style={{ ...MUTED, fontSize: 12, whiteSpace: 'nowrap' }}>no git</span>}
       <span style={{ flex: 1 }} />
       <span className="sm-row-action">{added ? 'Open' : 'Add'}</span>
       {!added && workspace.touched > 0 && (
@@ -268,7 +269,7 @@ function WorkspaceRow({
   )
 }
 
-/** The repos in the default folder. One click adds a new one or opens an added one. */
+/** The projects in the default folder. One click adds a new one or opens an added one. */
 function WorkspacePicker({
   list,
   projects,
@@ -349,7 +350,9 @@ function WorkspacePicker({
         )}
         {added.map((workspace, index) => row(workspace, true, toAdd.length + index))}
       </ul>
-      {rows.length === 0 && <p style={{ ...MUTED, margin: 0, padding: '0 9px' }}>No workspace matches that.</p>}
+      {rows.length === 0 && (
+        <p style={{ ...MUTED, margin: 0, padding: '0 9px' }}>No workspace matches that. Only folders with git or a package.json show here.</p>
+      )}
       {list.truncated && <p style={{ ...MUTED, margin: 0, fontSize: 12 }}>This folder is too big to search all of it. Pick a smaller one.</p>}
     </>
   )
@@ -461,7 +464,7 @@ export function AddProject({
           )}
           {list && list.folder === null && empty('Pick the folder that holds your projects')}
           {list?.missing && empty(`${list.display} isn't there any more`)}
-          {list?.folder && !list.missing && list.repos.length === 0 && empty(`No repos in ${list.display}`)}
+          {list?.folder && !list.missing && list.repos.length === 0 && empty(`No projects in ${list.display}`)}
           {list?.folder && list.repos.length > 0 && (
             <WorkspacePicker
               key={list.folder}
@@ -480,12 +483,12 @@ export function AddProject({
               }}
             >
               <label style={{ display: 'block', ...MUTED, fontSize: 12, marginBottom: 4 }} htmlFor="system-map-path">
-                Full path to a repo
+                Full path to a project
               </label>
               <div style={{ display: 'flex', gap: 8 }}>
                 <Input
                   id="system-map-path"
-                  placeholder="/path/to/repo"
+                  placeholder="/path/to/project"
                   value={path}
                   disabled={building !== null}
                   autoFocus

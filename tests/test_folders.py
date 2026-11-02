@@ -40,6 +40,100 @@ class Tree(unittest.TestCase):
         self.code.mkdir()
 
 
+def make_project(path: Path, code: bool = True) -> Path:
+    """A folder with a `package.json` and no git."""
+    (path / "lib").mkdir(parents=True)
+    (path / "package.json").write_text('{"name": "x"}\n')
+    if code:
+        (path / "lib" / "a.ts").write_text("export const a = 1\n")
+    return path
+
+
+class ProjectsWithNoGit(Tree):
+    def rows(self, folder: Path | None = None) -> dict[str, dict]:
+        return {row["name"]: row for row in folders.workspaces(folder or self.code)["repos"]}
+
+    def test_a_package_json_makes_a_workspace(self):
+        make_project(self.code / "loose")
+        self.assertEqual(sorted(self.rows()), ["loose"])
+
+    def test_a_folder_with_neither_stays_out(self):
+        (self.code / "notes" / "lib").mkdir(parents=True)
+        (self.code / "notes" / "lib" / "a.ts").write_text("export const a = 1\n")
+        self.assertEqual(self.rows(), {})
+
+    def test_each_row_says_whether_it_has_git(self):
+        make_project(self.code / "loose")
+        make_repo(self.code / "shop")
+        rows = self.rows()
+        self.assertFalse(rows["loose"]["git"])
+        self.assertTrue(rows["shop"]["git"])
+
+    def test_a_project_one_folder_down_shows(self):
+        make_project(self.code / "group" / "loose")
+        self.assertEqual(sorted(self.rows()), ["loose"])
+
+    def test_two_folders_down_is_past_the_walk(self):
+        make_project(self.code / "a" / "b" / "loose")
+        self.assertEqual(self.rows(), {})
+
+    def test_packages_inside_a_project_get_no_row(self):
+        project = make_project(self.code / "loose")
+        make_project(project / "packages")
+        make_project(project / "api")
+        self.assertEqual(sorted(self.rows()), ["loose"])
+
+    def test_a_repo_inside_a_project_still_shows(self):
+        project = make_project(self.code / "loose")
+        make_repo(project / "shop")
+        self.assertEqual(sorted(self.rows()), ["loose", "shop"])
+
+    def test_a_repo_keeps_its_packages_out(self):
+        make_project(make_repo(self.code / "shop") / "ui")
+        self.assertEqual(sorted(self.rows()), ["shop"])
+
+    def test_the_picked_folder_never_hides_what_it_holds(self):
+        (self.code / "package.json").write_text("{}\n")
+        make_project(self.code / "loose")
+        make_repo(self.code / "shop")
+        self.assertEqual(sorted(self.rows()), ["loose", "shop"])
+
+    def test_the_picked_folder_can_be_the_project(self):
+        project = make_project(self.code / "loose")
+        self.assertEqual(sorted(self.rows(project)), ["loose"])
+
+    def test_node_modules_stays_out(self):
+        make_project(self.code / "node_modules" / "left-pad")
+        self.assertEqual(self.rows(), {})
+
+    def test_a_hidden_folder_stays_out(self):
+        make_project(self.code / ".cache")
+        self.assertEqual(self.rows(), {})
+
+    def test_a_package_json_folder_is_no_project(self):
+        (self.code / "odd" / "package.json").mkdir(parents=True)
+        self.assertEqual(self.rows(), {})
+
+    def test_it_sorts_by_when_its_package_json_changed(self):
+        old, new = make_project(self.code / "old"), make_project(self.code / "new")
+        os.utime(old / "package.json", (1000, 1000))
+        os.utime(new / "package.json", (2000, 2000))
+        rows = folders.workspaces(self.code)["repos"]
+        self.assertEqual([row["name"] for row in rows], ["new", "old"])
+        self.assertEqual(rows[0]["touched"], 2000)
+
+    def test_a_row_builds_under_its_own_key(self):
+        make_project(self.code / "loose")
+        row = self.rows()["loose"]
+        manifest = store.build(Path(row["path"]), self.base / "data")
+        self.assertEqual(manifest["repo_key"], row["key"])
+
+    def test_a_project_with_no_code_gets_the_builds_own_words(self):
+        project = make_project(self.code / "empty", code=False)
+        with self.assertRaisesRegex(ValueError, "no code or schema"):
+            store.build(project, self.base / "data")
+
+
 class FindWorkspaces(Tree):
     def names(self) -> list[str]:
         return [row["name"] for row in folders.workspaces(self.code)["repos"]]

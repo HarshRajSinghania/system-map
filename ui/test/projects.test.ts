@@ -97,7 +97,7 @@ test('the filter matches a name or a path, in any case', () => {
 })
 
 function workspace(name: string): Workspace {
-  return { path: `/home/me/code/${name}`, name, key: `${name}-1`, worktrees: 0, touched: 100 }
+  return { path: `/home/me/code/${name}`, name, key: `${name}-1`, git: true, worktrees: 0, touched: 100 }
 }
 
 test('the suggested folder is where most recent work sits', () => {

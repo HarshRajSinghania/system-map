@@ -1,8 +1,9 @@
 """Find the workspaces in a folder, and remember which folder is the default.
 
-A workspace is a git repo. Its worktrees fold into it, since a build maps them to the main
-checkout anyway. This reads only folder names and git's own bookkeeping files. It runs no git
-command, so a folder holding hundreds of repos still answers at once.
+A workspace is a git repo, or a folder with a `package.json`, since a project needs no git. A
+repo's worktrees fold into it, since a build maps them to the main checkout anyway. This reads
+only folder names, git's own bookkeeping files and whether a `package.json` is there. It runs no
+git command, so a folder holding hundreds of repos still answers at once.
 """
 from __future__ import annotations
 
@@ -52,12 +53,25 @@ def main_repo(folder: Path) -> Path | None:
         return None
 
 
-def _changed_at(git_dir: Path) -> float:
-    """When git last touched this checkout's index, or 0 for a repo with no commits staged."""
+def _is_project(folder: Path) -> bool:
+    """A folder with no git that a build could still read."""
     try:
-        return (git_dir / "index").stat().st_mtime
+        return (folder / "package.json").is_file()
+    except OSError:
+        return False
+
+
+def _modified(path: Path) -> float:
+    """When a file last changed, or 0 if it isn't there."""
+    try:
+        return path.stat().st_mtime
     except OSError:
         return 0.0
+
+
+def _changed_at(git_dir: Path) -> float:
+    """When git last touched this checkout's index, or 0 for a repo with no commits staged."""
+    return _modified(git_dir / "index")
 
 
 def _worktrees(main: Path) -> list[Path]:
@@ -79,12 +93,14 @@ def _worktrees(main: Path) -> list[Path]:
 
 def _row(main: Path) -> dict:
     worktrees = _worktrees(main)
+    has_git = (main / ".git").exists()
     return {
         "path": str(main),
         "name": main.name,
         "key": repo_key(main),
+        "git": has_git,
         "worktrees": len(worktrees),
-        "touched": max([_changed_at(main / ".git"), *(_changed_at(entry) for entry in worktrees)]),
+        "touched": max([_changed_at(main / ".git"), *(_changed_at(entry) for entry in worktrees)]) if has_git else _modified(main / "package.json"),
     }
 
 
@@ -109,17 +125,23 @@ def workspaces(folder: Path) -> dict:
     """Every workspace in a folder, most recently touched first."""
     folder = check_folder(folder)
     found: dict[str, dict] = {}
-    pending = [(folder, 0)]
+    pending = [(folder, 0, False)]
     checked = 0
     truncated = False
     while pending:
-        here, depth = pending.pop()
+        here, depth, in_project = pending.pop()
         main = main_repo(here)
         if main is not None:
             found.setdefault(str(main), _row(main))
             continue  # Nothing inside a repo is a workspace of its own.
+        # The picked folder holds projects, so it only counts as one if nothing else turns up.
+        project = depth > 0 and not in_project and _is_project(here)
+        if project:
+            found[str(here)] = _row(here)
         if depth >= MAX_DEPTH:
             continue
+        # The walk goes on below a project with no git, since a repo can sit in there. Its own
+        # packages stay out, as with a repo.
         for child in _subfolders(here):
             if child.name in SKIP:
                 continue
@@ -127,7 +149,9 @@ def workspaces(folder: Path) -> dict:
                 truncated = True
                 break
             checked += 1
-            pending.append((child, depth + 1))
+            pending.append((child, depth + 1, in_project or project))
+    if not found and _is_project(folder):
+        found[str(folder)] = _row(folder)
     rows = sorted(found.values(), key=lambda row: (-row["touched"], row["name"].lower()))
     return {"folder": str(folder), "display": tilde(folder), "repos": rows, "truncated": truncated}
 

@@ -1,8 +1,8 @@
 import { jsxs as h, jsx as l, Fragment as T } from "react/jsx-runtime";
-import { SearchInput as B, Badge as le, Modal as de, Input as $e, Btn as E } from "@kirocrew/app-sdk/ui";
-import { useState as g, useCallback as W, useEffect as k, useRef as A } from "react";
-import { useAppApi as S } from "@kirocrew/app-sdk";
-const re = "system-map-chrome-css", Se = `
+import { SearchInput as B, Badge as le, Modal as de, Input as Se, Btn as E } from "@kirocrew/app-sdk/ui";
+import { useState as g, useCallback as W, useEffect as k, useRef as L } from "react";
+import { useAppApi as $ } from "@kirocrew/app-sdk";
+const re = "system-map-chrome-css", $e = `
 .sm-page { padding: 0 16px; }
 @media (min-width: 768px) { .sm-page { padding: 0 24px; } }
 .sm-plain { background: none; border: 0; margin: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
@@ -63,7 +63,7 @@ const re = "system-map-chrome-css", Se = `
 `;
 if (!document.getElementById(re)) {
   const e = document.createElement("style");
-  e.id = re, e.textContent = Se, document.head.appendChild(e);
+  e.id = re, e.textContent = $e, document.head.appendChild(e);
 }
 const Ce = /^API (\d{3}): ([\s\S]*)$/;
 function Ie(e) {
@@ -80,7 +80,7 @@ function Ne(e) {
     return null;
   }
 }
-function j(e, t) {
+function A(e, t) {
   const { status: r, body: s } = Ie(e);
   if (r === null) return `Couldn't ${t}. Check the dashboard is still connected, then try again.`;
   if (r === 400 || r === 404) {
@@ -96,7 +96,7 @@ function M(e, t) {
 const G = "system-map.repo", q = "system-map:project";
 function ft() {
   var m, p;
-  const e = S(), [t, r] = g([]), [s, i] = g(!1), [n, d] = g(() => localStorage.getItem(G)), o = W(async () => {
+  const e = $(), [t, r] = g([]), [s, i] = g(!1), [n, d] = g(() => localStorage.getItem(G)), o = W(async () => {
     try {
       const u = await e.get(`${x}/repos`);
       r(u.repos);
@@ -120,7 +120,7 @@ function ft() {
   return { repos: t, active: c, loaded: s, choose: a, reload: o };
 }
 function mt(e) {
-  const t = S(), [r, s] = g(null), [i, n] = g(null), d = A(e);
+  const t = $(), [r, s] = g(null), [i, n] = g(null), d = L(e);
   d.current = e;
   const o = W(async () => {
     if (!e) {
@@ -133,7 +133,7 @@ function mt(e) {
       s(a), n(null);
     } catch (a) {
       if (d.current !== e) return;
-      s(null), n(j(a, "load this project"));
+      s(null), n(A(a, "load this project"));
     }
   }, [t, e]);
   return k(() => {
@@ -141,7 +141,7 @@ function mt(e) {
   }, [o]), { overview: (r == null ? void 0 : r.manifest.repo_key) === e ? r : null, error: i, refresh: o };
 }
 function ht(e, t, r) {
-  const s = S(), [i, n] = g({ repo: t, value: null, failed: !1 });
+  const s = $(), [i, n] = g({ repo: t, value: null, failed: !1 });
   return k(() => {
     if (!r) return;
     let d = !0;
@@ -155,7 +155,7 @@ function ht(e, t, r) {
   }, [s, e, t, r]), i.repo === t ? { value: i.value, failed: i.failed } : { value: null, failed: !1 };
 }
 function gt(e, t, r) {
-  const s = S(), [i, n] = g(null);
+  const s = $(), [i, n] = g(null);
   return k(() => {
     if (!e) {
       n(null);
@@ -172,7 +172,7 @@ function gt(e, t, r) {
   }, [s, e, t, r]), i;
 }
 function bt(e, t, r) {
-  const s = S(), [i, n] = g({ repo: t, value: null, failed: !1 }), [d, o] = g(null), a = A(t);
+  const s = $(), [i, n] = g({ repo: t, value: null, failed: !1 }), [d, o] = g(null), a = L(t);
   a.current = t;
   const c = W(async () => {
     if (t)
@@ -195,7 +195,7 @@ function bt(e, t, r) {
   return { value: m ? i.value : null, failed: m && i.failed, checkedAt: d, refresh: c };
 }
 function yt(e, t = null) {
-  const r = S(), [s, i] = g(null);
+  const r = $(), [s, i] = g(null);
   return k(() => {
     if (!e) {
       i(null);
@@ -286,7 +286,7 @@ function _({ title: e, children: t }) {
     t
   ] });
 }
-const O = { margin: 0, paddingLeft: 16 };
+const R = { margin: 0, paddingLeft: 16 };
 function wt({
   nodes: e,
   focus: t,
@@ -333,10 +333,10 @@ function Ee({ findings: e, onAsk: t }) {
   return /* @__PURE__ */ l(T, { children: e.map((r) => /* @__PURE__ */ h("div", { style: { display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 6 }, children: [
     /* @__PURE__ */ l(_e, { severity: r.severity }),
     /* @__PURE__ */ l("span", { style: { flex: 1 }, children: r.title }),
-    t && /* @__PURE__ */ l("button", { onClick: () => t(r), style: Le, children: "Ask" })
+    t && /* @__PURE__ */ l("button", { onClick: () => t(r), style: je, children: "Ask" })
   ] }, r.id)) });
 }
-const Le = {
+const je = {
   background: "transparent",
   border: 0,
   padding: 0,
@@ -355,15 +355,15 @@ function xt({ node: e, onAsk: t }) {
       /* @__PURE__ */ l("td", { style: { ...y, ...Y, fontSize: 12, padding: "2px 8px", overflowWrap: "anywhere" }, children: i.type }),
       /* @__PURE__ */ l("td", { style: { ...y, fontSize: 12, padding: "2px 0", whiteSpace: "nowrap" }, children: i.nullable ? "null" : "not null" })
     ] }, i.name)) }) }) }),
-    r.length > 0 && /* @__PURE__ */ l(_, { title: "Keys", children: /* @__PURE__ */ l("ul", { style: O, children: r.map((i) => /* @__PURE__ */ h("li", { title: i.source, children: [
+    r.length > 0 && /* @__PURE__ */ l(_, { title: "Keys", children: /* @__PURE__ */ l("ul", { style: R, children: r.map((i) => /* @__PURE__ */ h("li", { title: i.source, children: [
       i.kind.replace("_", " "),
       " (",
       i.columns.join(", "),
       ")",
       i.references ? ` to ${i.references}, on delete ${i.on_delete}` : ""
     ] }, i.name)) }) }),
-    s.length > 0 && /* @__PURE__ */ l(_, { title: "Checks", children: /* @__PURE__ */ l("ul", { style: O, children: s.map((i) => /* @__PURE__ */ l("li", { title: i.source, style: { ...Y, fontSize: 12, overflowWrap: "anywhere" }, children: i.expression }, i.name)) }) }),
-    e.indexes.length > 0 && /* @__PURE__ */ l(_, { title: "Indexes", children: /* @__PURE__ */ l("ul", { style: O, children: e.indexes.map((i) => /* @__PURE__ */ h("li", { title: i.source, children: [
+    s.length > 0 && /* @__PURE__ */ l(_, { title: "Checks", children: /* @__PURE__ */ l("ul", { style: R, children: s.map((i) => /* @__PURE__ */ l("li", { title: i.source, style: { ...Y, fontSize: 12, overflowWrap: "anywhere" }, children: i.expression }, i.name)) }) }),
+    e.indexes.length > 0 && /* @__PURE__ */ l(_, { title: "Indexes", children: /* @__PURE__ */ l("ul", { style: R, children: e.indexes.map((i) => /* @__PURE__ */ h("li", { title: i.source, children: [
       i.name,
       " (",
       i.columns.join(", "),
@@ -371,14 +371,14 @@ function xt({ node: e, onAsk: t }) {
       i.unique ? ", unique" : "",
       i.partial ? ", partial" : ""
     ] }, i.name)) }) }),
-    e.schema !== "main" && /* @__PURE__ */ l(_, { title: `Row level security: ${e.rls ? "on" : "off"}`, children: /* @__PURE__ */ l("ul", { style: O, children: e.policies.map((i) => /* @__PURE__ */ h("li", { title: i.source, children: [
+    e.schema !== "main" && /* @__PURE__ */ l(_, { title: `Row level security: ${e.rls ? "on" : "off"}`, children: /* @__PURE__ */ l("ul", { style: R, children: e.policies.map((i) => /* @__PURE__ */ h("li", { title: i.source, children: [
       i.name,
       ": ",
       i.command,
       " for ",
       i.roles.join(", ")
     ] }, i.name)) }) }),
-    e.triggers.length > 0 && /* @__PURE__ */ l(_, { title: "Triggers", children: /* @__PURE__ */ l("ul", { style: O, children: e.triggers.map((i) => /* @__PURE__ */ h("li", { title: i.source, children: [
+    e.triggers.length > 0 && /* @__PURE__ */ l(_, { title: "Triggers", children: /* @__PURE__ */ l("ul", { style: R, children: e.triggers.map((i) => /* @__PURE__ */ h("li", { title: i.source, children: [
       i.name,
       ": ",
       i.timing,
@@ -388,7 +388,7 @@ function xt({ node: e, onAsk: t }) {
     e.reads.length > 0 && /* @__PURE__ */ l(_, { title: "Notes", children: e.reads.map((i, n) => /* @__PURE__ */ l("p", { style: { margin: "0 0 6px" }, children: i.text }, n)) })
   ] });
 }
-const Ae = ["map", "data", "plan", "risk", "worktrees", "findings", "explore"];
+const Le = ["map", "data", "plan", "risk", "worktrees", "findings", "explore"];
 function kt(e) {
   return e.missing ? "missing" : e.error ? "unknown" : e.stale || e.map_stale ? "stale" : e.commits_behind > 0 ? "behind" : "current";
 }
@@ -411,20 +411,20 @@ function X(e, t, r) {
       return { tone: "muted", label: "Can't check", detail: `Couldn't compare the model with ${r}`, rebuild: !1 };
   }
 }
-function L(e, t) {
+function j(e, t) {
   return `${e} ${t}${e === 1 ? "" : "s"}`;
 }
-const je = { postgres: "Postgres", sqlite: "SQLite" };
-function $t(e) {
+const Ae = { postgres: "Postgres", sqlite: "SQLite" };
+function St(e) {
   const t = [
-    e.tables ? `${L(e.tables, "table")} from ${je[e.engine ?? ""] ?? e.engine}` : "No tables found",
-    e.routes ? `${L(e.routes, "route")}, ${e.route_style}` : "No routes found",
-    `${L(e.code_files, "code file")}, ${L(e.links, "link")}`
+    e.tables ? `${j(e.tables, "table")} from ${Ae[e.engine ?? ""] ?? e.engine}` : "No tables found",
+    e.routes ? `${j(e.routes, "route")}, ${e.route_style}` : "No routes found",
+    `${j(e.code_files, "code file")}, ${j(e.links, "link")}`
   ];
   return e.git || t.push("No git history, so no churn or worktrees"), t;
 }
 function ze(e) {
-  return e.status === "current" ? L(e.tables, "table") : X(e.status, e.behind, e.ref).label;
+  return e.status === "current" ? j(e.tables, "table") : X(e.status, e.behind, e.ref).label;
 }
 function ce(e, t) {
   return t.filter((s) => s.name === e.name).length > 1 ? e.parent : null;
@@ -433,13 +433,13 @@ function De(e, t) {
   const r = t.trim().toLowerCase();
   return r ? e.filter((s) => s.name.toLowerCase().includes(r) || s.repo.toLowerCase().includes(r)) : e;
 }
-function Re(e) {
+function Oe(e) {
   return e.length > 1 ? e.replace(/\/+$/, "") : e;
 }
-function Oe(e) {
+function Re(e) {
   const t = /* @__PURE__ */ new Map();
   for (const i of e) {
-    const n = Re(i), d = n.lastIndexOf("/");
+    const n = Oe(i), d = n.lastIndexOf("/");
     d > 0 && t.set(n.slice(0, d), (t.get(n.slice(0, d)) ?? 0) + 1);
   }
   let r = null, s = 0;
@@ -456,7 +456,7 @@ function pe(e, t = 40) {
 }
 function Me(e, t) {
   const r = ue(e, t, "").toAdd.length;
-  return r ? `Search ${L(r, "workspace")}` : "Search workspaces";
+  return r ? `Search ${j(r, "workspace")}` : "Search workspaces";
 }
 function Pe(e) {
   const r = [
@@ -471,10 +471,10 @@ function fe(e, t) {
   return r < 60 ? "just now" : r < 3600 ? `${Math.floor(r / 60)}m ago` : r < 86400 ? `${Math.floor(r / 3600)}h ago` : `${Math.floor(r / 86400)}d ago`;
 }
 const me = (e) => `system-map.view.${e}`;
-function St(e, t) {
+function $t(e, t) {
   if (!t) return "map";
   const r = e.getItem(me(t));
-  return Ae.find((s) => s === r) ?? "map";
+  return Le.find((s) => s === r) ?? "map";
 }
 function Ct(e, t, r) {
   e.setItem(me(t), r);
@@ -499,7 +499,7 @@ function _t(e, t) {
 function Et(e, t) {
   e.setItem(ge(t), "started");
 }
-function Lt(e, t) {
+function jt(e, t) {
   if (!Array.isArray(e)) return !1;
   const r = Fe(t);
   return e.some((s) => (s == null ? void 0 : s.key) === r && typeof s.messages == "number" && s.messages > 0);
@@ -523,21 +523,21 @@ function J() {
   );
 }
 function Be(e) {
-  const t = S(), [r, s] = g(null), [i, n] = g(null);
+  const t = $(), [r, s] = g(null), [i, n] = g(null);
   k(() => {
     if (s(null), n(null), !e) return;
     let o = !0;
     return (async () => {
       const c = await t.get(`${x}/workspaces`);
       if (c.folder !== null) return { ...c, suggested: !1 };
-      const m = await t.get("/api/recent-projects").catch(() => ({ dirs: [] })), p = Array.isArray(m.dirs) ? m.dirs.filter((v) => typeof v == "string") : [], u = Oe(p);
+      const m = await t.get("/api/recent-projects").catch(() => ({ dirs: [] })), p = Array.isArray(m.dirs) ? m.dirs.filter((v) => typeof v == "string") : [], u = Re(p);
       if (u === null) return { ...c, suggested: !1 };
       const f = await t.get(`${x}/workspaces?folder=${encodeURIComponent(u)}`).catch(() => null);
       return f ? { ...f, suggested: !0 } : { ...c, suggested: !1 };
     })().then((c) => {
       o && s(c);
     }).catch((c) => {
-      o && n(j(c, "read your default folder"));
+      o && n(A(c, "read your default folder"));
     }), () => {
       o = !1;
     };
@@ -548,7 +548,7 @@ function Be(e) {
       try {
         await t.post(`${x}/default-folder`, { folder: o }), s({ ...await t.get(`${x}/workspaces`), suggested: !1 });
       } catch (a) {
-        n(j(a, "save this folder"));
+        n(A(a, "save this folder"));
       }
     },
     [t]
@@ -556,7 +556,7 @@ function Be(e) {
   return { list: r, error: i, saveDefault: d };
 }
 function Ue(e, t, r) {
-  const s = S(), [i, n] = g(!1), d = A(!1), o = A({ onPicked: t, onUsePage: r });
+  const s = $(), [i, n] = g(!1), d = L(!1), o = L({ onPicked: t, onUsePage: r });
   o.current = { onPicked: t, onUsePage: r };
   const a = W((p) => {
     d.current = p, n(p);
@@ -588,13 +588,13 @@ function He({
   onUse: r,
   onCancel: s
 }) {
-  const i = S(), [n, d] = g(null), [o, a] = g(null), c = W(
+  const i = $(), [n, d] = g(null), [o, a] = g(null), c = W(
     async (m) => {
       a(null);
       try {
         return d(await i.get(`${x}/browse?path=${encodeURIComponent(m)}`)), !0;
       } catch (p) {
-        return a(j(p, "open this folder")), !1;
+        return a(A(p, "open this folder")), !1;
       }
     },
     [i]
@@ -648,7 +648,8 @@ function Ve({
       },
       children: [
         /* @__PURE__ */ l("span", { className: "sm-ellipsis", style: t ? y : { fontWeight: 600 }, children: e.name }),
-        e.worktrees > 0 && /* @__PURE__ */ l("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: L(e.worktrees, "worktree") }),
+        e.worktrees > 0 && /* @__PURE__ */ l("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: j(e.worktrees, "worktree") }),
+        !e.git && /* @__PURE__ */ l("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: "no git" }),
         /* @__PURE__ */ l("span", { style: { flex: 1 } }),
         /* @__PURE__ */ l("span", { className: "sm-row-action", children: t ? "Open" : "Add" }),
         !t && e.touched > 0 && /* @__PURE__ */ l("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: fe(e.touched, i) })
@@ -663,7 +664,7 @@ function Ke({
   onAdd: s,
   onOpen: i
 }) {
-  const [n, d] = g(""), [o, a] = g(0), c = A(!1), { toAdd: m, added: p } = ue(e.repos, t, n), u = [...m, ...p], f = Math.min(o, u.length - 1), v = Date.now() / 1e3, $ = (b) => p.includes(b) ? i(b) : s(b);
+  const [n, d] = g(""), [o, a] = g(0), c = L(!1), { toAdd: m, added: p } = ue(e.repos, t, n), u = [...m, ...p], f = Math.min(o, u.length - 1), v = Date.now() / 1e3, S = (b) => p.includes(b) ? i(b) : s(b);
   k(() => {
     var b;
     c.current && (c.current = !1, u[f] && ((b = document.getElementById(Q(u[f]))) == null || b.scrollIntoView({ block: "nearest" })));
@@ -672,17 +673,17 @@ function Ke({
     if (b.key === "ArrowDown" || b.key === "ArrowUp") {
       if (b.preventDefault(), u.length === 0) return;
       c.current = !0, a((f + (b.key === "ArrowDown" ? 1 : -1) + u.length) % u.length);
-    } else b.key === "Enter" && u[f] && !r && (b.preventDefault(), $(u[f]));
-  }, D = (b, N, R) => /* @__PURE__ */ l(
+    } else b.key === "Enter" && u[f] && !r && (b.preventDefault(), S(u[f]));
+  }, D = (b, N, O) => /* @__PURE__ */ l(
     Ve,
     {
       workspace: b,
       added: N,
-      active: R === f,
+      active: O === f,
       busy: r,
       now: v,
-      onHover: () => a(R),
-      onPick: () => $(b)
+      onHover: () => a(O),
+      onPick: () => S(b)
     },
     b.path
   );
@@ -710,7 +711,7 @@ function Ke({
       p.length > 0 && /* @__PURE__ */ l("li", { role: "presentation", className: "sm-add-head", children: "Already added" }),
       p.map((b, N) => D(b, !0, m.length + N))
     ] }),
-    u.length === 0 && /* @__PURE__ */ l("p", { style: { ...y, margin: 0, padding: "0 9px" }, children: "No workspace matches that." }),
+    u.length === 0 && /* @__PURE__ */ l("p", { style: { ...y, margin: 0, padding: "0 9px" }, children: "No workspace matches that. Only folders with git or a package.json show here." }),
     e.truncated && /* @__PURE__ */ l("p", { style: { ...y, margin: 0, fontSize: 12 }, children: "This folder is too big to search all of it. Pick a smaller one." })
   ] });
 }
@@ -720,11 +721,11 @@ function Ge({
   onClose: r,
   onBuilt: s
 }) {
-  const i = S(), { list: n, error: d, saveDefault: o } = Be(e), [a, c] = g("workspaces"), [m, p] = g(null), [u, f] = g(!1), [v, $] = g(""), [C, D] = g(null), [b, N] = g(null), R = (w) => {
+  const i = $(), { list: n, error: d, saveDefault: o } = Be(e), [a, c] = g("workspaces"), [m, p] = g(null), [u, f] = g(!1), [v, S] = g(""), [C, D] = g(null), [b, N] = g(null), O = (w) => {
     p(w), c("folders");
-  }, { waiting: H, openWindow: we, closeWindow: xe } = Ue(e, (w) => void o(w), R);
+  }, { waiting: H, openWindow: we, closeWindow: xe } = Ue(e, (w) => void o(w), O);
   k(() => {
-    e && (c("workspaces"), p(null), f(!1), $(""), N(null), D(null));
+    e && (c("workspaces"), p(null), f(!1), S(""), N(null), D(null));
   }, [e]);
   const te = async (w, ke) => {
     D(w), N(null);
@@ -733,7 +734,7 @@ function Ge({
       const K = await i.post(`${x}/build`, { repo_path: w });
       s(K.repo_key);
     } catch (K) {
-      N(j(K, "add this project"));
+      N(A(K, "add this project"));
     } finally {
       D(null);
     }
@@ -768,7 +769,7 @@ function Ge({
           type: "button",
           className: "sm-plain sm-link",
           onClick: () => {
-            xe(), R(null);
+            xe(), O(null);
           },
           children: "Pick here instead"
         }
@@ -776,7 +777,7 @@ function Ge({
     ] }),
     n && n.folder === null && V("Pick the folder that holds your projects"),
     (n == null ? void 0 : n.missing) && V(`${n.display} isn't there any more`),
-    (n == null ? void 0 : n.folder) && !n.missing && n.repos.length === 0 && V(`No repos in ${n.display}`),
+    (n == null ? void 0 : n.folder) && !n.missing && n.repos.length === 0 && V(`No projects in ${n.display}`),
     (n == null ? void 0 : n.folder) && n.repos.length > 0 && /* @__PURE__ */ l(
       Ke,
       {
@@ -795,17 +796,17 @@ function Ge({
           w.preventDefault(), v.trim() && te(v.trim(), !1);
         },
         children: [
-          /* @__PURE__ */ l("label", { style: { display: "block", ...y, fontSize: 12, marginBottom: 4 }, htmlFor: "system-map-path", children: "Full path to a repo" }),
+          /* @__PURE__ */ l("label", { style: { display: "block", ...y, fontSize: 12, marginBottom: 4 }, htmlFor: "system-map-path", children: "Full path to a project" }),
           /* @__PURE__ */ h("div", { style: { display: "flex", gap: 8 }, children: [
             /* @__PURE__ */ l(
-              $e,
+              Se,
               {
                 id: "system-map-path",
-                placeholder: "/path/to/repo",
+                placeholder: "/path/to/project",
                 value: v,
                 disabled: C !== null,
                 autoFocus: !0,
-                onChange: (w) => $(w.target.value),
+                onChange: (w) => S(w.target.value),
                 style: { flex: 1, minWidth: 0 }
               }
             ),
@@ -918,7 +919,7 @@ function nt(e, t, r) {
     n.source !== r && n.target !== r || (i.add(n.source), i.add(n.target), s.push({ id: `${n.source}|${n.target}|${n.kind}`, source: n.source, target: n.target, kind: n.kind, count: n.count }));
   return { cards: P(i, t, []), lines: s };
 }
-function At(e, t, r) {
+function Lt(e, t, r) {
   const s = new Map(e.nodes.map((o) => [o.id, o])), i = new Set(t), n = /* @__PURE__ */ new Map();
   for (const o of e.edges) {
     if (!i.has(o.source) || !i.has(o.target)) continue;
@@ -932,7 +933,7 @@ function ve(e) {
   const t = e.nodes.find((s) => s.kind === "route"), r = t == null ? void 0 : t.evidence[0];
   return r ? r.slice(0, r.lastIndexOf("/")) : null;
 }
-function jt(e, t, r, s) {
+function At(e, t, r, s) {
   const i = new Map(e.nodes.map((m) => [m.id, m])), n = ve(e), d = t === `area:${n}` ? I : t, o = d != null && d.startsWith("area:") ? d : null, a = d === I || d === z ? d : null, c = { byId: i, open: o, expanded: a, routesDir: n };
   return d ? o ? et(e, c, r, s) : a ? tt(e, c, r, s) : nt(e, c, d) : Ze(e, c, r, s);
 }
@@ -967,10 +968,10 @@ function Dt(e, t) {
       i.startsWith(s) && n.forEach((d) => r.add(d));
   return [...r].sort();
 }
-function Rt(e) {
+function Ot(e) {
   return new Map([...(e == null ? void 0 : e.modules) ?? [], ...(e == null ? void 0 : e.areas) ?? []].map((t) => [t.id ?? t.path, t]));
 }
-function Ot(e) {
+function Rt(e) {
   return e != null && e.hot ? e.untested ? "hot-untested" : "hot" : null;
 }
 function Mt(e, t) {
@@ -1004,7 +1005,7 @@ function it({
   label: n,
   block: d = !1
 }) {
-  const [o, a] = g(!1), c = A(null), m = A(null), p = W(() => {
+  const [o, a] = g(!1), c = L(null), m = L(null), p = W(() => {
     var u;
     a(!1), (u = m.current) == null || u.focus();
   }, []);
@@ -1056,7 +1057,7 @@ function it({
   );
 }
 function Ut({ label: e, children: t }) {
-  const r = A(null);
+  const r = L(null);
   return k(() => {
     var i, n;
     (n = (i = r.current) == null ? void 0 : i.querySelector('[role="menuitem"]')) == null || n.focus();
@@ -1075,12 +1076,12 @@ function at({
   onBuilt: r,
   onRemove: s
 }) {
-  const i = S(), [n, d] = g(!1), [o, a] = g(null), [c, m] = g(null), p = X(e.status, e.behind, e.ref), u = Pe(e.intent), f = async () => {
+  const i = $(), [n, d] = g(!1), [o, a] = g(null), [c, m] = g(null), p = X(e.status, e.behind, e.ref), u = Pe(e.intent), f = async () => {
     a("Rebuilding"), m(null);
     try {
       await i.post(`${x}/build`, { repo: e.repo_key }), r();
-    } catch ($) {
-      m(j($, "rebuild this project"));
+    } catch (S) {
+      m(A(S, "rebuild this project"));
     } finally {
       a(null);
     }
@@ -1088,8 +1089,8 @@ function at({
     a("Removing"), m(null);
     try {
       await s(e.repo_key);
-    } catch ($) {
-      m(j($, "remove this project")), a(null);
+    } catch (S) {
+      m(A(S, "remove this project")), a(null);
     }
   };
   return /* @__PURE__ */ h("div", { className: "sm-manage-row", "data-testid": "manage-row", children: [
@@ -1104,7 +1105,7 @@ function at({
     ] }),
     /* @__PURE__ */ l("div", { className: "sm-mono sm-ellipsis", style: { ...y, marginTop: 4 }, title: e.repo, children: e.repo }),
     /* @__PURE__ */ h("div", { style: { ...y, fontSize: 12, marginTop: 2 }, children: [
-      L(e.tables, "table"),
+      j(e.tables, "table"),
       ", built ",
       fe(e.built_at, Date.now() / 1e3)
     ] }),
@@ -1131,7 +1132,7 @@ function ot({
   onBuilt: s,
   onRemoved: i
 }) {
-  const n = S(), d = async (o) => {
+  const n = $(), d = async (o) => {
     await n.post(`${x}/repo-remove`, { repo: o }), i(o);
   };
   return /* @__PURE__ */ l(de, { open: e, onClose: r, title: "Manage projects", maxWidth: 620, children: /* @__PURE__ */ h("div", { className: "sm-manage", style: { padding: 16, maxHeight: "60vh", overflowY: "auto" }, "data-testid": "manage-projects", children: [
@@ -1173,7 +1174,7 @@ function lt({
       }
     ),
     /* @__PURE__ */ l("ul", { id: "system-map-project-list", className: "sm-list", role: "listbox", "aria-label": "Projects", children: a.map((f, v) => {
-      const $ = ce(f, e);
+      const S = ce(f, e);
       return /* @__PURE__ */ h(
         "li",
         {
@@ -1190,7 +1191,7 @@ function lt({
           children: [
             /* @__PURE__ */ l("span", { className: "sm-dot", "data-tone": X(f.status, f.behind, f.ref).tone }),
             /* @__PURE__ */ l("span", { className: "sm-ellipsis", style: { fontWeight: 600 }, children: f.name }),
-            $ && /* @__PURE__ */ l("span", { className: "sm-ellipsis", style: { ...y, fontSize: 12 }, children: $ }),
+            S && /* @__PURE__ */ l("span", { className: "sm-ellipsis", style: { ...y, fontSize: 12 }, children: S }),
             /* @__PURE__ */ l("span", { style: { ...y, fontSize: 12, marginLeft: "auto", whiteSpace: "nowrap", paddingLeft: 8 }, children: ze(f) })
           ]
         },
@@ -1276,7 +1277,7 @@ function Ht({
   ] }) };
 }
 export {
-  Le as A,
+  je as A,
   Tt as B,
   st as C,
   it as D,
@@ -1287,7 +1288,7 @@ export {
   wt as I,
   Mt as J,
   Fe as K,
-  j as L,
+  A as L,
   y as M,
   xt as N,
   x as O,
@@ -1296,15 +1297,15 @@ export {
   _t as R,
   _e as S,
   vt as T,
-  Lt as U,
+  jt as U,
   Et as V,
-  L as W,
+  j as W,
   Y as a,
   fe as b,
-  At as c,
-  jt as d,
-  Rt as e,
-  Ot as f,
+  Lt as c,
+  At as d,
+  Ot as e,
+  Rt as f,
   I as g,
   z as h,
   Ut as i,
@@ -1313,10 +1314,10 @@ export {
   ht as l,
   bt as m,
   gt as n,
-  St as o,
+  $t as o,
   Bt as p,
   Nt as q,
-  $t as r,
+  St as r,
   F as s,
   zt as t,
   ft as u,
