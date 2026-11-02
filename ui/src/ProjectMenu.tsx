@@ -1,9 +1,10 @@
 import { SearchInput } from '@kirocrew/app-sdk/ui'
 import { useState } from 'react'
 import type { KeyboardEvent } from 'react'
+import { AddProject } from './AddProject'
 import { Chevron, Dropdown } from './Menu'
 import { MUTED } from './parts'
-import { AddProject, ManageProjects } from './ProjectDialogs'
+import { ManageProjects } from './ProjectDialogs'
 import { filterProjects, rowHint, rowStatus, statusView } from './projects'
 import type { Project } from './projects'
 

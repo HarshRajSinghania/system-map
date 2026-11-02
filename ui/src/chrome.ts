@@ -51,6 +51,14 @@ const CSS = `
 .sm-manage { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .sm-manage-row { padding: 10px 12px; border: 1px solid var(--border, #e4e4e7); border-radius: 8px; font-size: 13px; }
 .sm-mono { font-family: var(--mono, ui-monospace, Menlo, monospace); font-size: 12px; }
+.sm-link { color: var(--accent, #2f7d5c); font-size: 13px; white-space: nowrap; }
+.sm-link:hover { text-decoration: underline; }
+.sm-add-list { max-height: min(340px, 46vh); margin: 0; }
+.sm-add-head { padding: 8px 9px 2px; font-size: 12px; color: var(--muted, #71717a); }
+.sm-row[aria-disabled="true"] { cursor: default; opacity: .6; }
+.sm-row-action { display: none; color: var(--accent, #2f7d5c); font-weight: 600; white-space: nowrap; }
+.sm-row[data-active="true"] .sm-row-action { display: inline; }
+.sm-add-empty { display: grid; justify-items: center; gap: 10px; padding: 24px 12px; text-align: center; font-weight: 600; }
 `
 
 // At import, like the flow styles, so nothing draws unstyled.

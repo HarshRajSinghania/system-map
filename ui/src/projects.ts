@@ -113,29 +113,63 @@ export function filterProjects(rows: Project[], query: string): Project[] {
   return rows.filter((row) => row.name.toLowerCase().includes(wanted) || row.repo.toLowerCase().includes(wanted))
 }
 
-export interface RecentFolder {
+export interface Workspace {
   path: string
   name: string
-  parent: string
+  /** The project key a build of this repo would write, so a match means it's added already. */
+  key: string
+  worktrees: number
+  touched: number
+}
+
+export interface WorkspaceList {
+  folder: string | null
+  display: string | null
+  repos: Workspace[]
+  truncated: boolean
+  missing?: boolean
 }
 
 function tidy(path: string): string {
   return path.length > 1 ? path.replace(/\/+$/, '') : path
 }
 
-/** Folders the person has worked in lately, leaving out ones that are projects already. */
-export function recentToAdd(recent: string[], rows: Project[]): RecentFolder[] {
-  const added = new Set(rows.map((row) => tidy(row.repo)))
-  const seen = new Set<string>()
-  const found: RecentFolder[] = []
+/** The folder most recent work sits in, to offer as the default. A tie goes to the latest. */
+export function suggestFolder(recent: string[]): string | null {
+  const counts = new Map<string, number>()
   for (const raw of recent) {
     const path = tidy(raw)
-    if (added.has(path) || seen.has(path)) continue
-    seen.add(path)
-    const parts = path.split('/').filter(Boolean)
-    found.push({ path, name: parts[parts.length - 1] ?? path, parent: parts[parts.length - 2] ?? '' })
+    const cut = path.lastIndexOf('/')
+    if (cut > 0) counts.set(path.slice(0, cut), (counts.get(path.slice(0, cut)) ?? 0) + 1)
   }
-  return found
+  let best: string | null = null
+  let most = 0
+  for (const [folder, count] of counts) {
+    if (count > most) {
+      best = folder
+      most = count
+    }
+  }
+  return best
+}
+
+/** Repos still to add, then repos already added, each narrowed to what was searched for. */
+export function splitWorkspaces(rows: Workspace[], projects: Project[], query: string): { toAdd: Workspace[]; added: Workspace[] } {
+  const wanted = query.trim().toLowerCase()
+  const keys = new Set(projects.map((project) => project.repo_key))
+  const hits = rows.filter((row) => row.name.toLowerCase().includes(wanted))
+  return { toAdd: hits.filter((row) => !keys.has(row.key)), added: hits.filter((row) => keys.has(row.key)) }
+}
+
+/** A long path keeps its end, since that's the part that tells two folders apart. */
+export function shortPath(path: string, room = 40): string {
+  return path.length > room ? `…${path.slice(1 - room)}` : path
+}
+
+/** The search box says how many repos are left to add. */
+export function searchLabel(rows: Workspace[], projects: Project[]): string {
+  const left = splitWorkspaces(rows, projects, '').toAdd.length
+  return left ? `Search ${countOf(left, 'workspace')}` : 'Search workspaces'
 }
 
 /** What removing a project deletes, in words. Empty when it holds no saved work. */

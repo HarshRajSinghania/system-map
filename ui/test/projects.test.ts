@@ -8,17 +8,20 @@ import {
   hasSideList,
   readListOpen,
   readView,
-  recentToAdd,
   removalWarning,
   rowHint,
   rowStatus,
+  searchLabel,
+  shortPath,
+  splitWorkspaces,
   statusOf,
   statusView,
+  suggestFolder,
   VIEWS,
   writeListOpen,
   writeView,
 } from '../src/projects.ts'
-import type { Project } from '../src/projects.ts'
+import type { Project, Workspace } from '../src/projects.ts'
 
 function project(extra: Partial<Project>): Project {
   return {
@@ -90,13 +93,50 @@ test('the filter matches a name or a path, in any case', () => {
   assert.equal(filterProjects(rows, 'nope').length, 0)
 })
 
-test('recent folders leave out projects, repeats and trailing slashes', () => {
-  const rows = [project({ repo: '/home/me/code/app' })]
-  const found = recentToAdd(['/home/me/code/app/', '/home/me/code/next/', '/home/me/code/next', '/srv/tool'], rows)
-  assert.deepEqual(found, [
-    { path: '/home/me/code/next', name: 'next', parent: 'code' },
-    { path: '/srv/tool', name: 'tool', parent: 'srv' },
-  ])
+function workspace(name: string): Workspace {
+  return { path: `/home/me/code/${name}`, name, key: `${name}-1`, worktrees: 0, touched: 100 }
+}
+
+test('the suggested folder is where most recent work sits', () => {
+  assert.equal(suggestFolder(['/srv/tool', '/home/me/code/a', '/home/me/code/b/']), '/home/me/code')
+})
+
+test('a tied suggestion goes to the latest folder', () => {
+  assert.equal(suggestFolder(['/home/me/new/a', '/home/me/old/b']), '/home/me/new')
+})
+
+test('nothing recent means nothing to suggest', () => {
+  assert.equal(suggestFolder([]), null)
+  assert.equal(suggestFolder(['/top']), null)
+  assert.equal(suggestFolder(['/']), null)
+})
+
+test('workspaces split into ones to add and ones added', () => {
+  const rows = [workspace('shop'), workspace('blog')]
+  const { toAdd, added } = splitWorkspaces(rows, [project({ repo_key: 'blog-1' })], '')
+  assert.deepEqual(toAdd.map((row) => row.name), ['shop'])
+  assert.deepEqual(added.map((row) => row.name), ['blog'])
+})
+
+test('a search narrows both groups by name, not by the path they share', () => {
+  const rows = [workspace('shop'), workspace('shopfront'), workspace('blog')]
+  const { toAdd, added } = splitWorkspaces(rows, [project({ repo_key: 'shop-1' })], ' SHOP ')
+  assert.deepEqual(toAdd.map((row) => row.name), ['shopfront'])
+  assert.deepEqual(added.map((row) => row.name), ['shop'])
+  assert.equal(splitWorkspaces(rows, [], 'code').toAdd.length, 0)
+})
+
+test('a long path keeps its end, and a short one stays whole', () => {
+  assert.equal(shortPath('~/code'), '~/code')
+  assert.equal(shortPath('/a/very/long/way/down/to/my/project', 12), '…/my/project')
+  assert.equal(shortPath('/a/very/long/way/down/to/my/project', 12).length, 12)
+})
+
+test('the search box counts what is left to add', () => {
+  const rows = [workspace('shop'), workspace('blog')]
+  assert.equal(searchLabel(rows, []), 'Search 2 workspaces')
+  assert.equal(searchLabel(rows, [project({ repo_key: 'blog-1' })]), 'Search 1 workspace')
+  assert.equal(searchLabel(rows, [project({ repo_key: 'blog-1' }), project({ repo_key: 'shop-1' })]), 'Search workspaces')
 })
 
 test('the remove warning counts only what exists', () => {
