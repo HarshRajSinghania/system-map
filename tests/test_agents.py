@@ -207,6 +207,11 @@ class Models(Fixture):
         self.assertEqual(targets, {"service:anthropic"})
         self.assertEqual(edges[("agent:reader", "uses_model", "service:anthropic")]["evidence"], ["src/agents/ai.ts:1"])
 
+    def test_an_agent_sharing_its_file_does_not_take_that_files_imports(self):
+        _, _, edges = self.build()
+        for name in ("mail", "digest"):
+            self.assertFalse([key for key in edges if key[0] == f"agent:{name}" and key[1] == "uses_model"], name)
+
     def test_a_definition_of_the_name_is_not_a_call(self):
         _, _, edges = self.build({**SETTINGS, "model_calls": ["model", "done"]})
         line = line_of("src/agents/handlers/sorter.ts", "async function done")

@@ -474,7 +474,10 @@ def find(source, project, settings: dict, nodes: list[dict], job_calls: dict[str
                 for service in sorted(services.values()):
                     edges.add(node_id, service, "uses_model", f"{path}:{line}")
             asks += [f"{path}:{line}" for line in _calls(files, settings["asks_you_calls"], path, start, end)]
-        reach, queue = set(), [path for path, _, _ in regions[agent["name"]]]
+        # Only whole files lead on through their imports: an agent that shares its file with
+        # others can't claim what that file imports for them all.
+        whole = [path for path, start, end in regions[agent["name"]] if start == 0 and end == len(files.cache[path][0])]
+        reach, queue = set(), whole
         while queue:
             path = queue.pop()
             if path in reach or ts.TEST_FILE.search(path):
