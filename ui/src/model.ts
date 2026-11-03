@@ -177,6 +177,62 @@ export interface Link {
   evidence: string[]
 }
 
+/** One link of an agent's, with the line that proves it. */
+export interface AgentLink {
+  node: string
+  evidence: string
+}
+
+export interface AgentModel {
+  node: string
+  name: string
+  region: string | null
+  /** Runs outside the home region. */
+  leaves: boolean
+  evidence: string
+}
+
+export type AgentStatus = 'built' | 'planned' | 'empty'
+
+export interface AgentRow {
+  id: string
+  name: string
+  label: string
+  description: string
+  status: AgentStatus
+  jobs: string[]
+  path: string
+  module: string
+  source: 'list' | 'module'
+  evidence: string[]
+  /** Lines where it waits for a person. */
+  asks_you: string[]
+  leaves_region: string[]
+  starts: AgentLink[]
+  hands_off_to: AgentLink[]
+  handed_by: AgentLink[]
+  models: AgentModel[]
+}
+
+export interface AgentSettings {
+  list?: string
+  jobs_key?: string
+  hand_off_keys?: string[]
+  model_calls?: string[]
+  asks_you_calls?: string[]
+  modules?: string[]
+  home_region?: string
+}
+
+export interface AgentState {
+  agents: AgentRow[]
+  settings: AgentSettings
+  defaults: AgentSettings
+  home_region: string | null
+  /** Modules that call a model: where to look when nothing points at agents yet. */
+  suggestions: string[]
+}
+
 export interface RiskRow {
   id?: string
   path: string
@@ -468,6 +524,31 @@ export function useVersioned<T>(path: string, repo: string | null, version: stri
     }
   }, [api, path, repo, version])
   return held.repo === repo ? { value: held.value, failed: held.failed } : { value: null, failed: false }
+}
+
+/** The agents. Loads again when the model changes, or on `refresh`, since a region tag changes no version. */
+export function useAgents(repo: string | null, version: string | undefined) {
+  const api = useAppApi()
+  const [held, setHeld] = useState<{ repo: string | null; value: AgentState | null; failed: boolean }>({ repo, value: null, failed: false })
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    if (!version) return
+    let live = true
+    api
+      .get<AgentState>(withRepo('/agents', repo))
+      .then((reply) => {
+        if (live) setHeld({ repo, value: reply, failed: false })
+      })
+      .catch(() => {
+        if (live) setHeld({ repo, value: null, failed: true })
+      })
+    return () => {
+      live = false
+    }
+  }, [api, repo, version, tick])
+  const refresh = useCallback(() => setTick((value) => value + 1), [])
+  const current = held.repo === repo
+  return { value: current ? held.value : null, failed: current && held.failed, refresh }
 }
 
 /** Load one proposal with its diff and limits. Change `tick` to load it again. */
