@@ -8,8 +8,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
 
 from core import store  # noqa: E402
+from helpers import commit_all, git  # noqa: E402
+from test_agents import FILES, SETTINGS, line_of  # noqa: E402
 
 
 class McpServerTests(unittest.TestCase):
@@ -194,6 +197,49 @@ class McpServerTests(unittest.TestCase):
         value = json.loads(self.tool("export_all")["content"][0]["text"])
         self.assertFalse(value["inline"])
         self.assertTrue(Path(value["path"]).is_file())
+
+    def agent_repo(self):
+        """The agent fixture, built next to the schema repo, so `repo` names it."""
+        repo = self.repo.parent / "agents-repo"
+        for name, text in FILES.items():
+            path = repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        git(repo, "init", "-q", "-b", "main")
+        commit_all(repo)
+        store.build(repo, self.data)
+        return repo, store.repo_dir(repo, self.data)
+
+    def test_agents_with_none_set_points_at_the_tab_and_suggests(self):
+        repo, _ = self.agent_repo()
+        value = json.loads(self.tool("agents", repo=str(repo))["content"][0]["text"])
+        self.assertEqual((value["agents"], value["suggestions"]), ([], ["module:src/agents"]))
+        self.assertIn("Agents tab", value["note"])
+
+    def test_agents_lists_each_one_short(self):
+        repo, target = self.agent_repo()
+        store.set_agent_settings(target, {**SETTINGS, "home_region": "Canada"})
+        store.set_region(target, "service:anthropic", "US")
+        value = json.loads(self.tool("agents", repo=str(repo))["content"][0]["text"])
+        body = json.loads(value["text"])
+        sorter = next(row for row in body["agents"] if row["id"] == "agent:sorter")
+        self.assertEqual(body["home_region"], "Canada")
+        self.assertEqual(set(sorter["hands_off_to"]), {"agent:reader", "agent:mail"})
+        self.assertIn("Anthropic (US)", sorter["models"])
+        self.assertEqual((sorter["asks_you"], sorter["leaves_region"]), (True, ["service:anthropic"]))
+
+    def test_one_agent_comes_with_its_evidence(self):
+        repo, target = self.agent_repo()
+        store.set_agent_settings(target, SETTINGS)
+        value = json.loads(self.tool("agents", repo=str(repo), id="agent:reader")["content"][0]["text"])
+        row = json.loads(value["text"])
+        self.assertEqual(row["evidence"], [f"src/agents/handlers/reader.ts:{line_of('src/agents/handlers/reader.ts', 'export const readerAgent')}"])
+        self.assertEqual(row["models"][0]["evidence"], "src/agents/ai.ts:1")
+        self.assertTrue(self.tool("agents", repo=str(repo), id="agent:nope")["isError"])
+
+    def test_agents_is_in_the_tool_list(self):
+        reply = self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]
+        self.assertIn("agents", [tool["name"] for tool in reply["result"]["tools"]])
 
 
 if __name__ == "__main__":

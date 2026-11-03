@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import explore, risk, store  # noqa: E402
+from core import agents, explore, risk, store  # noqa: E402
 
 PROTOCOL_VERSION = "2025-06-18"
 BUDGET = {"type": "integer", "description": f"Most chars to return inline. Default {store.DEFAULT_BUDGET_CHARS}."}
@@ -184,10 +184,23 @@ TOOLS = [
         },
     },
     {
+        "name": "agents",
+        "description": (
+            "List the project's agents: what starts each one, who it hands work to, which models it uses "
+            "and where they run, and when it asks a person. Pass an id such as agent:triage for one agent "
+            "with evidence. Read only. A person points System Map at the agents in its Agents tab."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"id": {"type": "string"}, "repo": REPO, "budget_chars": BUDGET},
+        },
+    },
+    {
         "name": "node",
         "description": (
             "Read one node with its links and notes. Ids look like table:public.users, "
-            "module:src/agents, area:src/agents, route:/desk, job:renewals, service:anthropic, plan:inbox."
+            "module:src/agents, area:src/agents, route:/desk, job:renewals, service:anthropic, plan:inbox, "
+            "agent:triage."
         ),
         "inputSchema": {
             "type": "object",
@@ -357,6 +370,31 @@ def call(name: str, args: dict) -> object:
             for plan in store.plan_items(target, args.get("status"))
         ]
         return store.fit(target, "plan", compact(items), budget)
+    if name == "agents":
+        joined = store.load_system(target)
+        found = agents.rows(joined)
+        if args.get("id"):
+            row = next((row for row in found if row["id"] == args["id"]), None)
+            if row is None:
+                raise KeyError(f"no agent {args['id']!r}")
+            return store.fit(target, "agent", compact(row), budget)
+        if not found:
+            note = "No agents set. A person points System Map at the agent list in its Agents tab. These modules call a model:"
+            return {"agents": [], "note": note, "suggestions": agents.suggestions(joined["nodes"], joined["edges"])}
+        short = [
+            {
+                "id": row["id"],
+                "label": row["label"],
+                "status": row["status"],
+                "starts": [link["node"] for link in row["starts"] + row["handed_by"]],
+                "hands_off_to": [link["node"] for link in row["hands_off_to"]],
+                "models": [f"{model['name']} ({model['region']})" if model["region"] else model["name"] for model in row["models"]],
+                "asks_you": bool(row["asks_you"]),
+                "leaves_region": row["leaves_region"],
+            }
+            for row in found
+        ]
+        return store.fit(target, "agents", compact({"home_region": joined.get("home_region"), "agents": short}), budget)
     if name == "node":
         return store.fit(target, "node", compact(store.load_node(target, args["id"])), budget)
     if name == "neighbors":

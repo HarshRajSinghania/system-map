@@ -268,6 +268,23 @@ class Marked(Fixture):
         self.assertFalse([n for n in joined["nodes"] if n["kind"] == "agent"])
 
 
+class Rows(Fixture):
+    def test_a_row_carries_its_links_both_ways(self):
+        joined, _, _ = self.build()
+        found = {row["name"]: row for row in agents.rows(joined)}
+        self.assertEqual(list(found), ["sorter", "reader", "mail", "digest"])
+        self.assertEqual({link["node"] for link in found["sorter"]["hands_off_to"]}, {"agent:reader", "agent:mail"})
+        self.assertEqual([link["node"] for link in found["reader"]["handed_by"]], ["agent:sorter"])
+        self.assertEqual([link["node"] for link in found["reader"]["starts"]], ["job:nightly"])
+        self.assertEqual({link["node"] for link in found["sorter"]["starts"]}, {"module:src/agents", "module:src/desk"})
+
+    def test_a_row_names_each_model_with_its_region(self):
+        joined, _, _ = self.build()
+        reader = next(row for row in agents.rows(joined) if row["name"] == "reader")
+        self.assertEqual(reader["models"], [{"node": "service:anthropic", "name": "Anthropic", "region": None, "leaves": False, "evidence": "src/agents/ai.ts:1"}])
+        self.assertEqual(reader["leaves_region"], [])
+
+
 class Settings(unittest.TestCase):
     def test_defaults_fill_in(self):
         found = agents.settings_of({"list": "a.ts"})

@@ -12,26 +12,18 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "tests"))
 
 from core import store  # noqa: E402
+from helpers import commit_all, git  # noqa: E402
+from test_agents import FILES, SETTINGS  # noqa: E402
 
 
-class BackendTests(unittest.TestCase):
-    """Run the real backend process and call it over HTTP."""
+class Served(unittest.TestCase):
+    """Run the real backend process on `cls.data` and call it over HTTP."""
 
     @classmethod
-    def setUpClass(cls):
-        cls._tmp = tempfile.TemporaryDirectory()
-        base = Path(cls._tmp.name)
-        cls.repo = base / "repo"
-        (cls.repo / "supabase" / "migrations").mkdir(parents=True)
-        (cls.repo / "supabase" / "migrations" / "001.sql").write_text(
-            "CREATE TABLE public.orgs (id uuid PRIMARY KEY);\n"
-            "CREATE TABLE public.users (id uuid PRIMARY KEY, org_id uuid REFERENCES public.orgs(id));\n"
-        )
-        subprocess.run(["git", "-C", str(cls.repo), "init", "-q"], check=True)
-        cls.data = base / "data"
-        store.build(cls.repo, cls.data)
+    def serve(cls):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             cls.port = probe.getsockname()[1]
@@ -63,7 +55,24 @@ class BackendTests(unittest.TestCase):
         request = urllib.request.Request(
             f"http://127.0.0.1:{self.port}{path}", data=json.dumps(body).encode(), method="POST"
         )
-        return urllib.request.urlopen(request, timeout=5)
+        return urllib.request.urlopen(request, timeout=30)
+
+
+class BackendTests(Served):
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        base = Path(cls._tmp.name)
+        cls.repo = base / "repo"
+        (cls.repo / "supabase" / "migrations").mkdir(parents=True)
+        (cls.repo / "supabase" / "migrations" / "001.sql").write_text(
+            "CREATE TABLE public.orgs (id uuid PRIMARY KEY);\n"
+            "CREATE TABLE public.users (id uuid PRIMARY KEY, org_id uuid REFERENCES public.orgs(id));\n"
+        )
+        subprocess.run(["git", "-C", str(cls.repo), "init", "-q"], check=True)
+        cls.data = base / "data"
+        store.build(cls.repo, cls.data)
+        cls.serve()
 
     def test_overview_lists_tables(self):
         value = self.get("/overview")
@@ -133,6 +142,71 @@ class BackendTests(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.post("/build", {"repo_path": str(self.data)})
         self.assertEqual(caught.exception.code, 400)
+
+
+class AgentRoutes(Served):
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        base = Path(cls._tmp.name)
+        cls.repo = base / "repo"
+        for name, text in FILES.items():
+            path = cls.repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
+        git(cls.repo, "init", "-q", "-b", "main")
+        commit_all(cls.repo)
+        cls.data = base / "data"
+        store.build(cls.repo, cls.data)
+        cls.serve()
+
+    def setUp(self):
+        self.post("/agents/settings", {"settings": {}})
+        self.post("/regions", {"id": "service:anthropic", "region": None})
+
+    def refused(self, path, body):
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.post(path, body)
+        return caught.exception.code, json.load(caught.exception)["error"]
+
+    def test_with_no_settings_there_are_suggestions(self):
+        value = self.get("/agents")
+        self.assertEqual((value["agents"], value["settings"], value["suggestions"]), ([], {}, ["module:src/agents"]))
+        self.assertEqual(value["defaults"]["jobs_key"], "handlers")
+
+    def test_saving_settings_shows_the_agents(self):
+        reply = json.load(self.post("/agents/settings", {"settings": SETTINGS}))
+        self.assertEqual(reply["settings"]["list"], "src/agents/registry.ts")
+        rows = {row["name"]: row for row in self.get("/agents")["agents"]}
+        self.assertEqual(list(rows), ["sorter", "reader", "mail", "digest"])
+        self.assertEqual({link["node"] for link in rows["sorter"]["hands_off_to"]}, {"agent:reader", "agent:mail"})
+        self.assertEqual(self.get("/node?id=agent:sorter")["label"], "Sorter")
+
+    def test_bad_settings_are_a_400_saying_why(self):
+        code, error = self.refused("/agents/settings", {"settings": {"list": "src/nope.ts"}})
+        self.assertEqual(code, 400)
+        self.assertIn("no file", error)
+        self.assertEqual(self.refused("/agents/settings", {"settings": "x"})[0], 400)
+
+    def test_a_region_marks_agents_and_adds_findings(self):
+        self.post("/agents/settings", {"settings": {**SETTINGS, "home_region": "Canada"}})
+        reply = json.load(self.post("/regions", {"id": "service:anthropic", "region": "US"}))
+        self.assertEqual(reply, {"id": "service:anthropic", "region": "US"})
+        state = self.get("/agents")
+        self.assertEqual(state["home_region"], "Canada")
+        sorter = next(row for row in state["agents"] if row["name"] == "sorter")
+        self.assertEqual(sorter["leaves_region"], ["service:anthropic"])
+        checks = {(f["check"], f["node"]) for f in self.get("/findings")["findings"]}
+        self.assertIn(("agent-leaves-region", "agent:sorter"), checks)
+
+    def test_only_a_service_takes_a_region(self):
+        self.assertEqual(self.refused("/regions", {"id": "module:src/desk", "region": "US"})[0], 404)
+        self.assertEqual(self.refused("/regions", {"id": "service:anthropic", "region": ""})[0], 400)
+
+    def test_no_route_touches_the_repo(self):
+        self.post("/agents/settings", {"settings": {**SETTINGS, "home_region": "Canada"}})
+        self.post("/regions", {"id": "service:anthropic", "region": "US"})
+        self.assertEqual(git(self.repo, "status", "--porcelain"), "")
 
 
 if __name__ == "__main__":

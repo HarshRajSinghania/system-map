@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import explore, folder_window, folders, store  # noqa: E402
+from core import agents, explore, folder_window, folders, store  # noqa: E402
 
 PORT = int(os.environ.get("PORT", 9100))
 #: The page and the side panel both poll, so one answer serves both for this long.
@@ -37,6 +37,18 @@ def worktree_state(target: Path) -> dict:
         state = store.worktree_state(target)
         _worktree_cache[key] = (time.monotonic(), state)
         return state
+
+
+def agent_state(target: Path) -> dict:
+    """The agents and their links, the settings that found them, and where to look when there are none."""
+    joined = store.load_system(target)
+    return {
+        "agents": agents.rows(joined),
+        "settings": store.load_agent_settings(target),
+        "defaults": agents.DEFAULTS,
+        "home_region": joined.get("home_region"),
+        "suggestions": agents.suggestions(joined["nodes"], joined["edges"]),
+    }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -76,6 +88,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"plans": store.plan_items(store.resolve_repo(repo))})
             elif path.endswith("/findings"):
                 self._json(200, {"findings": store.load_findings(store.resolve_repo(repo))})
+            elif path.endswith("/agents"):
+                self._json(200, agent_state(store.resolve_repo(repo)))
             elif path.endswith("/node"):
                 self._json(200, store.load_node(store.resolve_repo(repo), query["id"][0]))
             elif path.endswith("/neighbors"):
@@ -131,6 +145,22 @@ class Handler(BaseHTTPRequestHandler):
             except KeyError as error:
                 self._json(404, {"error": str(error).strip("'\"")})
             except ValueError as error:
+                self._json(400, {"error": str(error)})
+            return
+        if route.endswith(("/agents/settings", "/regions")):
+            try:
+                target = store.resolve_repo(body.get("repo"))
+                if route.endswith("/regions"):
+                    region = body.get("region")
+                    self._json(200, store.set_region(target, str(body.get("id", "")), None if region is None else str(region)))
+                else:
+                    settings = body.get("settings")
+                    if not isinstance(settings, dict):
+                        raise ValueError("settings must be an object")
+                    self._json(200, store.set_agent_settings(target, settings))
+            except KeyError as error:
+                self._json(404, {"error": str(error).strip("'\"")})
+            except (ValueError, OSError) as error:
                 self._json(400, {"error": str(error)})
             return
         if route.endswith(("/coverage", "/proposal-status", "/intent-delete")):

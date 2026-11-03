@@ -41,6 +41,47 @@ def suggestions(nodes: list[dict], edges: list[dict]) -> list[str]:
     return sorted({edge["source"] for edge in edges if edge["kind"] == "uses_service" and edge["target"] in ai and edge["source"].startswith("module:")})
 
 
+ROW_KEYS = ("id", "name", "label", "description", "status", "jobs", "path", "module", "source", "evidence", "asks_you")
+
+
+def rows(joined: dict) -> list[dict]:
+    """Each agent with its links, in list order: enough for a table row or one agent's detail."""
+    by_id = {node["id"]: node for node in joined["nodes"]}
+
+    def links(node_id: str, kind: str, outgoing: bool) -> list[dict]:
+        mine, other = ("source", "target") if outgoing else ("target", "source")
+        return [{"node": edge[other], "evidence": edge["evidence"][0]} for edge in joined["edges"] if edge["kind"] == kind and edge[mine] == node_id]
+
+    found = []
+    for node in joined["nodes"]:
+        if node["kind"] != "agent":
+            continue
+        models = []
+        for edge in joined["edges"]:
+            if edge["kind"] == "uses_model" and edge["source"] == node["id"]:
+                service = by_id.get(edge["target"], {})
+                models.append(
+                    {
+                        "node": edge["target"],
+                        "name": service.get("name", edge["target"]),
+                        "region": service.get("region"),
+                        "leaves": bool(edge.get("leaves_region")),
+                        "evidence": edge["evidence"][0],
+                    }
+                )
+        found.append(
+            {key: node.get(key) for key in ROW_KEYS}
+            | {
+                "leaves_region": node.get("leaves_region", []),
+                "starts": links(node["id"], "starts", False),
+                "hands_off_to": links(node["id"], "hands_off_to", True),
+                "handed_by": links(node["id"], "hands_off_to", False),
+                "models": models,
+            }
+        )
+    return found
+
+
 def settings_of(raw: dict | None) -> dict | None:
     """Fill in the defaults. None when nothing points at agents, so a build finds none."""
     if not raw or not (raw.get("list") or raw.get("modules")):
