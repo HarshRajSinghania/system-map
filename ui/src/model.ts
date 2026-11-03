@@ -143,6 +143,15 @@ export interface SystemNode {
   found?: number
   missing?: number
   evidence: string[]
+  /** An agent's own name for itself, and what it says it does. */
+  label?: string
+  description?: string
+  jobs?: string[]
+  /** Lines where an agent waits for a person. */
+  asks_you?: string[]
+  leaves_region?: string[]
+  /** Where a person said a service runs. */
+  region?: string
 }
 
 export interface Plan extends SystemNode {
@@ -161,6 +170,8 @@ export interface SystemEdge {
   count: number
   access?: string
   proposed?: boolean
+  /** A model call to a service outside the home region. */
+  leaves_region?: boolean
   evidence: string[]
 }
 
@@ -168,6 +179,7 @@ export interface SystemGraph {
   nodes: SystemNode[]
   edges: SystemEdge[]
   routes_dir?: string
+  home_region?: string | null
 }
 
 export interface Link {

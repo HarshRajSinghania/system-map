@@ -1,4 +1,4 @@
-import type { SystemGraph, SystemNode } from './model'
+import type { SystemEdge, SystemGraph, SystemNode } from './model'
 
 /** One box on the map. */
 export interface Card {
@@ -7,6 +7,8 @@ export interface Card {
   title: string
   subtitle?: string
   status?: string
+  /** A short flag beside the subtitle, such as `asks you`. */
+  badge?: string
 }
 
 /** One line on the map, after rolling many links up into one. */
@@ -17,6 +19,17 @@ export interface Line {
   kind: string
   count: number
   proposed?: boolean
+  /** A model call that leaves the home region. */
+  leaves?: boolean
+}
+
+/** Services that run in one region, drawn inside one dashed box. */
+export interface Band {
+  id: string
+  label: string
+  /** home: the home region. away: another one. unknown: no home region is set. */
+  tone: 'home' | 'away' | 'unknown'
+  members: string[]
 }
 
 export interface MapView {
@@ -24,7 +37,13 @@ export interface MapView {
   lines: Line[]
   /** Thin links left out, so the legend only mentions them when it is true. */
   hidden?: number
+  bands?: Band[]
 }
+
+export const CARD_WIDTH = 200
+export const CARD_HEIGHT = 58
+/** Links that only the Agents layer draws. */
+export const AGENT_LINKS = new Set(['starts', 'hands_off_to', 'uses_model'])
 
 const UNBUILT = new Set(['planned', 'partial'])
 export const GROUP_TABLES = 'group:tables'
@@ -64,6 +83,17 @@ function cardFor(node: SystemNode): Card {
       return { id: node.id, kind: 'job', title: node.name, subtitle: node.schedule }
     case 'service':
       return { id: node.id, kind: 'service', title: node.name, subtitle: 'outside' }
+    case 'agent': {
+      const jobs = node.jobs?.length ?? 0
+      return {
+        id: node.id,
+        kind: 'agent',
+        title: node.label ?? node.name,
+        subtitle: `${jobs} ${jobs === 1 ? 'job' : 'jobs'}`,
+        status: node.status === 'built' ? undefined : node.status,
+        badge: node.asks_you?.length ? 'asks you' : undefined,
+      }
+    }
     default:
       return { id: node.id, kind: node.kind, title: node.name }
   }
@@ -230,7 +260,52 @@ function routesFolder(system: SystemGraph): string | null {
   return file ? file.slice(0, file.lastIndexOf('/')) : null
 }
 
-export function buildView(system: SystemGraph, requested: string | null, tables: number, showPlans: boolean): MapView {
+/** Today's map without agents, which only the Agents layer draws. */
+function withoutAgents(system: SystemGraph): SystemGraph {
+  const agents = new Set(system.nodes.filter((node) => node.kind === 'agent').map((node) => node.id))
+  if (agents.size === 0) return system
+  const keep = (edge: SystemEdge) => !AGENT_LINKS.has(edge.kind) && !agents.has(edge.source) && !agents.has(edge.target)
+  return { ...system, nodes: system.nodes.filter((node) => !agents.has(node.id)), edges: system.edges.filter(keep) }
+}
+
+function sameRegion(one: string, other: string): boolean {
+  return one.trim().toLowerCase() === other.trim().toLowerCase()
+}
+
+/** The Agents layer: each agent, what starts it, who it hands work to, and the models it uses, by region. */
+export function agentsView(system: SystemGraph): MapView {
+  const byId = new Map(system.nodes.map((node) => [node.id, node]))
+  const agents = system.nodes.filter((node) => node.kind === 'agent').map((node) => node.id)
+  const ids = new Set(agents)
+  const lines = new Map<string, Line>()
+  for (const edge of system.edges) {
+    if (!AGENT_LINKS.has(edge.kind) || !(byId.has(edge.source) && byId.has(edge.target))) continue
+    if (!agents.includes(edge.source) && !agents.includes(edge.target)) continue
+    ids.add(edge.source)
+    ids.add(edge.target)
+    const id = `${edge.source}|${edge.target}|${edge.kind}`
+    const found = lines.get(id)
+    if (found) found.count += edge.count
+    else lines.set(id, { id, source: edge.source, target: edge.target, kind: edge.kind, count: edge.count, leaves: edge.leaves_region || undefined })
+  }
+  const home = system.home_region ?? null
+  const regions = new Map<string, string[]>()
+  const cards = [...ids].map((id) => {
+    const node = byId.get(id) as SystemNode
+    if (node.kind !== 'service') return cardFor(node)
+    if (node.region) regions.set(node.region, [...(regions.get(node.region) ?? []), id])
+    return { ...cardFor(node), subtitle: node.region ?? 'no region set' }
+  })
+  const bands: Band[] = [...regions].map(([region, members]) => {
+    const tone = !home ? 'unknown' : sameRegion(region, home) ? 'home' : 'away'
+    return { id: `band:${region}`, label: tone === 'home' ? `${region} · home` : region, tone, members }
+  })
+  return { cards, lines: [...lines.values()], bands }
+}
+
+export function buildView(system: SystemGraph, requested: string | null, tables: number, showPlans: boolean, showAgents = false): MapView {
+  if (showAgents) return agentsView(system)
+  system = withoutAgents(system)
   const byId = new Map(system.nodes.map((node) => [node.id, node]))
   const routesDir = routesFolder(system)
   // The routes folder and the Routes group are one thing.
@@ -244,10 +319,14 @@ export function buildView(system: SystemGraph, requested: string | null, tables:
   return neighborhood(system, rollup, focus)
 }
 
-/** The trail from the top of the map down to the focus. */
-export function trailFor(system: SystemGraph, focus: string | null): { id: string | null; label: string }[] {
-  const trail: { id: string | null; label: string }[] = [{ id: null, label: 'System' }]
+/** The trail from the top of the map down to the focus. With the Agents layer, it starts at Agents. */
+export function trailFor(system: SystemGraph, focus: string | null, agents = false): { id: string | null; label: string }[] {
+  const trail: { id: string | null; label: string }[] = [{ id: null, label: agents ? 'Agents' : 'System' }]
   if (!focus) return trail
+  if (agents) {
+    const node = system.nodes.find((item) => item.id === focus)
+    return node ? [...trail, { id: focus, label: node.label ?? node.name }] : trail
+  }
   if (focus === GROUP_ROUTES || focus === `area:${routesFolder(system)}`) return [...trail, { id: focus, label: 'Routes' }]
   if (focus === GROUP_JOBS) return [...trail, { id: focus, label: 'Scheduled jobs' }]
   if (focus.startsWith('table:')) return [...trail, { id: focus, label: focus.replace(/^table:(public\.)?/, '') }]

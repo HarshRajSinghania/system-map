@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, buildView, savedView, shortPath, trailFor } from '../src/graphView.ts'
+import { CARD_HEIGHT, CARD_WIDTH, GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, agentsView, buildView, savedView, shortPath, trailFor } from '../src/graphView.ts'
+import { layoutView } from '../src/layout.ts'
 import type { SystemEdge, SystemGraph, SystemNode } from '../src/model.ts'
 
 function node(id: string, kind: string, extra: Partial<SystemNode> = {}): SystemNode {
@@ -163,4 +164,106 @@ test('a saved view cannot draw what the model does not hold', () => {
 
 test('short paths drop the code root', () => {
   assert.equal(shortPath('src/agents/inbox'), 'agents/inbox')
+})
+
+const withAgents: SystemGraph = {
+  home_region: 'Canada',
+  nodes: [
+    ...system.nodes,
+    node('agent:triage', 'agent', { name: 'triage', label: 'Triage', jobs: ['triage.sort'], asks_you: ['t.ts:9'] }),
+    node('agent:intake', 'agent', { name: 'intake', label: 'Quote intake', jobs: ['quote.read', 'quote.assemble'] }),
+    node('agent:inbox', 'agent', { name: 'inbox', label: 'Inbox', status: 'planned', jobs: [] }),
+    node('service:anthropic', 'service', { name: 'Anthropic', status: 'external', region: 'US' }),
+    node('service:openai', 'service', { name: 'OpenAI', status: 'external', region: 'US' }),
+    node('service:gemini', 'service', { name: 'Gemini', status: 'external', region: 'canada' }),
+  ],
+  edges: [
+    ...system.edges,
+    edge('module:src/a/one', 'agent:triage', 'starts'),
+    edge('job:nightly', 'agent:intake', 'starts'),
+    edge('agent:triage', 'agent:intake', 'hands_off_to'),
+    { ...edge('agent:triage', 'service:anthropic', 'uses_model'), leaves_region: true },
+    edge('agent:intake', 'service:gemini', 'uses_model'),
+    { ...edge('agent:intake', 'service:openai', 'uses_model'), leaves_region: true },
+  ],
+}
+
+test('with the Agents layer off, every level is exactly as it was without agents', () => {
+  // The model before agents: the same services, and no agent or link to one.
+  const before: SystemGraph = {
+    ...withAgents,
+    nodes: withAgents.nodes.filter((item) => item.kind !== 'agent'),
+    edges: withAgents.edges.filter((item) => !item.source.startsWith('agent:') && !item.target.startsWith('agent:')),
+  }
+  for (const focus of [null, 'area:src/a', GROUP_JOBS, 'module:src/a/one', 'job:nightly', 'service:anthropic']) {
+    assert.deepEqual(buildView(withAgents, focus, 33, true), buildView(before, focus, 33, true), String(focus))
+  }
+})
+
+test('the agents picture shows each agent, what starts it, its hand-offs and its models', () => {
+  const view = buildView(withAgents, 'module:src/a/one', 33, true, true)
+  assert.deepEqual(ids(view), ['agent:inbox', 'agent:intake', 'agent:triage', 'job:nightly', 'module:src/a/one', 'service:anthropic', 'service:gemini', 'service:openai'])
+  assert.equal(line(view, 'module:src/a/one', 'agent:triage')?.kind, 'starts')
+  assert.equal(line(view, 'agent:triage', 'agent:intake')?.kind, 'hands_off_to')
+  assert.equal(line(view, 'agent:triage', 'service:anthropic')?.leaves, true)
+  assert.equal(line(view, 'agent:intake', 'service:gemini')?.leaves, undefined)
+  assert.equal(view.lines.length, 6)
+})
+
+test('an agent card says its jobs, when it is not built, and when it asks you', () => {
+  const cards = new Map(agentsView(withAgents).cards.map((card) => [card.id, card]))
+  assert.deepEqual(cards.get('agent:triage'), { id: 'agent:triage', kind: 'agent', title: 'Triage', subtitle: '1 job', status: undefined, badge: 'asks you' })
+  assert.equal(cards.get('agent:intake')?.subtitle, '2 jobs')
+  assert.equal(cards.get('agent:inbox')?.status, 'planned')
+  assert.equal(cards.get('service:anthropic')?.subtitle, 'US')
+})
+
+test('services fall into one band per region, named against the home region', () => {
+  const bands = agentsView(withAgents).bands ?? []
+  assert.deepEqual(
+    bands.map((band) => [band.label, band.tone, band.members.sort()]),
+    [
+      ['US', 'away', ['service:anthropic', 'service:openai']],
+      ['canada · home', 'home', ['service:gemini']],
+    ],
+  )
+  const unknown = agentsView({ ...withAgents, home_region: null }).bands ?? []
+  assert.deepEqual(unknown.map((band) => band.tone), ['unknown', 'unknown'])
+})
+
+test('a service with no region stays out of every band', () => {
+  const plain = { ...withAgents, nodes: withAgents.nodes.map((item) => (item.id === 'service:openai' ? { ...item, region: undefined } : item)) }
+  const view = agentsView(plain)
+  assert.deepEqual(view.bands?.find((band) => band.label === 'US')?.members, ['service:anthropic'])
+  assert.equal(view.cards.find((card) => card.id === 'service:openai')?.subtitle, 'no region set')
+})
+
+test('a band holds its members, and nothing else lands inside it', () => {
+  for (const direction of ['LR', 'TB'] as const) {
+    const { places, bands } = layoutView(agentsView(withAgents), direction)
+    assert.equal(bands.length, 2)
+    for (const band of bands) {
+      for (const [id, spot] of places) {
+        const inside = spot.x >= band.x && spot.y >= band.y && spot.x + CARD_WIDTH <= band.x + band.width && spot.y + CARD_HEIGHT <= band.y + band.height
+        const touches = spot.x < band.x + band.width && spot.x + CARD_WIDTH > band.x && spot.y < band.y + band.height && spot.y + CARD_HEIGHT > band.y
+        if (band.members.includes(id)) assert.ok(inside, `${id} in ${band.label}, ${direction}`)
+        else assert.ok(!touches, `${id} clear of ${band.label}, ${direction}`)
+      }
+    }
+    const [one, two] = bands
+    const apart = one.x + one.width <= two.x || two.x + two.width <= one.x || one.y + one.height <= two.y || two.y + two.height <= one.y
+    assert.ok(apart, `bands apart, ${direction}`)
+  }
+})
+
+test('today’s map lays out with no bands', () => {
+  assert.deepEqual(layoutView(buildView(system, null, 33, true), 'LR').bands, [])
+})
+
+test('with the Agents layer the trail starts at Agents', () => {
+  assert.deepEqual(trailFor(withAgents, null, true), [{ id: null, label: 'Agents' }])
+  assert.deepEqual(trailFor(withAgents, 'agent:intake', true), [
+    { id: null, label: 'Agents' },
+    { id: 'agent:intake', label: 'Quote intake' },
+  ])
 })

@@ -1,4 +1,5 @@
-import { Badge, Btn } from '@kirocrew/app-sdk/ui'
+import { Badge, Btn, Input } from '@kirocrew/app-sdk/ui'
+import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { shortPath } from './graphView'
 import type { Link, NodeInfo, NodeRisk, Overlap, Plan, TableNode } from './model'
@@ -6,6 +7,12 @@ import { percent } from './overlay'
 import { MONO, MUTED, NodeDetail, SeverityBadge } from './parts'
 
 const SECTIONS: { key: string; title: string }[] = [
+  { key: 'in_starts', title: 'Starts from' },
+  { key: 'in_hands_off_to', title: 'Handed work by' },
+  { key: 'out_hands_off_to', title: 'Hands off to' },
+  { key: 'out_uses_model', title: 'Uses model' },
+  { key: 'out_starts', title: 'Starts agents' },
+  { key: 'in_uses_model', title: 'Agents that use it' },
   { key: 'in_renders', title: 'Routes that render it' },
   { key: 'out_uses_table', title: 'Tables it uses' },
   { key: 'in_uses_table', title: 'Used by' },
@@ -21,7 +28,7 @@ const SECTIONS: { key: string; title: string }[] = [
 ]
 
 function label(id: string): string {
-  return shortPath(id.replace(/^(module|area|route|job|service|plan|table):(public\.)?/, ''))
+  return shortPath(id.replace(/^(module|area|route|job|service|plan|table|agent):(public\.)?/, ''))
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -82,6 +89,7 @@ function Facts({ node }: { node: NodeInfo }) {
     ['Lines', node.lines],
     ['Test files', node.test_files],
     ['Schedule', node.schedule],
+    ['Jobs', node.jobs?.join(', ')],
     ['Status', node.status],
   ]
   const shown = rows.filter(([, value]) => value !== undefined && value !== '')
@@ -112,6 +120,63 @@ function PlanClaims({ node }: { node: NodeInfo }) {
           </li>
         ))}
       </ul>
+    </Section>
+  )
+}
+
+/** Where an agent waits for a person, and where its models may send data. */
+function AgentFacts({ node }: { node: NodeInfo }) {
+  const asks = node.asks_you ?? []
+  const leaves = node.leaves_region ?? []
+  return (
+    <>
+      {node.description && <p style={{ margin: '0 0 12px' }}>{node.description}</p>}
+      {leaves.length > 0 && (
+        <Section title="Leaves your home region">
+          <p style={{ margin: 0, color: 'var(--danger, #dc2626)' }}>{leaves.map(label).join(', ')}</p>
+        </Section>
+      )}
+      <Section title={`Asks you (${asks.length})`}>
+        {asks.length === 0 ? (
+          <p style={{ ...MUTED, margin: 0 }}>No call that leaves work for a person was found.</p>
+        ) : (
+          <ul style={{ ...MONO, margin: 0, paddingLeft: 14, fontSize: 12, overflowWrap: 'anywhere' }}>
+            {asks.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        )}
+      </Section>
+    </>
+  )
+}
+
+/** Where a service runs. A person sets it; nothing reads it from config. */
+function RegionField({ node, onRegion }: { node: NodeInfo; onRegion: (id: string, region: string | null) => Promise<string | null> }) {
+  const [value, setValue] = useState(node.region ?? '')
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const save = async (region: string | null) => {
+    setSaving(true)
+    setError(await onRegion(node.id, region))
+    setSaving(false)
+  }
+  const unchanged = value.trim() === (node.region ?? '')
+  return (
+    <Section title="Region">
+      <div style={{ display: 'flex', gap: 6 }}>
+        <Input aria-label={`Region of ${node.name}`} placeholder="Where it runs, such as US" value={value} onChange={(event) => setValue(event.target.value)} style={{ flex: 1, minWidth: 0 }} />
+        <Btn disabled={saving || !value.trim() || unchanged} onClick={() => void save(value.trim())}>
+          Save
+        </Btn>
+        {node.region && (
+          <Btn disabled={saving} onClick={() => void save(null)}>
+            Clear
+          </Btn>
+        )}
+      </div>
+      <p style={{ ...MUTED, fontSize: 11, margin: '4px 0 0' }}>You set this. Agents that use it are checked against your home region.</p>
+      {error && <p style={{ color: 'var(--danger, #dc2626)', margin: '4px 0 0' }}>{error}</p>}
     </Section>
   )
 }
@@ -165,6 +230,7 @@ export function Inspector({
   onClose,
   canAsk,
   onAskFinding,
+  onRegion,
 }: {
   node: NodeInfo
   work: string[]
@@ -174,6 +240,8 @@ export function Inspector({
   onClose: () => void
   canAsk: boolean
   onAskFinding: Parameters<typeof NodeDetail>[0]['onAsk']
+  /** Save where a service runs, or clear it. Resolves to a problem to show, or null. */
+  onRegion?: (id: string, region: string | null) => Promise<string | null>
 }) {
   const isTable = node.id.startsWith('table:')
   return (
@@ -199,7 +267,7 @@ export function Inspector({
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 14, color: 'var(--text, inherit)', overflowWrap: 'anywhere' }}>{node.name}</span>
+        <span style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 14, color: 'var(--text, inherit)', overflowWrap: 'anywhere' }}>{node.label ?? node.name}</span>
         {!isTable && <Badge variant="muted">{node.kind}</Badge>}
         <Btn primary onClick={onAsk} disabled={!canAsk}>
           Ask
@@ -210,6 +278,8 @@ export function Inspector({
       </div>
       <div style={{ overflowY: 'auto', minHeight: 0, flex: 1, fontSize: 13, color: 'var(--text, inherit)' }}>
         <WorkOnIt names={work} overlaps={overlaps} />
+        {node.kind === 'agent' && <AgentFacts node={node} />}
+        {node.kind === 'service' && onRegion && <RegionField key={`${node.id}|${node.region ?? ''}`} node={node} onRegion={onRegion} />}
         {node.risk && <RiskFacts risk={node.risk} />}
         {isTable ? <NodeDetail node={node as unknown as TableNode} onAsk={onAskFinding} /> : <Facts node={node} />}
         {!isTable && <PlanClaims node={node} />}

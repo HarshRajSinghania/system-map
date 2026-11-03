@@ -1,4 +1,3 @@
-import dagre from '@dagrejs/dagre'
 import { useTheme } from '@kirocrew/app-sdk'
 import { Background, Controls, Handle, MarkerType, MiniMap, Panel, Position, ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import type { Edge, Node, NodeProps } from '@xyflow/react'
@@ -7,21 +6,24 @@ import type { ReactNode } from 'react'
 import { INSPECTOR_ROOM, MINIMAP_WIDTH, MIN_ZOOM, useCanvasWidth, useFrame } from './flow'
 import { CanvasTools } from './Layers'
 import type { Rect } from './flow'
-import { GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, buildView, savedView, trailFor } from './graphView'
-import type { Card, Line, MapView } from './graphView'
+import { CARD_HEIGHT, CARD_WIDTH, GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, buildView, savedView, trailFor } from './graphView'
+import type { Card, Line } from './graphView'
+import { layoutView } from './layout'
+import type { BandBox } from './layout'
 import type { Risk, SystemGraph, WorktreeState } from './model'
 import { bandOf, riskIndex, worktreesOn } from './overlay'
 import type { RiskBand } from './overlay'
 import { MUTED } from './parts'
 
-const WIDTH = 200
-const HEIGHT = 58
+const WIDTH = CARD_WIDTH
+const HEIGHT = CARD_HEIGHT
 
 const KIND_LABEL: Record<string, string> = {
   module: 'module',
   area: 'area',
   route: 'route',
   job: 'job',
+  agent: 'agent',
   service: 'service',
   table: 'table',
   group: '',
@@ -33,7 +35,11 @@ const STATUS_COLOR: Record<string, string> = {
   partial: 'var(--warn-text, #b45309)',
   unclear: 'var(--muted, #71717a)',
   built: 'var(--ok, #15803d)',
+  empty: 'var(--warn-text, #b45309)',
 }
+
+/** What a card says for a status, where the model's word is not the one to show. */
+const STATUS_TEXT: Record<string, string> = { empty: 'no jobs' }
 
 const LINE_STYLE: Record<string, { color: string; dashed?: boolean; label: string }> = {
   imports: { color: 'var(--border-strong, #a1a1aa)', label: 'imports' },
@@ -42,6 +48,16 @@ const LINE_STYLE: Record<string, { color: string; dashed?: boolean; label: strin
   uses_service: { color: 'var(--warn-text, #b45309)', label: 'uses service' },
   calls: { color: 'var(--text, #18181b)', label: 'calls' },
   touches: { color: 'var(--danger, #dc2626)', dashed: true, label: 'plan touches' },
+  starts: { color: 'var(--text, #18181b)', label: 'starts' },
+  hands_off_to: { color: 'var(--accent, #2563eb)', label: 'hands off' },
+  uses_model: { color: 'var(--warn-text, #b45309)', dashed: true, label: 'uses model' },
+  leaves_region: { color: 'var(--danger, #dc2626)', label: 'leaves region' },
+}
+
+const BAND_TONE: Record<BandBox['tone'], string> = {
+  home: 'var(--ok, #15803d)',
+  away: 'var(--danger, #dc2626)',
+  unknown: 'var(--muted, #71717a)',
 }
 
 const BAND: Record<RiskBand, { color: string; label: string }> = {
@@ -61,7 +77,7 @@ type CardNode = Node<CardData, 'card'>
 const SystemCard = memo(function SystemCard({ data }: NodeProps<CardNode>) {
   const { card, focused, work, band } = data
   const proposed = card.status === 'proposed'
-  const planned = card.kind === 'plan' || proposed
+  const planned = card.kind === 'plan' || proposed || (card.kind === 'agent' && card.status !== undefined)
   const outside = card.kind === 'service'
   const crowded = work.length > 1
   const accent = proposed ? 'var(--accent, #2563eb)' : planned ? STATUS_COLOR[card.status ?? 'unclear'] : crowded ? 'var(--warn-text, #b45309)' : undefined
@@ -89,7 +105,7 @@ const SystemCard = memo(function SystemCard({ data }: NodeProps<CardNode>) {
       <Handle type="source" position={Position.Right} isConnectable={false} />
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, alignItems: 'baseline' }}>
         <span style={{ fontWeight: 600, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{card.title}</span>
-        {planned && <span style={{ fontSize: 11, color: accent, flexShrink: 0 }}>{card.status}</span>}
+        {planned && <span style={{ fontSize: 11, color: accent, flexShrink: 0 }}>{STATUS_TEXT[card.status ?? ''] ?? card.status}</span>}
         {band && <span style={{ fontSize: 11, color: BAND[band].color, flexShrink: 0 }}>{BAND[band].label}</span>}
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, alignItems: 'baseline' }}>
@@ -101,36 +117,36 @@ const SystemCard = memo(function SystemCard({ data }: NodeProps<CardNode>) {
             {work.length} at work
           </span>
         )}
+        {work.length === 0 && card.badge && <span style={{ fontSize: 11, flexShrink: 0, color: 'var(--info, #2563eb)' }}>{card.badge}</span>}
       </div>
     </div>
   )
 })
 
-const NODE_TYPES = { card: SystemCard }
-
-function place(view: MapView, direction: 'LR' | 'TB'): Map<string, { x: number; y: number }> {
-  const layout = new dagre.graphlib.Graph({ multigraph: true })
-  layout.setGraph({ rankdir: direction, nodesep: 14, ranksep: 70, marginx: 16, marginy: 16 })
-  layout.setDefaultEdgeLabel(() => ({}))
-  for (const card of view.cards) layout.setNode(card.id, { width: WIDTH, height: HEIGHT })
-  for (const line of view.lines) {
-    if (line.source !== line.target) layout.setEdge(line.source, line.target, {}, line.id)
-  }
-  dagre.layout(layout)
-  const places = new Map<string, { x: number; y: number }>()
-  for (const card of view.cards) {
-    const placed = layout.node(card.id)
-    places.set(card.id, { x: placed.x - WIDTH / 2, y: placed.y - HEIGHT / 2 })
-  }
-  return places
+interface BandData extends Record<string, unknown> {
+  band: BandBox
 }
+
+type BandNode = Node<BandData, 'band'>
+
+/** A dashed box around the services that run in one region, named on its edge. */
+const RegionBand = memo(function RegionBand({ data }: NodeProps<BandNode>) {
+  const color = BAND_TONE[data.band.tone]
+  return (
+    <div data-testid={data.band.id} style={{ width: '100%', height: '100%', boxSizing: 'border-box', borderRadius: 14, border: `1.5px dashed ${color}`, pointerEvents: 'none' }}>
+      <span style={{ position: 'absolute', top: -9, left: 12, padding: '0 4px', fontSize: 11, fontWeight: 600, lineHeight: '16px', color, background: 'var(--bg, #fff)' }}>{data.band.label}</span>
+    </div>
+  )
+})
+
+const NODE_TYPES = { card: SystemCard, band: RegionBand }
 
 function lineWidth(count: number): number {
   return Math.min(4, 1 + Math.log2(count) / 2)
 }
 
 function toEdge(line: Line): Edge {
-  const style = LINE_STYLE[line.kind] ?? LINE_STYLE.imports
+  const style = line.leaves ? LINE_STYLE.leaves_region : (LINE_STYLE[line.kind] ?? LINE_STYLE.imports)
   return {
     id: line.id,
     source: line.source,
@@ -186,8 +202,8 @@ function Legend({ kinds, top, risk }: { kinds: Set<string>; top: boolean; risk: 
   )
 }
 
-function Trail({ system, focus, onFocus }: { system: SystemGraph; focus: string | null; onFocus: (id: string | null) => void }) {
-  const trail = trailFor(system, focus)
+function Trail({ system, focus, agents, onFocus }: { system: SystemGraph; focus: string | null; agents: boolean; onFocus: (id: string | null) => void }) {
+  const trail = trailFor(system, focus, agents)
   return (
     <nav
       aria-label="Map level"
@@ -240,6 +256,7 @@ function Diagram({
   worktrees,
   only,
   layout,
+  agents,
   tools,
   onFocus,
   onOpenTables,
@@ -253,20 +270,39 @@ function Diagram({
   worktrees: WorktreeState | null
   only: string[] | null
   layout: 'left-right' | 'top-down'
+  agents: boolean
   tools?: ReactNode
   onFocus: (id: string | null) => void
   onOpenTables: () => void
 }) {
   const { mode } = useTheme()
   const canvasWide = useCanvasWidth() >= MINIMAP_WIDTH
-  const view = useMemo(() => (only ? savedView(system, only, tables) : buildView(system, focus, tables, showPlans)), [system, only, focus, tables, showPlans])
-  const places = useMemo(() => place(view, layout === 'top-down' ? 'TB' : 'LR'), [view, layout])
+  // The agents picture is the same whatever is focused, so a click there only moves the highlight.
+  const viewFocus = agents ? null : focus
+  const view = useMemo(
+    () => (only ? savedView(system, only, tables) : buildView(system, viewFocus, tables, showPlans, agents)),
+    [system, only, viewFocus, tables, showPlans, agents],
+  )
+  const placed = useMemo(() => layoutView(view, layout === 'top-down' ? 'TB' : 'LR'), [view, layout])
+  const places = placed.places
   const rows = useMemo(() => riskIndex(risk), [risk])
   const byNode = worktrees?.by_node
 
-  const nodes = useMemo<CardNode[]>(
-    () =>
-      view.cards.map((card) => ({
+  const nodes = useMemo<(CardNode | BandNode)[]>(
+    () => [
+      ...placed.bands.map<BandNode>((band) => ({
+        id: band.id,
+        type: 'band',
+        position: { x: band.x, y: band.y },
+        width: band.width,
+        height: band.height,
+        zIndex: -1,
+        selectable: false,
+        draggable: false,
+        focusable: false,
+        data: { band },
+      })),
+      ...view.cards.map<CardNode>((card) => ({
         id: card.id,
         type: 'card',
         position: places.get(card.id) ?? { x: 0, y: 0 },
@@ -274,17 +310,22 @@ function Diagram({
         height: HEIGHT,
         data: { card, focused: card.id === focus, work: byNode ? worktreesOn(card.id, byNode) : [], band: bandOf(rows.get(card.id)) },
       })),
-    [view, places, focus, rows, byNode],
+    ],
+    [view, placed, places, focus, rows, byNode],
   )
   const edges = useMemo(() => view.lines.map(toEdge), [view])
   const rects = useMemo<Rect[]>(
-    () => view.cards.map((card) => ({ ...(places.get(card.id) ?? { x: 0, y: 0 }), width: WIDTH, height: HEIGHT })),
-    [view, places],
+    () => [
+      ...view.cards.map((card) => ({ ...(places.get(card.id) ?? { x: 0, y: 0 }), width: WIDTH, height: HEIGHT })),
+      ...placed.bands.map((band) => ({ x: band.x, y: band.y, width: band.width, height: band.height })),
+    ],
+    [view, places, placed],
   )
   useFrame(rects, inspecting ? INSPECTOR_ROOM : 0)
-  const kinds = useMemo(() => new Set(view.lines.map((line) => line.kind)), [view])
+  const kinds = useMemo(() => new Set(view.lines.map((line) => (line.leaves ? 'leaves_region' : line.kind))), [view])
 
   const open = (id: string) => {
+    if (id.startsWith('band:')) return
     if (id === GROUP_TABLES) onOpenTables()
     else if (id !== GROUP_ROUTES && id !== GROUP_JOBS && id === focus) return
     else onFocus(id)
@@ -306,7 +347,7 @@ function Diagram({
       {canvasWide && <MiniMap pannable zoomable style={{ width: 120, height: 80 }} />}
       <Panel position="top-left">
         <CanvasTools>
-          <Trail system={system} focus={focus} onFocus={onFocus} />
+          <Trail system={system} focus={focus} agents={agents && !only} onFocus={onFocus} />
           {tools}
         </CanvasTools>
       </Panel>
@@ -327,6 +368,8 @@ export function SystemMap(props: {
   worktrees: WorktreeState | null
   only: string[] | null
   layout: 'left-right' | 'top-down'
+  /** The Agents layer: draw the agents picture in place of today's map. */
+  agents?: boolean
   tools?: ReactNode
   onFocus: (id: string | null) => void
   onOpenTables: () => void
@@ -334,7 +377,7 @@ export function SystemMap(props: {
   return (
     <div className="system-map-flow" style={{ position: 'absolute', inset: 0 }} data-testid="map">
       <ReactFlowProvider>
-        <Diagram {...props} />
+        <Diagram {...props} agents={props.agents ?? false} />
       </ReactFlowProvider>
     </div>
   )
