@@ -16,6 +16,8 @@ through a chat. The layout is:
       coverage.json                  the last coverage report loaded; it outlives a rebuild
       reads/<node>/<id>.json         agent notes; each one cites evidence
       intent/plan_status.json        statuses a person set; these beat derived ones
+      intent/agents.json             where a person said the agents are, and the home region
+      intent/regions.json            where a person said each service runs
       intent/proposals/<id>.json     what-ifs. Agents write drafts, and a person accepts them
       intent/use_cases/<id>.json     what someone needs to do, mapped to its parts
       intent/views/<id>.json         saved filters that the app draws
@@ -39,7 +41,7 @@ from . import read as build_read
 from .extractors import drizzle, plans, typescript
 from .sources import canonical_root, git, open_source
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 #: The most a tool hands back inline. Larger answers go to a slice file. This fits any
 #: one table, and sits well under the 20,000 chars proven to reach a model whole.
 DEFAULT_BUDGET_CHARS = 12000
@@ -48,6 +50,20 @@ OVERVIEW_LIMIT_CHARS = 6000
 KEEP_VERSIONS = 5
 PLAN_STATUSES = ("built", "partial", "planned", "unclear")
 INTENT_KINDS = ("proposals", "use_cases", "views")
+#: Agent settings a person may give, and what each must be.
+AGENT_SETTINGS = {
+    "list": str,
+    "jobs_key": str,
+    "hand_off_keys": list,
+    "model_calls": list,
+    "asks_you_calls": list,
+    "modules": list,
+    "home_region": str,
+}
+#: The settings a build reads. The home region only matters at load, so it never forces a rebuild.
+AGENT_BUILD_KEYS = ("list", "jobs_key", "hand_off_keys", "model_calls", "asks_you_calls", "modules")
+CODE_NAME = re.compile(r"[A-Za-z_$][\w$]*")
+REGION = re.compile(r"[\w][\w .-]{0,39}")
 
 
 def data_root() -> Path:
@@ -114,13 +130,14 @@ def _hash(value: object) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()[:12]
 
 
-def _fingerprint(source) -> tuple[str, dict[str, str], str]:
-    """Hash the ids of every input, without reading a single file."""
+def _fingerprint(source, agent_settings: dict | None = None) -> tuple[str, dict[str, str], str]:
+    """Hash the ids of every input, without reading a single file. Agent settings count too."""
     if not extractors.extractor_for(source) and not typescript.detect(source):
         raise ValueError(f"{source.root} has no code or schema that System Map can read.")
     inputs = extractors.inputs(source)
     map_hash = _hash(_map_inputs(source))
-    return _hash([_builder_id(), inputs, map_hash]), inputs, map_hash
+    parts = [_builder_id(), inputs, map_hash] + ([agent_settings] if agent_settings else [])
+    return _hash(parts), inputs, map_hash
 
 
 def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> dict:
@@ -128,7 +145,9 @@ def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> 
     repo_root = canonical_root(repo_path)
     source = open_source(repo_root, ref)
     target = repo_dir(repo_root, root)
-    version, inputs, map_hash = _fingerprint(source)
+    saved = load_agent_settings(target)
+    agent_settings = {key: saved[key] for key in AGENT_BUILD_KEYS if key in saved}
+    version, inputs, map_hash = _fingerprint(source, agent_settings)
 
     previous = read_manifest(target) if (target / "manifest.json").is_file() else None
     if previous and previous.get("version") == version and previous.get("schema_version") == SCHEMA_VERSION:
@@ -139,7 +158,7 @@ def build(repo_path: Path, root: Path | None = None, ref: str | None = None) -> 
     extraction = extractors.extract(source)
     schema = drizzle.read(source)
     found = findings.find(extraction.nodes, findings.code_tokens(source, extraction.usage_text, set(schema.files)), schema.fields)
-    joined = system.build(source, extraction.nodes)
+    joined = system.build(source, extraction.nodes, agent_settings)
     joined["risk"] = risk.build(source, joined)
     versions = target / "versions"
     staging = versions / f".staging-{os.getpid()}-{time.time_ns()}"
@@ -507,7 +526,7 @@ def _plan_overrides(target: Path) -> dict[str, dict]:
 
 
 def load_system(target: Path) -> dict:
-    """The system's nodes and edges, with any status a person has set."""
+    """The system's nodes and edges, with any status or region a person has set."""
     joined = json.loads((current(target) / "system.json").read_text(encoding="utf-8"))
     overrides = _plan_overrides(target)
     for node in joined["nodes"]:
@@ -516,7 +535,137 @@ def load_system(target: Path) -> dict:
             node["derived_status"] = node["status"]
             node["status"] = override["status"]
             node["status_source"] = "you"
+    _join_regions(joined, load_regions(target), load_agent_settings(target).get("home_region"))
     return joined
+
+
+def _same_region(one: str, other: str) -> bool:
+    return one.strip().casefold() == other.strip().casefold()
+
+
+def _join_regions(joined: dict, regions: dict[str, dict], home: str | None) -> None:
+    """Put each region a person set on its service, and mark agents whose model runs elsewhere."""
+    by_id = {node["id"]: node for node in joined["nodes"]}
+    for node_id, tag in regions.items():
+        if node_id in by_id:
+            by_id[node_id]["region"] = tag["region"]
+            by_id[node_id]["region_source"] = "you"
+    joined["home_region"] = home
+    for node in joined["nodes"]:
+        if node["kind"] == "agent":
+            node["leaves_region"] = []
+    if not home:
+        return
+    for edge in joined["edges"]:
+        region = regions.get(edge["target"], {}).get("region")
+        agent = by_id.get(edge["source"])
+        if edge["kind"] == "uses_model" and region and agent and not _same_region(region, home):
+            edge["leaves_region"] = True
+            agent["leaves_region"].append(edge["target"])
+
+
+def load_agent_settings(target: Path) -> dict:
+    path = target / "intent" / "agents.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
+def _check_agent_settings(target: Path, settings: dict) -> dict:
+    """Keep only well-formed settings, or say what is wrong."""
+    kept = {}
+    for key, value in settings.items():
+        if key not in AGENT_SETTINGS:
+            raise ValueError(f"unknown agent setting {key!r}; use {', '.join(AGENT_SETTINGS)}")
+        kind = AGENT_SETTINGS[key]
+        if value is None or value == "" or value == []:
+            continue
+        if not isinstance(value, kind) or (kind is list and not all(isinstance(item, str) for item in value)):
+            raise ValueError(f"{key} must be {'a list of names' if kind is list else 'text'}")
+        if key in ("jobs_key", "hand_off_keys", "model_calls", "asks_you_calls"):
+            for name in [value] if kind is str else value:
+                if not CODE_NAME.fullmatch(name):
+                    raise ValueError(f"{name!r} in {key} is not a name in code")
+        kept[key] = value.strip() if kind is str else list(dict.fromkeys(value))
+    if "home_region" in kept and not REGION.fullmatch(kept["home_region"]):
+        raise ValueError("home_region must be 1 to 40 letters, digits, spaces, dots or dashes")
+    manifest = read_manifest(target)
+    if "list" in kept:
+        if kept["list"].startswith("/") or ".." in kept["list"].split("/"):
+            raise ValueError("list must be a path inside the repo")
+        source = open_source(Path(manifest["repo"]), manifest["commit"] or None)
+        if kept["list"] not in source.blobs:
+            raise ValueError(f"no file {kept['list']!r} at {manifest['ref']}")
+    if "modules" in kept:
+        known = {node["id"] for node in load_system(target)["nodes"] if node["kind"] == "module"}
+        unknown = [item for item in kept["modules"] if item not in known]
+        if unknown:
+            raise ValueError(f"not a module: {', '.join(unknown)}")
+    return kept
+
+
+def set_agent_settings(target: Path, settings: dict) -> dict:
+    """Record where the agents are, then rebuild so the map shows them. Never touches the repo.
+
+    An empty dict clears them. Only the home region changing costs no rebuild.
+    """
+    kept = _check_agent_settings(target, settings)
+    path = target / "intent" / "agents.json"
+    if kept:
+        _write_json(path, kept)
+    elif path.is_file():
+        path.unlink()
+    manifest = read_manifest(target)
+    ref = manifest.get("ref")
+    rebuilt = build(Path(manifest["repo"]), target.parents[1], None if ref in (None, "working tree") else ref)
+    return {"settings": kept, "version": rebuilt["version"]}
+
+
+def load_regions(target: Path) -> dict[str, dict]:
+    path = target / "intent" / "regions.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+
+
+def set_region(target: Path, node_id: str, region: str | None) -> dict:
+    """Record where a service runs, or clear it with None. No rebuild, and never the repo."""
+    if not any(n["id"] == node_id and n["kind"] == "service" for n in load_system(target)["nodes"]):
+        raise KeyError(f"no service {node_id!r}")
+    regions = load_regions(target)
+    if region is None:
+        regions.pop(node_id, None)
+    else:
+        region = region.strip()
+        if not REGION.fullmatch(region):
+            raise ValueError("a region is 1 to 40 letters, digits, spaces, dots or dashes")
+        regions[node_id] = {"region": region, "set_at": int(time.time())}
+    _write_json(target / "intent" / "regions.json", regions)
+    return {"id": node_id, "region": region}
+
+
+def region_findings(joined: dict) -> list[dict]:
+    """One finding per agent whose model runs outside the home region, citing each call."""
+    by_id = {node["id"]: node for node in joined["nodes"]}
+    found = []
+    for node in joined["nodes"]:
+        leaving = node.get("leaves_region") or []
+        if node["kind"] != "agent" or not leaving:
+            continue
+        evidence: list[str] = []
+        for edge in joined["edges"]:
+            if edge["source"] == node["id"] and edge.get("leaves_region"):
+                evidence += [item for item in edge["evidence"] if item not in evidence]
+        places = sorted({by_id[service]["region"] for service in leaving})
+        names = ", ".join(sorted(by_id[service]["name"] for service in leaving))
+        found.append(
+            {
+                "id": f"agent-leaves-region:{node['name']}",
+                "check": "agent-leaves-region",
+                "severity": "medium",
+                "node": node["id"],
+                "title": f"{node['label']} can send data to {', '.join(places)}",
+                "detail": f"Your home region is {joined['home_region']}. {node['label']} uses {names}, which you set as {', '.join(places)}.",
+                "evidence": evidence[:5],
+            }
+        )
+    return found
 
 
 def set_plan_status(target: Path, node_id: str, status: str | None) -> dict:
@@ -561,7 +710,9 @@ def _links(joined: dict, node_id: str, limit: int = 40) -> dict:
 
 
 def load_findings(target: Path) -> list[dict]:
-    return json.loads((current(target) / "findings.json").read_text(encoding="utf-8"))
+    """The build's rule checks, and the region checks, which follow a person's tags live."""
+    built = json.loads((current(target) / "findings.json").read_text(encoding="utf-8"))
+    return built + region_findings(load_system(target))
 
 
 def load_coverage(target: Path) -> dict | None:
