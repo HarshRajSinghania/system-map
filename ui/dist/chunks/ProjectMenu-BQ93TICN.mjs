@@ -1,7 +1,7 @@
-import { jsxs as m, jsx as l, Fragment as F } from "react/jsx-runtime";
+import { jsxs as m, jsx as d, Fragment as F } from "react/jsx-runtime";
 import { SearchInput as B, Badge as de, Modal as ce, Input as Ce, Btn as j } from "@kirocrew/app-sdk/ui";
-import { useState as g, useCallback as _, useEffect as k, useRef as A } from "react";
-import { useAppApi as S } from "@kirocrew/app-sdk";
+import { useState as g, useCallback as N, useEffect as x, useRef as E } from "react";
+import { useAppApi as $ } from "@kirocrew/app-sdk";
 const ie = "system-map-chrome-css", Ie = `
 .sm-page { padding: 0 16px; }
 @media (min-width: 768px) { .sm-page { padding: 0 24px; } }
@@ -89,16 +89,16 @@ function L(e, t) {
   }
   return r === 401 || r === 403 ? `Couldn't ${t}, because System Map isn't allowed to. Check its permissions on its Details page.` : r >= 500 ? `Couldn't ${t}, because System Map's backend isn't answering. Try again in a moment.` : `Couldn't ${t}. Try again.`;
 }
-const x = "/apps/system-map/api";
-function O(e, t) {
-  return t ? `${x}${e}${e.includes("?") ? "&" : "?"}repo=${encodeURIComponent(t)}` : `${x}${e}`;
+const k = "/apps/system-map/api";
+function R(e, t) {
+  return t ? `${k}${e}${e.includes("?") ? "&" : "?"}repo=${encodeURIComponent(t)}` : `${k}${e}`;
 }
 const G = "system-map.repo", q = "system-map:project";
 function bt() {
-  var p, u;
-  const e = S(), [t, r] = g([]), [s, i] = g(!1), [n, c] = g(() => localStorage.getItem(G)), a = _(async () => {
+  var u, p;
+  const e = $(), [t, r] = g([]), [s, i] = g(!1), [n, c] = g(() => localStorage.getItem(G)), a = N(async () => {
     try {
-      const f = await e.get(`${x}/repos`);
+      const f = await e.get(`${k}/repos`);
       r(f.repos);
     } catch {
       r([]);
@@ -106,29 +106,29 @@ function bt() {
       i(!0);
     }
   }, [e]);
-  k(() => {
+  x(() => {
     a();
-  }, [a]), k(() => {
+  }, [a]), x(() => {
     const f = () => {
       c(localStorage.getItem(G)), a();
     };
     return window.addEventListener(q, f), () => window.removeEventListener(q, f);
   }, [a]);
-  const o = _((f) => {
+  const o = N((f) => {
     localStorage.setItem(G, f), window.dispatchEvent(new Event(q));
-  }, []), d = ((p = t.find((f) => f.repo_key === n)) == null ? void 0 : p.repo_key) ?? ((u = t[0]) == null ? void 0 : u.repo_key) ?? null;
-  return { repos: t, active: d, loaded: s, choose: o, reload: a };
+  }, []), l = ((u = t.find((f) => f.repo_key === n)) == null ? void 0 : u.repo_key) ?? ((p = t[0]) == null ? void 0 : p.repo_key) ?? null;
+  return { repos: t, active: l, loaded: s, choose: o, reload: a };
 }
 function yt(e) {
-  const t = S(), [r, s] = g(null), [i, n] = g(null), c = A(e);
+  const t = $(), [r, s] = g(null), [i, n] = g(null), c = E(e);
   c.current = e;
-  const a = _(async () => {
+  const a = N(async () => {
     if (!e) {
       s(null);
       return;
     }
     try {
-      const o = await t.get(O("/overview", e));
+      const o = await t.get(R("/overview", e));
       if (c.current !== e) return;
       s(o), n(null);
     } catch (o) {
@@ -136,16 +136,16 @@ function yt(e) {
       s(null), n(L(o, "load this project"));
     }
   }, [t, e]);
-  return k(() => {
+  return x(() => {
     n(null), a();
   }, [a]), { overview: (r == null ? void 0 : r.manifest.repo_key) === e ? r : null, error: i, refresh: a };
 }
-function wt(e, t, r) {
-  const s = S(), [i, n] = g({ repo: t, value: null, failed: !1 });
-  return k(() => {
+function vt(e, t, r) {
+  const s = $(), [i, n] = g({ repo: t, value: null, failed: !1 });
+  return x(() => {
     if (!r) return;
     let c = !0;
-    return s.get(O(e, t)).then((a) => {
+    return s.get(R(e, t)).then((a) => {
       c && n({ repo: t, value: a, failed: !1 });
     }).catch(() => {
       c && n({ repo: t, value: null, failed: !0 });
@@ -154,15 +154,31 @@ function wt(e, t, r) {
     };
   }, [s, e, t, r]), i.repo === t ? { value: i.value, failed: i.failed } : { value: null, failed: !1 };
 }
-function vt(e, t, r) {
-  const s = S(), [i, n] = g(null);
-  return k(() => {
+function wt(e, t) {
+  const r = $(), [s, i] = g({ repo: e, value: null, failed: !1 }), [n, c] = g(0);
+  x(() => {
+    if (!t) return;
+    let l = !0;
+    return r.get(R("/agents", e)).then((u) => {
+      l && i({ repo: e, value: u, failed: !1 });
+    }).catch(() => {
+      l && i({ repo: e, value: null, failed: !0 });
+    }), () => {
+      l = !1;
+    };
+  }, [r, e, t, n]);
+  const a = N(() => c((l) => l + 1), []), o = s.repo === e;
+  return { value: o ? s.value : null, failed: o && s.failed, refresh: a };
+}
+function xt(e, t, r) {
+  const s = $(), [i, n] = g(null);
+  return x(() => {
     if (!e) {
       n(null);
       return;
     }
     let c = !0;
-    return s.get(O(`/proposal?id=${encodeURIComponent(e)}`, t)).then((a) => {
+    return s.get(R(`/proposal?id=${encodeURIComponent(e)}`, t)).then((a) => {
       c && n(a);
     }).catch(() => {
       c && n(null);
@@ -171,45 +187,45 @@ function vt(e, t, r) {
     };
   }, [s, e, t, r]), i;
 }
-function xt(e, t, r) {
-  const s = S(), [i, n] = g({ repo: t, value: null, failed: !1 }), [c, a] = g(null), o = A(t);
+function kt(e, t, r) {
+  const s = $(), [i, n] = g({ repo: t, value: null, failed: !1 }), [c, a] = g(null), o = E(t);
   o.current = t;
-  const d = _(async () => {
+  const l = N(async () => {
     if (t)
       try {
-        const u = await s.get(O(e, t));
+        const p = await s.get(R(e, t));
         if (o.current !== t) return;
-        n({ repo: t, value: u, failed: !1 }), a(Date.now());
+        n({ repo: t, value: p, failed: !1 }), a(Date.now());
       } catch {
         o.current === t && n({ repo: t, value: null, failed: !0 });
       }
   }, [s, e, t]);
-  k(() => {
-    d();
-    const u = window.setInterval(() => {
-      document.visibilityState === "visible" && d();
+  x(() => {
+    l();
+    const p = window.setInterval(() => {
+      document.visibilityState === "visible" && l();
     }, r);
-    return () => window.clearInterval(u);
-  }, [d, r]);
-  const p = i.repo === t;
-  return { value: p ? i.value : null, failed: p && i.failed, checkedAt: c, refresh: d };
+    return () => window.clearInterval(p);
+  }, [l, r]);
+  const u = i.repo === t;
+  return { value: u ? i.value : null, failed: u && i.failed, checkedAt: c, refresh: l };
 }
-function kt(e, t = null) {
-  const r = S(), [s, i] = g(null);
-  return k(() => {
+function $t(e, t = null, r) {
+  const s = $(), [i, n] = g(null);
+  return x(() => {
     if (!e) {
-      i(null);
+      n(null);
       return;
     }
-    let n = !0;
-    return r.get(O(`/node?id=${encodeURIComponent(e)}`, t)).then((c) => {
-      n && i(c);
+    let c = !0;
+    return s.get(R(`/node?id=${encodeURIComponent(e)}`, t)).then((a) => {
+      c && n(a);
     }).catch(() => {
-      n && i(null);
+      c && n(null);
     }), () => {
-      n = !1;
+      c = !1;
     };
-  }, [r, e, t]), s;
+  }, [s, e, t, r]), i;
 }
 const Y = { fontFamily: "var(--mono, ui-monospace, monospace)" }, y = { color: "var(--muted, #71717a)" }, je = {
   high: "err",
@@ -217,10 +233,10 @@ const Y = { fontFamily: "var(--mono, ui-monospace, monospace)" }, y = { color: "
   low: "muted",
   info: "aim"
 };
-function Ee({ severity: e }) {
-  return /* @__PURE__ */ l("span", { style: { flexShrink: 0 }, children: /* @__PURE__ */ l(de, { variant: je[e], children: e }) });
+function Ae({ severity: e }) {
+  return /* @__PURE__ */ d("span", { style: { flexShrink: 0 }, children: /* @__PURE__ */ d(de, { variant: je[e], children: e }) });
 }
-function $t({
+function St({
   tables: e,
   selected: t,
   flagged: r,
@@ -229,7 +245,7 @@ function $t({
 }) {
   const [n, c] = g(""), a = e.filter((o) => o.name.includes(n.trim().toLowerCase()));
   return /* @__PURE__ */ m("div", { style: { display: "flex", flexDirection: "column", minHeight: 0, flex: 1, gap: 8 }, children: [
-    /* @__PURE__ */ l(
+    /* @__PURE__ */ d(
       B,
       {
         "aria-label": "Filter tables",
@@ -238,7 +254,7 @@ function $t({
         onChange: (o) => c(o.target.value)
       }
     ),
-    /* @__PURE__ */ l("div", { style: { overflowY: "auto", minHeight: 0, flex: 1 }, children: a.map((o) => /* @__PURE__ */ m(
+    /* @__PURE__ */ d("div", { style: { overflowY: "auto", minHeight: 0, flex: 1 }, children: a.map((o) => /* @__PURE__ */ m(
       "button",
       {
         onClick: () => i(o.id),
@@ -258,7 +274,7 @@ function $t({
           background: o.id === t ? "var(--bg-hover, rgba(127,127,127,.2))" : "transparent"
         },
         children: [
-          /* @__PURE__ */ l("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: o.name }),
+          /* @__PURE__ */ d("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: o.name }),
           /* @__PURE__ */ m("span", { style: { ...y, display: "flex", gap: 6, flexShrink: 0 }, children: [
             s != null && s.get(o.id) ? /* @__PURE__ */ m(
               "span",
@@ -271,8 +287,8 @@ function $t({
                 ]
               }
             ) : null,
-            r != null && r.get(o.id) ? /* @__PURE__ */ l("span", { title: `${r.get(o.id)} findings`, style: { color: "var(--warn-text, #b45309)" }, children: r.get(o.id) }) : null,
-            /* @__PURE__ */ l("span", { title: `${o.columns} columns`, children: o.columns })
+            r != null && r.get(o.id) ? /* @__PURE__ */ d("span", { title: `${r.get(o.id)} findings`, style: { color: "var(--warn-text, #b45309)" }, children: r.get(o.id) }) : null,
+            /* @__PURE__ */ d("span", { title: `${o.columns} columns`, children: o.columns })
           ] })
         ]
       },
@@ -282,58 +298,58 @@ function $t({
 }
 function W({ title: e, children: t }) {
   return /* @__PURE__ */ m("div", { style: { marginBottom: 12 }, children: [
-    /* @__PURE__ */ l("p", { style: { margin: "0 0 4px", fontWeight: 600 }, children: e }),
+    /* @__PURE__ */ d("p", { style: { margin: "0 0 4px", fontWeight: 600 }, children: e }),
     t
   ] });
 }
-const M = { margin: 0, paddingLeft: 16 };
-function St({
+const O = { margin: 0, paddingLeft: 16 };
+function Ct({
   nodes: e,
   focus: t,
   onSelect: r
 }) {
-  const [s, i] = g(""), n = s.trim().toLowerCase(), c = e.filter((d) => d.kind === "area").sort((d, p) => (p.lines ?? 0) - (d.lines ?? 0)), a = e.filter((d) => d.kind === "module"), o = (d, p, u) => /* @__PURE__ */ m(
+  const [s, i] = g(""), n = s.trim().toLowerCase(), c = e.filter((l) => l.kind === "area").sort((l, u) => (u.lines ?? 0) - (l.lines ?? 0)), a = e.filter((l) => l.kind === "module"), o = (l, u, p) => /* @__PURE__ */ m(
     "button",
     {
-      onClick: () => r(d.id),
+      onClick: () => r(l.id),
       style: {
         display: "flex",
         justifyContent: "space-between",
         gap: 8,
         width: "100%",
-        padding: `3px 8px 3px ${8 + p * 14}px`,
+        padding: `3px 8px 3px ${8 + u * 14}px`,
         border: 0,
         borderRadius: 6,
         cursor: "pointer",
         textAlign: "left",
         fontSize: 13,
-        fontWeight: p === 0 ? 600 : 400,
+        fontWeight: u === 0 ? 600 : 400,
         color: "var(--text, inherit)",
-        background: d.id === t ? "var(--bg-hover, rgba(127,127,127,.2))" : "transparent"
+        background: l.id === t ? "var(--bg-hover, rgba(127,127,127,.2))" : "transparent"
       },
       children: [
-        /* @__PURE__ */ l("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: u }),
-        /* @__PURE__ */ l("span", { style: { ...y, fontWeight: 400, flexShrink: 0 }, title: `${d.files} files`, children: d.files })
+        /* @__PURE__ */ d("span", { style: { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, children: p }),
+        /* @__PURE__ */ d("span", { style: { ...y, fontWeight: 400, flexShrink: 0 }, title: `${l.files} files`, children: l.files })
       ]
     },
-    d.id
+    l.id
   );
   return /* @__PURE__ */ m("div", { style: { display: "flex", flexDirection: "column", minHeight: 0, flex: 1, gap: 8 }, children: [
-    /* @__PURE__ */ l(B, { "aria-label": "Filter modules", placeholder: "Filter modules", value: s, onChange: (d) => i(d.target.value) }),
-    /* @__PURE__ */ l("div", { style: { overflowY: "auto", minHeight: 0, flex: 1 }, children: c.map((d) => {
-      const p = a.filter((h) => h.area === d.id && h.path !== d.path), u = p.filter((h) => h.name.toLowerCase().includes(n)), f = n !== "" || t === d.id || p.some((h) => h.id === t);
-      return n && u.length === 0 && !d.name.toLowerCase().includes(n) ? null : /* @__PURE__ */ m("div", { children: [
-        o(d, 0, d.path === "." ? d.name : (d.path ?? d.name).replace(/^src\//, "")),
-        f && u.map((h) => o(h, 1, h.name))
-      ] }, d.id);
+    /* @__PURE__ */ d(B, { "aria-label": "Filter modules", placeholder: "Filter modules", value: s, onChange: (l) => i(l.target.value) }),
+    /* @__PURE__ */ d("div", { style: { overflowY: "auto", minHeight: 0, flex: 1 }, children: c.map((l) => {
+      const u = a.filter((h) => h.area === l.id && h.path !== l.path), p = u.filter((h) => h.name.toLowerCase().includes(n)), f = n !== "" || t === l.id || u.some((h) => h.id === t);
+      return n && p.length === 0 && !l.name.toLowerCase().includes(n) ? null : /* @__PURE__ */ m("div", { children: [
+        o(l, 0, l.path === "." ? l.name : (l.path ?? l.name).replace(/^src\//, "")),
+        f && p.map((h) => o(h, 1, h.name))
+      ] }, l.id);
     }) })
   ] });
 }
-function Ae({ findings: e, onAsk: t }) {
-  return /* @__PURE__ */ l(F, { children: e.map((r) => /* @__PURE__ */ m("div", { style: { display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 6 }, children: [
-    /* @__PURE__ */ l(Ee, { severity: r.severity }),
-    /* @__PURE__ */ l("span", { style: { flex: 1 }, children: r.title }),
-    t && /* @__PURE__ */ l("button", { onClick: () => t(r), style: Le, children: "Ask" })
+function Ee({ findings: e, onAsk: t }) {
+  return /* @__PURE__ */ d(F, { children: e.map((r) => /* @__PURE__ */ m("div", { style: { display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 6 }, children: [
+    /* @__PURE__ */ d(Ae, { severity: r.severity }),
+    /* @__PURE__ */ d("span", { style: { flex: 1 }, children: r.title }),
+    t && /* @__PURE__ */ d("button", { onClick: () => t(r), style: Le, children: "Ask" })
   ] }, r.id)) });
 }
 const Le = {
@@ -345,25 +361,25 @@ const Le = {
   color: "var(--accent, #2563eb)",
   flexShrink: 0
 };
-function Ct({ node: e, onAsk: t }) {
+function It({ node: e, onAsk: t }) {
   const r = e.constraints.filter((i) => i.kind !== "check"), s = e.constraints.filter((i) => i.kind === "check");
   return /* @__PURE__ */ m("div", { style: { fontSize: 13, color: "var(--text, inherit)" }, children: [
-    /* @__PURE__ */ l("p", { style: { ...y, ...Y, fontSize: 12, margin: "0 0 8px", overflowWrap: "anywhere" }, children: e.source }),
-    e.findings.length > 0 && /* @__PURE__ */ l(W, { title: "Findings", children: /* @__PURE__ */ l(Ae, { findings: e.findings, onAsk: t }) }),
-    /* @__PURE__ */ l(W, { title: `Columns (${e.columns.length})`, children: /* @__PURE__ */ l("table", { style: { width: "100%", borderCollapse: "collapse" }, children: /* @__PURE__ */ l("tbody", { children: e.columns.map((i) => /* @__PURE__ */ m("tr", { title: i.source, children: [
-      /* @__PURE__ */ l("td", { style: { padding: "2px 8px 2px 0", overflowWrap: "anywhere" }, children: i.name }),
-      /* @__PURE__ */ l("td", { style: { ...y, ...Y, fontSize: 12, padding: "2px 8px", overflowWrap: "anywhere" }, children: i.type }),
-      /* @__PURE__ */ l("td", { style: { ...y, fontSize: 12, padding: "2px 0", whiteSpace: "nowrap" }, children: i.nullable ? "null" : "not null" })
+    /* @__PURE__ */ d("p", { style: { ...y, ...Y, fontSize: 12, margin: "0 0 8px", overflowWrap: "anywhere" }, children: e.source }),
+    e.findings.length > 0 && /* @__PURE__ */ d(W, { title: "Findings", children: /* @__PURE__ */ d(Ee, { findings: e.findings, onAsk: t }) }),
+    /* @__PURE__ */ d(W, { title: `Columns (${e.columns.length})`, children: /* @__PURE__ */ d("table", { style: { width: "100%", borderCollapse: "collapse" }, children: /* @__PURE__ */ d("tbody", { children: e.columns.map((i) => /* @__PURE__ */ m("tr", { title: i.source, children: [
+      /* @__PURE__ */ d("td", { style: { padding: "2px 8px 2px 0", overflowWrap: "anywhere" }, children: i.name }),
+      /* @__PURE__ */ d("td", { style: { ...y, ...Y, fontSize: 12, padding: "2px 8px", overflowWrap: "anywhere" }, children: i.type }),
+      /* @__PURE__ */ d("td", { style: { ...y, fontSize: 12, padding: "2px 0", whiteSpace: "nowrap" }, children: i.nullable ? "null" : "not null" })
     ] }, i.name)) }) }) }),
-    r.length > 0 && /* @__PURE__ */ l(W, { title: "Keys", children: /* @__PURE__ */ l("ul", { style: M, children: r.map((i) => /* @__PURE__ */ m("li", { title: i.source, children: [
+    r.length > 0 && /* @__PURE__ */ d(W, { title: "Keys", children: /* @__PURE__ */ d("ul", { style: O, children: r.map((i) => /* @__PURE__ */ m("li", { title: i.source, children: [
       i.kind.replace("_", " "),
       " (",
       i.columns.join(", "),
       ")",
       i.references ? ` to ${i.references}, on delete ${i.on_delete}` : ""
     ] }, i.name)) }) }),
-    s.length > 0 && /* @__PURE__ */ l(W, { title: "Checks", children: /* @__PURE__ */ l("ul", { style: M, children: s.map((i) => /* @__PURE__ */ l("li", { title: i.source, style: { ...Y, fontSize: 12, overflowWrap: "anywhere" }, children: i.expression }, i.name)) }) }),
-    e.indexes.length > 0 && /* @__PURE__ */ l(W, { title: "Indexes", children: /* @__PURE__ */ l("ul", { style: M, children: e.indexes.map((i) => /* @__PURE__ */ m("li", { title: i.source, children: [
+    s.length > 0 && /* @__PURE__ */ d(W, { title: "Checks", children: /* @__PURE__ */ d("ul", { style: O, children: s.map((i) => /* @__PURE__ */ d("li", { title: i.source, style: { ...Y, fontSize: 12, overflowWrap: "anywhere" }, children: i.expression }, i.name)) }) }),
+    e.indexes.length > 0 && /* @__PURE__ */ d(W, { title: "Indexes", children: /* @__PURE__ */ d("ul", { style: O, children: e.indexes.map((i) => /* @__PURE__ */ m("li", { title: i.source, children: [
       i.name,
       " (",
       i.columns.join(", "),
@@ -371,25 +387,25 @@ function Ct({ node: e, onAsk: t }) {
       i.unique ? ", unique" : "",
       i.partial ? ", partial" : ""
     ] }, i.name)) }) }),
-    e.schema !== "main" && /* @__PURE__ */ l(W, { title: `Row level security: ${e.rls ? "on" : "off"}`, children: /* @__PURE__ */ l("ul", { style: M, children: e.policies.map((i) => /* @__PURE__ */ m("li", { title: i.source, children: [
+    e.schema !== "main" && /* @__PURE__ */ d(W, { title: `Row level security: ${e.rls ? "on" : "off"}`, children: /* @__PURE__ */ d("ul", { style: O, children: e.policies.map((i) => /* @__PURE__ */ m("li", { title: i.source, children: [
       i.name,
       ": ",
       i.command,
       " for ",
       i.roles.join(", ")
     ] }, i.name)) }) }),
-    e.triggers.length > 0 && /* @__PURE__ */ l(W, { title: "Triggers", children: /* @__PURE__ */ l("ul", { style: M, children: e.triggers.map((i) => /* @__PURE__ */ m("li", { title: i.source, children: [
+    e.triggers.length > 0 && /* @__PURE__ */ d(W, { title: "Triggers", children: /* @__PURE__ */ d("ul", { style: O, children: e.triggers.map((i) => /* @__PURE__ */ m("li", { title: i.source, children: [
       i.name,
       ": ",
       i.timing,
       " ",
       i.events.join(", ")
     ] }, i.name)) }) }),
-    e.reads.length > 0 && /* @__PURE__ */ l(W, { title: "Notes", children: e.reads.map((i, n) => /* @__PURE__ */ l("p", { style: { margin: "0 0 6px" }, children: i.text }, n)) })
+    e.reads.length > 0 && /* @__PURE__ */ d(W, { title: "Notes", children: e.reads.map((i, n) => /* @__PURE__ */ d("p", { style: { margin: "0 0 6px" }, children: i.text }, n)) })
   ] });
 }
-const ze = ["map", "data", "plan", "risk", "worktrees", "findings", "explore"];
-function It(e) {
+const ze = ["map", "data", "plan", "risk", "worktrees", "findings", "agents", "explore"];
+function Nt(e) {
   return e.missing ? "missing" : e.error ? "unknown" : e.stale || e.map_stale ? "stale" : e.commits_behind > 0 ? "behind" : "current";
 }
 function Z(e, t, r) {
@@ -411,20 +427,20 @@ function Z(e, t, r) {
       return { tone: "muted", label: "Can't check", detail: `Couldn't compare the model with ${r}`, rebuild: !1 };
   }
 }
-function E(e, t) {
+function A(e, t) {
   return `${e} ${t}${e === 1 ? "" : "s"}`;
 }
 const De = { postgres: "Postgres", sqlite: "SQLite" };
-function Nt(e) {
+function _t(e) {
   const t = [
-    e.tables ? `${E(e.tables, "table")} from ${De[e.engine ?? ""] ?? e.engine}` : "No tables found",
-    e.routes ? `${E(e.routes, "route")}, ${e.route_style}` : "No routes found",
-    `${E(e.code_files, "code file")}, ${E(e.links, "link")}`
+    e.tables ? `${A(e.tables, "table")} from ${De[e.engine ?? ""] ?? e.engine}` : "No tables found",
+    e.routes ? `${A(e.routes, "route")}, ${e.route_style}` : "No routes found",
+    `${A(e.code_files, "code file")}, ${A(e.links, "link")}`
   ];
   return e.git || t.push("No git history, so no churn or worktrees"), t;
 }
 function Re(e) {
-  return e.status === "current" ? E(e.tables, "table") : Z(e.status, e.behind, e.ref).label;
+  return e.status === "current" ? A(e.tables, "table") : Z(e.status, e.behind, e.ref).label;
 }
 function ue(e, t) {
   return t.filter((s) => s.name === e.name).length > 1 ? e.parent : null;
@@ -436,7 +452,7 @@ function Me(e, t) {
 function Oe(e) {
   return e.length > 1 ? e.replace(/\/+$/, "") : e;
 }
-function Pe(e) {
+function Te(e) {
   const t = /* @__PURE__ */ new Map();
   for (const i of e) {
     const n = Oe(i), c = n.lastIndexOf("/");
@@ -454,9 +470,9 @@ function pe(e, t, r) {
 function fe(e, t = 40) {
   return e.length > t ? `…${e.slice(1 - t)}` : e;
 }
-function Te(e, t) {
+function Pe(e, t) {
   const r = pe(e, t, "").toAdd.length;
-  return r ? `Search ${E(r, "workspace")}` : "Search workspaces";
+  return r ? `Search ${A(r, "workspace")}` : "Search workspaces";
 }
 function Fe(e) {
   const r = [
@@ -471,42 +487,42 @@ function he(e, t) {
   return r < 60 ? "just now" : r < 3600 ? `${Math.floor(r / 60)}m ago` : r < 86400 ? `${Math.floor(r / 3600)}h ago` : `${Math.floor(r / 86400)}d ago`;
 }
 const me = (e) => `system-map.view.${e}`;
-function _t(e, t) {
+function Wt(e, t) {
   if (!t) return "map";
   const r = e.getItem(me(t));
   return ze.find((s) => s === r) ?? "map";
 }
-function Wt(e, t, r) {
+function jt(e, t, r) {
   e.setItem(me(t), r);
 }
 const ge = "system-map.side-list";
-function jt(e) {
+function At(e) {
   return e === "map" || e === "data";
 }
 function Et(e) {
   return e.getItem(ge) !== "hidden";
 }
-function At(e, t) {
+function Lt(e, t) {
   e.setItem(ge, t ? "shown" : "hidden");
 }
 function Be(e) {
   return `system-map-design-${e}`;
 }
 const be = (e) => `system-map.chat.${e}`;
-function Lt(e, t) {
+function zt(e, t) {
   return e.getItem(be(t)) === "started";
 }
-function zt(e, t) {
+function Dt(e, t) {
   e.setItem(be(t), "started");
 }
-function Dt(e, t) {
+function Rt(e, t) {
   if (!Array.isArray(e)) return !1;
   const r = Be(t);
   return e.some((s) => (s == null ? void 0 : s.key) === r && typeof s.messages == "number" && s.messages > 0);
 }
 const Ue = 600, se = "system-map-workspace-list", Q = (e) => `system-map-workspace-${e.key}`;
 function J() {
-  return /* @__PURE__ */ l(
+  return /* @__PURE__ */ d(
     "svg",
     {
       width: "16",
@@ -518,35 +534,35 @@ function J() {
       strokeLinejoin: "round",
       style: { ...y, flex: "none" },
       "aria-hidden": "true",
-      children: /* @__PURE__ */ l("path", { d: "M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" })
+      children: /* @__PURE__ */ d("path", { d: "M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" })
     }
   );
 }
 function He(e) {
-  const t = S(), [r, s] = g(null), [i, n] = g(null);
-  k(() => {
+  const t = $(), [r, s] = g(null), [i, n] = g(null);
+  x(() => {
     if (s(null), n(null), !e) return;
     let a = !0;
     return (async () => {
-      const d = await t.get(`${x}/workspaces`);
-      if (d.folder !== null) return { ...d, suggested: !1 };
-      const p = await t.get("/api/recent-projects").catch(() => ({ dirs: [] })), u = Array.isArray(p.dirs) ? p.dirs.filter((w) => typeof w == "string") : [], f = Pe(u);
-      if (f === null) return { ...d, suggested: !1 };
-      const h = await t.get(`${x}/workspaces?folder=${encodeURIComponent(f)}`).catch(() => null);
-      return h ? { ...h, suggested: !0 } : { ...d, suggested: !1 };
-    })().then((d) => {
-      a && s(d);
-    }).catch((d) => {
-      a && n(L(d, "read your default folder"));
+      const l = await t.get(`${k}/workspaces`);
+      if (l.folder !== null) return { ...l, suggested: !1 };
+      const u = await t.get("/api/recent-projects").catch(() => ({ dirs: [] })), p = Array.isArray(u.dirs) ? u.dirs.filter((v) => typeof v == "string") : [], f = Te(p);
+      if (f === null) return { ...l, suggested: !1 };
+      const h = await t.get(`${k}/workspaces?folder=${encodeURIComponent(f)}`).catch(() => null);
+      return h ? { ...h, suggested: !0 } : { ...l, suggested: !1 };
+    })().then((l) => {
+      a && s(l);
+    }).catch((l) => {
+      a && n(L(l, "read your default folder"));
     }), () => {
       a = !1;
     };
   }, [t, e]);
-  const c = _(
+  const c = N(
     async (a) => {
       n(null);
       try {
-        await t.post(`${x}/default-folder`, { folder: a }), s({ ...await t.get(`${x}/workspaces`), suggested: !1 });
+        await t.post(`${k}/default-folder`, { folder: a }), s({ ...await t.get(`${k}/workspaces`), suggested: !1 });
       } catch (o) {
         n(L(o, "save this folder"));
       }
@@ -556,31 +572,31 @@ function He(e) {
   return { list: r, error: i, saveDefault: c };
 }
 function Ve(e, t, r) {
-  const s = S(), [i, n] = g(!1), c = A(!1), a = A({ onPicked: t, onUsePage: r });
+  const s = $(), [i, n] = g(!1), c = E(!1), a = E({ onPicked: t, onUsePage: r });
   a.current = { onPicked: t, onUsePage: r };
-  const o = _((u) => {
-    c.current = u, n(u);
-  }, []), d = _(() => {
-    c.current && (o(!1), s.post(`${x}/folder-window-close`, {}).catch(() => {
+  const o = N((p) => {
+    c.current = p, n(p);
+  }, []), l = N(() => {
+    c.current && (o(!1), s.post(`${k}/folder-window-close`, {}).catch(() => {
     }));
   }, [s, o]);
-  return k(() => {
+  return x(() => {
     if (!i) return;
-    const u = window.setInterval(() => {
-      s.get(`${x}/folder-window`).then((f) => {
+    const p = window.setInterval(() => {
+      s.get(`${k}/folder-window`).then((f) => {
         !c.current || f.status === "open" || (o(!1), f.status === "picked" ? a.current.onPicked(f.path) : f.status === "failed" && a.current.onUsePage(f.message));
       }).catch(() => {
         o(!1), a.current.onUsePage(null);
       });
     }, Ue);
-    return () => window.clearInterval(u);
-  }, [s, i, o]), k(() => e ? d : void 0, [e, d]), { waiting: i, openWindow: async (u) => {
+    return () => window.clearInterval(p);
+  }, [s, i, o]), x(() => e ? l : void 0, [e, l]), { waiting: i, openWindow: async (p) => {
     try {
-      (await s.post(`${x}/folder-window`, { start: u })).status === "open" ? o(!0) : a.current.onUsePage(null);
+      (await s.post(`${k}/folder-window`, { start: p })).status === "open" ? o(!0) : a.current.onUsePage(null);
     } catch {
       a.current.onUsePage(null);
     }
-  }, closeWindow: d };
+  }, closeWindow: l };
 }
 function Ke({
   start: e,
@@ -588,37 +604,37 @@ function Ke({
   onUse: r,
   onCancel: s
 }) {
-  const i = S(), [n, c] = g(null), [a, o] = g(null), d = _(
-    async (p) => {
+  const i = $(), [n, c] = g(null), [a, o] = g(null), l = N(
+    async (u) => {
       o(null);
       try {
-        return c(await i.get(`${x}/browse?path=${encodeURIComponent(p)}`)), !0;
-      } catch (u) {
-        return o(L(u, "open this folder")), !1;
+        return c(await i.get(`${k}/browse?path=${encodeURIComponent(u)}`)), !0;
+      } catch (p) {
+        return o(L(p, "open this folder")), !1;
       }
     },
     [i]
   );
-  return k(() => {
-    d(e ?? "~").then((p) => {
-      !p && e !== null && d("~");
+  return x(() => {
+    l(e ?? "~").then((u) => {
+      !u && e !== null && l("~");
     });
-  }, [d, e]), /* @__PURE__ */ m("div", { style: { display: "grid", gap: 12, padding: 16 }, "data-testid": "folder-list", children: [
+  }, [l, e]), /* @__PURE__ */ m("div", { style: { display: "grid", gap: 12, padding: 16 }, "data-testid": "folder-list", children: [
     /* @__PURE__ */ m("div", { style: { display: "flex", alignItems: "center", gap: 10, minWidth: 0 }, children: [
-      /* @__PURE__ */ l("button", { type: "button", className: "sm-plain sm-link", disabled: !(n != null && n.parent), onClick: () => (n == null ? void 0 : n.parent) && void d(n.parent), children: "‹ Up" }),
-      /* @__PURE__ */ l("span", { className: "sm-mono sm-ellipsis", title: n == null ? void 0 : n.path, "data-testid": "folder-list-path", children: n && fe(n.display, 56) })
+      /* @__PURE__ */ d("button", { type: "button", className: "sm-plain sm-link", disabled: !(n != null && n.parent), onClick: () => (n == null ? void 0 : n.parent) && void l(n.parent), children: "‹ Up" }),
+      /* @__PURE__ */ d("span", { className: "sm-mono sm-ellipsis", title: n == null ? void 0 : n.path, "data-testid": "folder-list-path", children: n && fe(n.display, 56) })
     ] }),
     /* @__PURE__ */ m("div", { className: "sm-list sm-add-list", children: [
-      n == null ? void 0 : n.dirs.map((p) => /* @__PURE__ */ m("button", { type: "button", className: "sm-plain sm-row", title: p.path, onClick: () => void d(p.path), children: [
-        /* @__PURE__ */ l(J, {}),
-        /* @__PURE__ */ l("span", { className: "sm-ellipsis", style: { fontWeight: 600 }, children: p.name })
-      ] }, p.path)),
-      (n == null ? void 0 : n.dirs.length) === 0 && /* @__PURE__ */ l("p", { style: { ...y, margin: 0, padding: "8px 9px" }, children: "No folders in here." })
+      n == null ? void 0 : n.dirs.map((u) => /* @__PURE__ */ m("button", { type: "button", className: "sm-plain sm-row", title: u.path, onClick: () => void l(u.path), children: [
+        /* @__PURE__ */ d(J, {}),
+        /* @__PURE__ */ d("span", { className: "sm-ellipsis", style: { fontWeight: 600 }, children: u.name })
+      ] }, u.path)),
+      (n == null ? void 0 : n.dirs.length) === 0 && /* @__PURE__ */ d("p", { style: { ...y, margin: 0, padding: "8px 9px" }, children: "No folders in here." })
     ] }),
-    (t ?? a) && /* @__PURE__ */ l("p", { role: "status", style: { margin: 0, fontSize: 13 }, children: a ?? t }),
+    (t ?? a) && /* @__PURE__ */ d("p", { role: "status", style: { margin: 0, fontSize: 13 }, children: a ?? t }),
     /* @__PURE__ */ m("div", { style: { display: "flex", justifyContent: "flex-end", gap: 8 }, children: [
-      /* @__PURE__ */ l(j, { onClick: s, children: "Cancel" }),
-      /* @__PURE__ */ l(j, { primary: !0, disabled: !n, onClick: () => n && r(n.path), children: "Use this folder" })
+      /* @__PURE__ */ d(j, { onClick: s, children: "Cancel" }),
+      /* @__PURE__ */ d(j, { primary: !0, disabled: !n, onClick: () => n && r(n.path), children: "Use this folder" })
     ] })
   ] });
 }
@@ -647,12 +663,12 @@ function Ge({
         s || c();
       },
       children: [
-        /* @__PURE__ */ l("span", { className: "sm-ellipsis", style: t ? y : { fontWeight: 600 }, children: e.name }),
-        e.worktrees > 0 && /* @__PURE__ */ l("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: E(e.worktrees, "worktree") }),
-        !e.git && /* @__PURE__ */ l("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: "no git" }),
-        /* @__PURE__ */ l("span", { style: { flex: 1 } }),
-        /* @__PURE__ */ l("span", { className: "sm-row-action", children: t ? "Open" : "Add" }),
-        !t && e.touched > 0 && /* @__PURE__ */ l("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: he(e.touched, i) })
+        /* @__PURE__ */ d("span", { className: "sm-ellipsis", style: t ? y : { fontWeight: 600 }, children: e.name }),
+        e.worktrees > 0 && /* @__PURE__ */ d("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: A(e.worktrees, "worktree") }),
+        !e.git && /* @__PURE__ */ d("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: "no git" }),
+        /* @__PURE__ */ d("span", { style: { flex: 1 } }),
+        /* @__PURE__ */ d("span", { className: "sm-row-action", children: t ? "Open" : "Add" }),
+        !t && e.touched > 0 && /* @__PURE__ */ d("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: he(e.touched, i) })
       ]
     }
   );
@@ -664,31 +680,31 @@ function qe({
   onAdd: s,
   onOpen: i
 }) {
-  const [n, c] = g(""), [a, o] = g(0), d = A(!1), { toAdd: p, added: u } = pe(e.repos, t, n), f = [...p, ...u], h = Math.min(a, f.length - 1), w = Date.now() / 1e3, $ = (b) => u.includes(b) ? i(b) : s(b);
-  k(() => {
+  const [n, c] = g(""), [a, o] = g(0), l = E(!1), { toAdd: u, added: p } = pe(e.repos, t, n), f = [...u, ...p], h = Math.min(a, f.length - 1), v = Date.now() / 1e3, S = (b) => p.includes(b) ? i(b) : s(b);
+  x(() => {
     var b;
-    d.current && (d.current = !1, f[h] && ((b = document.getElementById(Q(f[h]))) == null || b.scrollIntoView({ block: "nearest" })));
+    l.current && (l.current = !1, f[h] && ((b = document.getElementById(Q(f[h]))) == null || b.scrollIntoView({ block: "nearest" })));
   });
   const C = (b) => {
     if (b.key === "ArrowDown" || b.key === "ArrowUp") {
       if (b.preventDefault(), f.length === 0) return;
-      d.current = !0, o((h + (b.key === "ArrowDown" ? 1 : -1) + f.length) % f.length);
-    } else b.key === "Enter" && f[h] && !r && (b.preventDefault(), $(f[h]));
-  }, D = (b, N, R) => /* @__PURE__ */ l(
+      l.current = !0, o((h + (b.key === "ArrowDown" ? 1 : -1) + f.length) % f.length);
+    } else b.key === "Enter" && f[h] && !r && (b.preventDefault(), S(f[h]));
+  }, D = (b, _, M) => /* @__PURE__ */ d(
     Ge,
     {
       workspace: b,
-      added: N,
-      active: R === h,
+      added: _,
+      active: M === h,
       busy: r,
-      now: w,
-      onHover: () => o(R),
-      onPick: () => $(b)
+      now: v,
+      onHover: () => o(M),
+      onPick: () => S(b)
     },
     b.path
   );
   return /* @__PURE__ */ m(F, { children: [
-    /* @__PURE__ */ l(
+    /* @__PURE__ */ d(
       B,
       {
         autoFocus: !0,
@@ -697,7 +713,7 @@ function qe({
         "aria-expanded": !0,
         "aria-controls": se,
         "aria-activedescendant": f[h] ? Q(f[h]) : void 0,
-        placeholder: Te(e.repos, t),
+        placeholder: Pe(e.repos, t),
         value: n,
         disabled: r,
         onKeyDown: C,
@@ -707,12 +723,12 @@ function qe({
       }
     ),
     /* @__PURE__ */ m("ul", { id: se, className: "sm-list sm-add-list", role: "listbox", "aria-label": "Workspaces", children: [
-      p.map((b, N) => D(b, !1, N)),
-      u.length > 0 && /* @__PURE__ */ l("li", { role: "presentation", className: "sm-add-head", children: "Already added" }),
-      u.map((b, N) => D(b, !0, p.length + N))
+      u.map((b, _) => D(b, !1, _)),
+      p.length > 0 && /* @__PURE__ */ d("li", { role: "presentation", className: "sm-add-head", children: "Already added" }),
+      p.map((b, _) => D(b, !0, u.length + _))
     ] }),
-    f.length === 0 && /* @__PURE__ */ l("p", { style: { ...y, margin: 0, padding: "0 9px" }, children: "No workspace matches that. Only folders with git or a package.json show here." }),
-    e.truncated && /* @__PURE__ */ l("p", { style: { ...y, margin: 0, fontSize: 12 }, children: "This folder is too big to search all of it. Pick a smaller one." })
+    f.length === 0 && /* @__PURE__ */ d("p", { style: { ...y, margin: 0, padding: "0 9px" }, children: "No workspace matches that. Only folders with git or a package.json show here." }),
+    e.truncated && /* @__PURE__ */ d("p", { style: { ...y, margin: 0, fontSize: 12 }, children: "This folder is too big to search all of it. Pick a smaller one." })
   ] });
 }
 function Ye({
@@ -721,55 +737,55 @@ function Ye({
   onClose: r,
   onBuilt: s
 }) {
-  const i = S(), { list: n, error: c, saveDefault: a } = He(e), [o, d] = g("workspaces"), [p, u] = g(null), [f, h] = g(!1), [w, $] = g(""), [C, D] = g(null), [b, N] = g(null), R = (v) => {
-    u(v), d("folders");
-  }, { waiting: H, openWindow: ke, closeWindow: $e } = Ve(e, (v) => void a(v), R);
-  k(() => {
-    e && (d("workspaces"), u(null), h(!1), $(""), N(null), D(null));
+  const i = $(), { list: n, error: c, saveDefault: a } = He(e), [o, l] = g("workspaces"), [u, p] = g(null), [f, h] = g(!1), [v, S] = g(""), [C, D] = g(null), [b, _] = g(null), M = (w) => {
+    p(w), l("folders");
+  }, { waiting: H, openWindow: ke, closeWindow: $e } = Ve(e, (w) => void a(w), M);
+  x(() => {
+    e && (l("workspaces"), p(null), h(!1), S(""), _(null), D(null));
   }, [e]);
-  const ne = async (v, Se) => {
-    D(v), N(null);
+  const ne = async (w, Se) => {
+    D(w), _(null);
     try {
-      Se && (n != null && n.suggested) && n.folder && await i.post(`${x}/default-folder`, { folder: n.folder });
-      const K = await i.post(`${x}/build`, { repo_path: v });
+      Se && (n != null && n.suggested) && n.folder && await i.post(`${k}/default-folder`, { folder: n.folder });
+      const K = await i.post(`${k}/build`, { repo_path: w });
       s(K.repo_key);
     } catch (K) {
-      N(L(K, "add this project"));
+      _(L(K, "add this project"));
     } finally {
       D(null);
     }
-  }, re = () => void ke((n == null ? void 0 : n.folder) ?? null), V = (v) => /* @__PURE__ */ m("div", { className: "sm-add-empty", "data-testid": "add-empty", children: [
-    /* @__PURE__ */ l(J, {}),
-    /* @__PURE__ */ l("span", { children: v }),
-    /* @__PURE__ */ l(j, { primary: !0, disabled: H, onClick: re, children: "Browse…" })
+  }, re = () => void ke((n == null ? void 0 : n.folder) ?? null), V = (w) => /* @__PURE__ */ m("div", { className: "sm-add-empty", "data-testid": "add-empty", children: [
+    /* @__PURE__ */ d(J, {}),
+    /* @__PURE__ */ d("span", { children: w }),
+    /* @__PURE__ */ d(j, { primary: !0, disabled: H, onClick: re, children: "Browse…" })
   ] });
-  return /* @__PURE__ */ l(ce, { open: e, onClose: r, title: o === "folders" ? "Choose folder" : "Add project", maxWidth: 520, dismissDisabled: C !== null, children: o === "folders" ? /* @__PURE__ */ l(
+  return /* @__PURE__ */ d(ce, { open: e, onClose: r, title: o === "folders" ? "Choose folder" : "Add project", maxWidth: 520, dismissDisabled: C !== null, children: o === "folders" ? /* @__PURE__ */ d(
     Ke,
     {
       start: (n == null ? void 0 : n.folder) ?? null,
-      note: p,
-      onCancel: () => d("workspaces"),
-      onUse: (v) => {
-        d("workspaces"), a(v);
+      note: u,
+      onCancel: () => l("workspaces"),
+      onUse: (w) => {
+        l("workspaces"), a(w);
       }
     }
   ) : /* @__PURE__ */ m("div", { style: { display: "grid", gap: 12, padding: 16 }, "data-testid": "add-project", children: [
     (n == null ? void 0 : n.folder) && /* @__PURE__ */ m("div", { style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 }, "data-testid": "default-folder", children: [
-      /* @__PURE__ */ l(J, {}),
-      /* @__PURE__ */ l("span", { className: "sm-mono sm-ellipsis", style: { fontSize: 13 }, title: n.folder, children: n.display && fe(n.display) }),
-      n.suggested ? /* @__PURE__ */ l(de, { variant: "aim", children: "Suggested" }) : /* @__PURE__ */ l("span", { style: { ...y, fontSize: 12 }, children: "Default" }),
-      /* @__PURE__ */ l("span", { style: { flex: 1 } }),
-      /* @__PURE__ */ l("button", { type: "button", className: "sm-plain sm-link", disabled: H || C !== null, onClick: re, children: "Browse…" })
+      /* @__PURE__ */ d(J, {}),
+      /* @__PURE__ */ d("span", { className: "sm-mono sm-ellipsis", style: { fontSize: 13 }, title: n.folder, children: n.display && fe(n.display) }),
+      n.suggested ? /* @__PURE__ */ d(de, { variant: "aim", children: "Suggested" }) : /* @__PURE__ */ d("span", { style: { ...y, fontSize: 12 }, children: "Default" }),
+      /* @__PURE__ */ d("span", { style: { flex: 1 } }),
+      /* @__PURE__ */ d("button", { type: "button", className: "sm-plain sm-link", disabled: H || C !== null, onClick: re, children: "Browse…" })
     ] }),
     H && /* @__PURE__ */ m("div", { role: "status", className: "sm-notice", "data-testid": "window-open", children: [
-      /* @__PURE__ */ l("span", { style: { flex: 1 }, children: "Pick a folder in the window that just opened." }),
-      /* @__PURE__ */ l(
+      /* @__PURE__ */ d("span", { style: { flex: 1 }, children: "Pick a folder in the window that just opened." }),
+      /* @__PURE__ */ d(
         "button",
         {
           type: "button",
           className: "sm-plain sm-link",
           onClick: () => {
-            $e(), R(null);
+            $e(), M(null);
           },
           children: "Pick here instead"
         }
@@ -778,60 +794,60 @@ function Ye({
     n && n.folder === null && V("Pick the folder that holds your projects"),
     (n == null ? void 0 : n.missing) && V(`${n.display} isn't there any more`),
     (n == null ? void 0 : n.folder) && !n.missing && n.repos.length === 0 && V(`No projects in ${n.display}`),
-    (n == null ? void 0 : n.folder) && n.repos.length > 0 && /* @__PURE__ */ l(
+    (n == null ? void 0 : n.folder) && n.repos.length > 0 && /* @__PURE__ */ d(
       qe,
       {
         list: n,
         projects: t,
         busy: C !== null,
-        onAdd: (v) => void ne(v.path, !0),
-        onOpen: (v) => s(v.key)
+        onAdd: (w) => void ne(w.path, !0),
+        onOpen: (w) => s(w.key)
       },
       n.folder
     ),
     f ? /* @__PURE__ */ m(
       "form",
       {
-        onSubmit: (v) => {
-          v.preventDefault(), w.trim() && ne(w.trim(), !1);
+        onSubmit: (w) => {
+          w.preventDefault(), v.trim() && ne(v.trim(), !1);
         },
         children: [
-          /* @__PURE__ */ l("label", { style: { display: "block", ...y, fontSize: 12, marginBottom: 4 }, htmlFor: "system-map-path", children: "Full path to a project" }),
+          /* @__PURE__ */ d("label", { style: { display: "block", ...y, fontSize: 12, marginBottom: 4 }, htmlFor: "system-map-path", children: "Full path to a project" }),
           /* @__PURE__ */ m("div", { style: { display: "flex", gap: 8 }, children: [
-            /* @__PURE__ */ l(
+            /* @__PURE__ */ d(
               Ce,
               {
                 id: "system-map-path",
                 placeholder: "/path/to/project",
-                value: w,
+                value: v,
                 disabled: C !== null,
                 autoFocus: !0,
-                onChange: (v) => $(v.target.value),
+                onChange: (w) => S(w.target.value),
                 style: { flex: 1, minWidth: 0 }
               }
             ),
-            /* @__PURE__ */ l(j, { primary: !0, type: "submit", disabled: C !== null || !w.trim(), children: "Add" })
+            /* @__PURE__ */ d(j, { primary: !0, type: "submit", disabled: C !== null || !v.trim(), children: "Add" })
           ] })
         ]
       }
-    ) : /* @__PURE__ */ l("button", { type: "button", className: "sm-plain sm-link", style: { justifySelf: "start" }, disabled: C !== null, onClick: () => h(!0), children: "Use a full path" }),
-    /* @__PURE__ */ l("div", { role: "status", "aria-live": "polite", style: { fontSize: 13, minHeight: 18 }, "data-testid": "add-status", children: C !== null ? `Building ${C.split("/").pop()}. This can take a minute.` : b ?? c })
+    ) : /* @__PURE__ */ d("button", { type: "button", className: "sm-plain sm-link", style: { justifySelf: "start" }, disabled: C !== null, onClick: () => h(!0), children: "Use a full path" }),
+    /* @__PURE__ */ d("div", { role: "status", "aria-live": "polite", style: { fontSize: 13, minHeight: 18 }, "data-testid": "add-status", children: C !== null ? `Building ${C.split("/").pop()}. This can take a minute.` : b ?? c })
   ] }) });
 }
-const Rt = 200, Mt = 58, ye = /* @__PURE__ */ new Set(["starts", "hands_off_to", "uses_model"]), Qe = /* @__PURE__ */ new Set(["planned", "partial"]), ee = "group:tables", I = "group:routes", z = "group:jobs";
+const Mt = 200, Ot = 58, ye = /* @__PURE__ */ new Set(["starts", "hands_off_to", "uses_model"]), Qe = /* @__PURE__ */ new Set(["planned", "partial"]), ee = "group:tables", I = "group:routes", z = "group:jobs";
 function ae(e) {
   return `${e.files} ${e.files === 1 ? "file" : "files"}, ${e.lines} lines`;
 }
-function T(e) {
+function P(e) {
   return e === "." ? "root files" : e.replace(/^src\//, "");
 }
 function X(e) {
   var t, r;
   if (e.status === "proposed")
-    return { id: e.id, kind: e.kind, title: e.kind === "module" ? e.name : T(e.path ?? e.name), subtitle: "proposed", status: "proposed" };
+    return { id: e.id, kind: e.kind, title: e.kind === "module" ? e.name : P(e.path ?? e.name), subtitle: "proposed", status: "proposed" };
   switch (e.kind) {
     case "area":
-      return { id: e.id, kind: "area", title: T(e.path ?? e.name), subtitle: ae(e) };
+      return { id: e.id, kind: "area", title: P(e.path ?? e.name), subtitle: ae(e) };
     case "module": {
       const s = e.area === `area:${e.path}`;
       return {
@@ -872,29 +888,29 @@ function Je(e) {
   return { id: e, kind: "table", title: e.replace(/^table:(public\.)?/, "") };
 }
 const Xe = 3, Ze = 24;
-function we(e, t) {
+function ve(e, t) {
   return !!(e && t && (e === t || e.startsWith(`${t}/`)));
 }
 function oe(e, t) {
   if (e.startsWith("table:")) return ee;
   const r = t.byId.get(e);
-  return r ? r.status === "proposed" ? e : (r.kind === "module" || r.kind === "area") && we(r.path, t.routesDir) ? I : r.kind === "module" ? r.area === t.open ? e : r.area ?? e : r.kind === "route" ? t.expanded === I ? e : I : r.kind === "job" ? t.expanded === z ? e : z : e : null;
+  return r ? r.status === "proposed" ? e : (r.kind === "module" || r.kind === "area") && ve(r.path, t.routesDir) ? I : r.kind === "module" ? r.area === t.open ? e : r.area ?? e : r.kind === "route" ? t.expanded === I ? e : I : r.kind === "job" ? t.expanded === z ? e : z : e : null;
 }
-function ve(e, t) {
+function we(e, t) {
   return (e == null ? void 0 : e.kind) === "plan" && (!t || !Qe.has(e.status));
 }
 function te(e, t, r, s) {
   const i = /* @__PURE__ */ new Map();
   for (const n of e.edges) {
-    if (ve(t.byId.get(n.source), r)) continue;
+    if (we(t.byId.get(n.source), r)) continue;
     const c = oe(n.source, t), a = oe(n.target, t);
     if (!c || !a || c === a || !s(c, a)) continue;
-    const o = `${c}|${a}|${n.kind}`, d = i.get(o);
-    d ? d.count += n.count : i.set(o, { id: o, source: c, target: a, kind: n.kind, count: n.count, proposed: n.proposed });
+    const o = `${c}|${a}|${n.kind}`, l = i.get(o);
+    l ? l.count += n.count : i.set(o, { id: o, source: c, target: a, kind: n.kind, count: n.count, proposed: n.proposed });
   }
   return [...i.values()];
 }
-function P(e, t, r) {
+function T(e, t, r) {
   const s = [];
   for (const i of e) {
     const n = r.find((a) => a.id === i), c = t.byId.get(i);
@@ -905,8 +921,8 @@ function P(e, t, r) {
 function et(e, t, r, s) {
   const i = U(e, r), n = te(e, t, s, () => !0), c = n.length <= Ze ? n : n.filter((o) => o.kind !== "imports" || o.count >= Xe), a = new Set(i.map((o) => o.id));
   for (const o of e.nodes)
-    o.kind === "area" && !we(o.path, t.routesDir) && a.add(o.id), o.kind === "service" && a.add(o.id), o.kind === "plan" && !ve(o, s) && a.add(o.id), o.status === "proposed" && a.add(o.id);
-  return { cards: P(a, t, i), lines: c.filter((o) => a.has(o.source) && a.has(o.target)), hidden: n.length - c.length };
+    o.kind === "area" && !ve(o.path, t.routesDir) && a.add(o.id), o.kind === "service" && a.add(o.id), o.kind === "plan" && !we(o, s) && a.add(o.id), o.status === "proposed" && a.add(o.id);
+  return { cards: T(a, t, i), lines: c.filter((o) => a.has(o.source) && a.has(o.target)), hidden: n.length - c.length };
 }
 function tt(e, t, r, s) {
   const i = new Set(e.nodes.filter((a) => a.area === t.open && a.kind === "module").map((a) => a.id)), n = te(
@@ -917,28 +933,28 @@ function tt(e, t, r, s) {
   ), c = new Set(i);
   for (const a of n)
     c.add(a.source), c.add(a.target);
-  return { cards: P(c, t, U(e, r)), lines: n };
+  return { cards: T(c, t, U(e, r)), lines: n };
 }
 function nt(e, t, r, s) {
-  const i = t.expanded === I ? "route" : "job", n = new Set(e.nodes.filter((o) => o.kind === i).map((o) => o.id)), c = te(e, t, s, (o, d) => n.has(o) || n.has(d)), a = new Set(n);
+  const i = t.expanded === I ? "route" : "job", n = new Set(e.nodes.filter((o) => o.kind === i).map((o) => o.id)), c = te(e, t, s, (o, l) => n.has(o) || n.has(l)), a = new Set(n);
   for (const o of c)
     a.add(o.source), a.add(o.target);
-  return { cards: P(a, t, U(e, r)), lines: c };
+  return { cards: T(a, t, U(e, r)), lines: c };
 }
 function rt(e, t, r) {
   const s = [], i = /* @__PURE__ */ new Set([r]);
   for (const n of e.edges)
     n.source !== r && n.target !== r || (i.add(n.source), i.add(n.target), s.push({ id: `${n.source}|${n.target}|${n.kind}`, source: n.source, target: n.target, kind: n.kind, count: n.count }));
-  return { cards: P(i, t, []), lines: s };
+  return { cards: T(i, t, []), lines: s };
 }
-function Ot(e, t, r) {
+function Tt(e, t, r) {
   const s = new Map(e.nodes.map((a) => [a.id, a])), i = new Set(t), n = /* @__PURE__ */ new Map();
   for (const a of e.edges) {
     if (!i.has(a.source) || !i.has(a.target)) continue;
     const o = `${a.source}|${a.target}|${a.kind}`;
     n.set(o, { id: o, source: a.source, target: a.target, kind: a.kind, count: a.count, proposed: a.proposed });
   }
-  return { cards: P(i, { byId: s }, U(e, r)), lines: [...n.values()] };
+  return { cards: T(i, { byId: s }, U(e, r)), lines: [...n.values()] };
 }
 function xe(e) {
   if (e.routes_dir) return e.routes_dir;
@@ -955,29 +971,29 @@ function st(e, t) {
   return e.trim().toLowerCase() === t.trim().toLowerCase();
 }
 function at(e) {
-  const t = new Map(e.nodes.map((d) => [d.id, d])), r = e.nodes.filter((d) => d.kind === "agent").map((d) => d.id), s = new Set(r), i = /* @__PURE__ */ new Map();
-  for (const d of e.edges) {
-    if (!ye.has(d.kind) || !(t.has(d.source) && t.has(d.target)) || !r.includes(d.source) && !r.includes(d.target)) continue;
-    s.add(d.source), s.add(d.target);
-    const p = `${d.source}|${d.target}|${d.kind}`, u = i.get(p);
-    u ? u.count += d.count : i.set(p, { id: p, source: d.source, target: d.target, kind: d.kind, count: d.count, leaves: d.leaves_region || void 0 });
+  const t = new Map(e.nodes.map((l) => [l.id, l])), r = e.nodes.filter((l) => l.kind === "agent").map((l) => l.id), s = new Set(r), i = /* @__PURE__ */ new Map();
+  for (const l of e.edges) {
+    if (!ye.has(l.kind) || !(t.has(l.source) && t.has(l.target)) || !r.includes(l.source) && !r.includes(l.target)) continue;
+    s.add(l.source), s.add(l.target);
+    const u = `${l.source}|${l.target}|${l.kind}`, p = i.get(u);
+    p ? p.count += l.count : i.set(u, { id: u, source: l.source, target: l.target, kind: l.kind, count: l.count, leaves: l.leaves_region || void 0 });
   }
-  const n = e.home_region ?? null, c = /* @__PURE__ */ new Map(), a = [...s].map((d) => {
-    const p = t.get(d);
-    return p.kind !== "service" ? X(p) : (p.region && c.set(p.region, [...c.get(p.region) ?? [], d]), { ...X(p), subtitle: p.region ?? "no region set" });
-  }), o = [...c].map(([d, p]) => {
-    const u = n ? st(d, n) ? "home" : "away" : "unknown";
-    return { id: `band:${d}`, label: u === "home" ? `${d} · home` : d, tone: u, members: p };
+  const n = e.home_region ?? null, c = /* @__PURE__ */ new Map(), a = [...s].map((l) => {
+    const u = t.get(l);
+    return u.kind !== "service" ? X(u) : (u.region && c.set(u.region, [...c.get(u.region) ?? [], l]), { ...X(u), subtitle: u.region ?? "no region set" });
+  }), o = [...c].map(([l, u]) => {
+    const p = n ? st(l, n) ? "home" : "away" : "unknown";
+    return { id: `band:${l}`, label: p === "home" ? `${l} · home` : l, tone: p, members: u };
   });
   return { cards: a, lines: [...i.values()], bands: o };
 }
 function Pt(e, t, r, s, i = !1) {
   if (i) return at(e);
   e = it(e);
-  const n = new Map(e.nodes.map((u) => [u.id, u])), c = xe(e), a = t === `area:${c}` ? I : t, o = a != null && a.startsWith("area:") ? a : null, d = a === I || a === z ? a : null, p = { byId: n, open: o, expanded: d, routesDir: c };
-  return a ? o ? tt(e, p, r, s) : d ? nt(e, p, r, s) : rt(e, p, a) : et(e, p, r, s);
+  const n = new Map(e.nodes.map((p) => [p.id, p])), c = xe(e), a = t === `area:${c}` ? I : t, o = a != null && a.startsWith("area:") ? a : null, l = a === I || a === z ? a : null, u = { byId: n, open: o, expanded: l, routesDir: c };
+  return a ? o ? tt(e, u, r, s) : l ? nt(e, u, r, s) : rt(e, u, a) : et(e, u, r, s);
 }
-function Tt(e, t, r = !1) {
+function Ft(e, t, r = !1) {
   const s = [{ id: null, label: r ? "Agents" : "System" }];
   if (!t) return s;
   if (r) {
@@ -989,12 +1005,12 @@ function Tt(e, t, r = !1) {
   if (t.startsWith("table:")) return [...s, { id: t, label: t.replace(/^table:(public\.)?/, "") }];
   const i = e.nodes.find((n) => n.id === t);
   if (!i) return s;
-  if (i.kind === "area") return [...s, { id: t, label: T(i.path ?? i.name) }];
+  if (i.kind === "area") return [...s, { id: t, label: P(i.path ?? i.name) }];
   if (i.kind === "module") {
     const n = e.nodes.find((c) => c.id === i.area);
     return [
       ...s,
-      { id: i.area ?? null, label: T((n == null ? void 0 : n.path) ?? "") },
+      { id: i.area ?? null, label: P((n == null ? void 0 : n.path) ?? "") },
       { id: t, label: i.name }
     ];
   }
@@ -1005,39 +1021,39 @@ const ot = {
   [I]: "route:",
   [z]: "job:"
 };
-function Ft(e, t) {
+function Bt(e, t) {
   const r = new Set(t[e] ?? []), s = ot[e];
   if (s)
     for (const [i, n] of Object.entries(t))
       i.startsWith(s) && n.forEach((c) => r.add(c));
   return [...r].sort();
 }
-function Bt(e) {
+function Ut(e) {
   return new Map([...(e == null ? void 0 : e.modules) ?? [], ...(e == null ? void 0 : e.areas) ?? []].map((t) => [t.id ?? t.path, t]));
 }
-function Ut(e) {
+function Ht(e) {
   return e != null && e.hot ? e.untested ? "hot-untested" : "hot" : null;
 }
-function Ht(e, t) {
+function Vt(e, t) {
   return t ? t.overlaps.filter((r) => [...r.schema, ...r.schema_and_code, ...r.code, ...r.modules].includes(e)) : [];
 }
-function Vt(e) {
+function Kt(e) {
   const t = /* @__PURE__ */ new Map();
   for (const [r, s] of Object.entries((e == null ? void 0 : e.by_node) ?? {}))
     r.startsWith("table:") && t.set(r, s.length);
   return t;
 }
-function Kt(e, t) {
+function Gt(e, t) {
   return t ? { ...e, nodes: [...e.nodes, ...t.overlay.nodes], edges: [...e.edges, ...t.overlay.edges] } : e;
 }
-function Gt(e, t) {
+function qt(e, t) {
   const r = new Set(t);
   return {
     tables: e.tables.filter((s) => r.has(s.id)),
     edges: e.edges.filter((s) => r.has(s.source) && r.has(s.target))
   };
 }
-function qt(e) {
+function Yt(e) {
   return e == null ? "none" : `${Math.round(e * 100)}%`;
 }
 function lt({
@@ -1049,33 +1065,33 @@ function lt({
   label: n,
   block: c = !1
 }) {
-  const [a, o] = g(!1), d = A(null), p = A(null), u = _(() => {
+  const [a, o] = g(!1), l = E(null), u = E(null), p = N(() => {
     var f;
-    o(!1), (f = p.current) == null || f.focus();
+    o(!1), (f = u.current) == null || f.focus();
   }, []);
-  return k(() => {
+  return x(() => {
     if (!a) return;
     const f = (h) => {
-      var w;
-      (w = d.current) != null && w.contains(h.target) || o(!1);
+      var v;
+      (v = l.current) != null && v.contains(h.target) || o(!1);
     };
     return document.addEventListener("pointerdown", f), () => document.removeEventListener("pointerdown", f);
   }, [a]), /* @__PURE__ */ m(
     "span",
     {
-      ref: d,
+      ref: l,
       style: { position: "relative", display: c ? "block" : "inline-flex", minWidth: 0, maxWidth: "100%" },
       onKeyDown: (f) => {
-        f.key === "Escape" && a && (f.stopPropagation(), u());
+        f.key === "Escape" && a && (f.stopPropagation(), p());
       },
       onBlur: (f) => {
-        var w;
+        var v;
         const h = f.relatedTarget;
-        h && !((w = d.current) != null && w.contains(h)) && o(!1);
+        h && !((v = l.current) != null && v.contains(h)) && o(!1);
       },
       children: [
         e({
-          ref: p,
+          ref: u,
           onClick: () => o((f) => !f),
           onKeyDown: (f) => {
             f.key === "ArrowDown" && !a && (f.preventDefault(), o(!0));
@@ -1085,7 +1101,7 @@ function lt({
         }),
         a && // The host's main can take focus, so a click on anything here that can't would land
         // there and close this before the click arrives. Focus stops here instead.
-        /* @__PURE__ */ l(
+        /* @__PURE__ */ d(
           "div",
           {
             className: "sm-pop",
@@ -1093,26 +1109,26 @@ function lt({
             role: i === "dialog" ? "dialog" : void 0,
             "aria-label": i === "dialog" ? n : void 0,
             style: { top: "calc(100% + 6px)", [s]: 0, width: `min(${r}px, calc(100vw - 24px))` },
-            children: t(u)
+            children: t(p)
           }
         )
       ]
     }
   );
 }
-function Yt({ label: e, children: t }) {
-  const r = A(null);
-  return k(() => {
+function Qt({ label: e, children: t }) {
+  const r = E(null);
+  return x(() => {
     var i, n;
     (n = (i = r.current) == null ? void 0 : i.querySelector('[role="menuitem"]')) == null || n.focus();
-  }, []), /* @__PURE__ */ l("div", { ref: r, role: "menu", "aria-label": e, onKeyDown: (i) => {
+  }, []), /* @__PURE__ */ d("div", { ref: r, role: "menu", "aria-label": e, onKeyDown: (i) => {
     var o;
     const n = [...((o = r.current) == null ? void 0 : o.querySelectorAll('[role="menuitem"]')) ?? []], c = n.indexOf(document.activeElement), a = i.key === "ArrowDown" ? c + 1 : i.key === "ArrowUp" ? c - 1 : null;
     a === null || n.length === 0 || (i.preventDefault(), n[(a + n.length) % n.length].focus());
   }, children: t });
 }
 function dt() {
-  return /* @__PURE__ */ l("svg", { width: "12", height: "12", viewBox: "0 0 12 12", "aria-hidden": "true", style: { flex: "none" }, children: /* @__PURE__ */ l("path", { d: "M2.5 4.5 6 8l3.5-3.5", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round" }) });
+  return /* @__PURE__ */ d("svg", { width: "12", height: "12", viewBox: "0 0 12 12", "aria-hidden": "true", style: { flex: "none" }, children: /* @__PURE__ */ d("path", { d: "M2.5 4.5 6 8l3.5-3.5", fill: "none", stroke: "currentColor", strokeWidth: "1.6", strokeLinecap: "round", strokeLinejoin: "round" }) });
 }
 function ct({
   project: e,
@@ -1120,36 +1136,36 @@ function ct({
   onBuilt: r,
   onRemove: s
 }) {
-  const i = S(), [n, c] = g(!1), [a, o] = g(null), [d, p] = g(null), u = Z(e.status, e.behind, e.ref), f = Fe(e.intent), h = async () => {
-    o("Rebuilding"), p(null);
+  const i = $(), [n, c] = g(!1), [a, o] = g(null), [l, u] = g(null), p = Z(e.status, e.behind, e.ref), f = Fe(e.intent), h = async () => {
+    o("Rebuilding"), u(null);
     try {
-      await i.post(`${x}/build`, { repo: e.repo_key }), r();
-    } catch ($) {
-      p(L($, "rebuild this project"));
+      await i.post(`${k}/build`, { repo: e.repo_key }), r();
+    } catch (S) {
+      u(L(S, "rebuild this project"));
     } finally {
       o(null);
     }
-  }, w = async () => {
-    o("Removing"), p(null);
+  }, v = async () => {
+    o("Removing"), u(null);
     try {
       await s(e.repo_key);
-    } catch ($) {
-      p(L($, "remove this project")), o(null);
+    } catch (S) {
+      u(L(S, "remove this project")), o(null);
     }
   };
   return /* @__PURE__ */ m("div", { className: "sm-manage-row", "data-testid": "manage-row", children: [
     /* @__PURE__ */ m("div", { style: { display: "flex", alignItems: "center", gap: 8, minWidth: 0 }, children: [
-      /* @__PURE__ */ l("span", { className: "sm-dot", "data-tone": u.tone }),
-      /* @__PURE__ */ l("span", { className: "sm-ellipsis", style: { fontWeight: 600 }, title: e.repo, children: e.name }),
-      t && /* @__PURE__ */ l("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: t }),
-      /* @__PURE__ */ l("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: u.label }),
-      /* @__PURE__ */ l("span", { style: { flex: 1 } }),
-      /* @__PURE__ */ l(j, { disabled: a !== null || e.status === "missing", onClick: () => void h(), children: a === "Rebuilding" ? "Rebuilding" : "Rebuild" }),
-      /* @__PURE__ */ l(j, { danger: !0, disabled: a !== null, onClick: () => c(!0), children: "Remove" })
+      /* @__PURE__ */ d("span", { className: "sm-dot", "data-tone": p.tone }),
+      /* @__PURE__ */ d("span", { className: "sm-ellipsis", style: { fontWeight: 600 }, title: e.repo, children: e.name }),
+      t && /* @__PURE__ */ d("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: t }),
+      /* @__PURE__ */ d("span", { style: { ...y, fontSize: 12, whiteSpace: "nowrap" }, children: p.label }),
+      /* @__PURE__ */ d("span", { style: { flex: 1 } }),
+      /* @__PURE__ */ d(j, { disabled: a !== null || e.status === "missing", onClick: () => void h(), children: a === "Rebuilding" ? "Rebuilding" : "Rebuild" }),
+      /* @__PURE__ */ d(j, { danger: !0, disabled: a !== null, onClick: () => c(!0), children: "Remove" })
     ] }),
-    /* @__PURE__ */ l("div", { className: "sm-mono sm-ellipsis", style: { ...y, marginTop: 4 }, title: e.repo, children: e.repo }),
+    /* @__PURE__ */ d("div", { className: "sm-mono sm-ellipsis", style: { ...y, marginTop: 4 }, title: e.repo, children: e.repo }),
     /* @__PURE__ */ m("div", { style: { ...y, fontSize: 12, marginTop: 2 }, children: [
-      E(e.tables, "table"),
+      A(e.tables, "table"),
       ", built ",
       he(e.built_at, Date.now() / 1e3)
     ] }),
@@ -1162,11 +1178,11 @@ function ct({
         " for good. The repo itself isn't touched."
       ] }),
       /* @__PURE__ */ m("div", { style: { display: "flex", gap: 8 }, children: [
-        /* @__PURE__ */ l(j, { danger: !0, disabled: a !== null, onClick: () => void w(), autoFocus: !0, children: a === "Removing" ? "Removing" : "Remove project" }),
-        /* @__PURE__ */ l(j, { disabled: a !== null, onClick: () => c(!1), children: "Keep it" })
+        /* @__PURE__ */ d(j, { danger: !0, disabled: a !== null, onClick: () => void v(), autoFocus: !0, children: a === "Removing" ? "Removing" : "Remove project" }),
+        /* @__PURE__ */ d(j, { disabled: a !== null, onClick: () => c(!1), children: "Keep it" })
       ] })
     ] }),
-    d && /* @__PURE__ */ l("p", { style: { margin: "8px 0 0" }, children: d })
+    l && /* @__PURE__ */ d("p", { style: { margin: "8px 0 0" }, children: l })
   ] });
 }
 function ut({
@@ -1176,12 +1192,12 @@ function ut({
   onBuilt: s,
   onRemoved: i
 }) {
-  const n = S(), c = async (a) => {
-    await n.post(`${x}/repo-remove`, { repo: a }), i(a);
+  const n = $(), c = async (a) => {
+    await n.post(`${k}/repo-remove`, { repo: a }), i(a);
   };
-  return /* @__PURE__ */ l(ce, { open: e, onClose: r, title: "Manage projects", maxWidth: 620, children: /* @__PURE__ */ m("div", { className: "sm-manage", style: { padding: 16, maxHeight: "60vh", overflowY: "auto" }, "data-testid": "manage-projects", children: [
-    t.map((a) => /* @__PURE__ */ l(ct, { project: a, hint: ue(a, t), onBuilt: s, onRemove: c }, a.repo_key)),
-    t.length === 0 && /* @__PURE__ */ l("p", { style: { ...y, margin: 0 }, children: "No projects yet." })
+  return /* @__PURE__ */ d(ce, { open: e, onClose: r, title: "Manage projects", maxWidth: 620, children: /* @__PURE__ */ m("div", { className: "sm-manage", style: { padding: 16, maxHeight: "60vh", overflowY: "auto" }, "data-testid": "manage-projects", children: [
+    t.map((a) => /* @__PURE__ */ d(ct, { project: a, hint: ue(a, t), onBuilt: s, onRemove: c }, a.repo_key)),
+    t.length === 0 && /* @__PURE__ */ d("p", { style: { ...y, margin: 0 }, children: "No projects yet." })
   ] }) });
 }
 const le = (e) => `system-map-project-${e}`;
@@ -1193,14 +1209,14 @@ function pt({
   onAdd: i,
   onManage: n
 }) {
-  const [c, a] = g(""), o = Me(e, c), [d, p] = g(() => Math.max(0, o.findIndex((h) => h.repo_key === t))), u = Math.min(d, o.length - 1), f = (h) => {
+  const [c, a] = g(""), o = Me(e, c), [l, u] = g(() => Math.max(0, o.findIndex((h) => h.repo_key === t))), p = Math.min(l, o.length - 1), f = (h) => {
     if (h.key === "ArrowDown" || h.key === "ArrowUp") {
       if (h.preventDefault(), o.length === 0) return;
-      p((u + (h.key === "ArrowDown" ? 1 : -1) + o.length) % o.length);
-    } else h.key === "Enter" && o[u] && (h.preventDefault(), r(), s(o[u].repo_key));
+      u((p + (h.key === "ArrowDown" ? 1 : -1) + o.length) % o.length);
+    } else h.key === "Enter" && o[p] && (h.preventDefault(), r(), s(o[p].repo_key));
   };
   return /* @__PURE__ */ m(F, { children: [
-    /* @__PURE__ */ l(
+    /* @__PURE__ */ d(
       B,
       {
         autoFocus: !0,
@@ -1208,17 +1224,17 @@ function pt({
         "aria-label": "Find a project",
         "aria-expanded": !0,
         "aria-controls": "system-map-project-list",
-        "aria-activedescendant": o[u] ? le(o[u].repo_key) : void 0,
+        "aria-activedescendant": o[p] ? le(o[p].repo_key) : void 0,
         placeholder: "Find a project",
         value: c,
         onKeyDown: f,
         onChange: (h) => {
-          a(h.target.value), p(0);
+          a(h.target.value), u(0);
         }
       }
     ),
-    /* @__PURE__ */ l("ul", { id: "system-map-project-list", className: "sm-list", role: "listbox", "aria-label": "Projects", children: o.map((h, w) => {
-      const $ = ue(h, e);
+    /* @__PURE__ */ d("ul", { id: "system-map-project-list", className: "sm-list", role: "listbox", "aria-label": "Projects", children: o.map((h, v) => {
+      const S = ue(h, e);
       return /* @__PURE__ */ m(
         "li",
         {
@@ -1226,43 +1242,43 @@ function pt({
           role: "option",
           className: "sm-row",
           "aria-selected": h.repo_key === t,
-          "data-active": w === u,
+          "data-active": v === p,
           title: h.repo,
-          onMouseEnter: () => p(w),
+          onMouseEnter: () => u(v),
           onClick: () => {
             r(), s(h.repo_key);
           },
           children: [
-            /* @__PURE__ */ l("span", { className: "sm-dot", "data-tone": Z(h.status, h.behind, h.ref).tone }),
-            /* @__PURE__ */ l("span", { className: "sm-ellipsis", style: { fontWeight: 600 }, children: h.name }),
-            $ && /* @__PURE__ */ l("span", { className: "sm-ellipsis", style: { ...y, fontSize: 12 }, children: $ }),
-            /* @__PURE__ */ l("span", { style: { ...y, fontSize: 12, marginLeft: "auto", whiteSpace: "nowrap", paddingLeft: 8 }, children: Re(h) })
+            /* @__PURE__ */ d("span", { className: "sm-dot", "data-tone": Z(h.status, h.behind, h.ref).tone }),
+            /* @__PURE__ */ d("span", { className: "sm-ellipsis", style: { fontWeight: 600 }, children: h.name }),
+            S && /* @__PURE__ */ d("span", { className: "sm-ellipsis", style: { ...y, fontSize: 12 }, children: S }),
+            /* @__PURE__ */ d("span", { style: { ...y, fontSize: 12, marginLeft: "auto", whiteSpace: "nowrap", paddingLeft: 8 }, children: Re(h) })
           ]
         },
         h.repo_key
       );
     }) }),
-    o.length === 0 && /* @__PURE__ */ l("p", { style: { ...y, margin: 0, padding: "8px 9px" }, children: "No project matches that." }),
-    /* @__PURE__ */ l("div", { className: "sm-rule" }),
-    /* @__PURE__ */ l("button", { type: "button", className: "sm-plain sm-row", onClick: i, children: "Add project" }),
-    /* @__PURE__ */ l("button", { type: "button", className: "sm-plain sm-row", onClick: n, children: "Manage projects" })
+    o.length === 0 && /* @__PURE__ */ d("p", { style: { ...y, margin: 0, padding: "8px 9px" }, children: "No project matches that." }),
+    /* @__PURE__ */ d("div", { className: "sm-rule" }),
+    /* @__PURE__ */ d("button", { type: "button", className: "sm-plain sm-row", onClick: i, children: "Add project" }),
+    /* @__PURE__ */ d("button", { type: "button", className: "sm-plain sm-row", onClick: n, children: "Manage projects" })
   ] });
 }
-function Qt({
+function Jt({
   projects: e,
   activeKey: t,
   compact: r = !1,
   onPick: s,
   onReload: i
 }) {
-  const n = e.find((u) => u.repo_key === t), [c, a] = g(null), o = () => a(null);
-  return { menu: /* @__PURE__ */ l(
+  const n = e.find((p) => p.repo_key === t), [c, a] = g(null), o = () => a(null);
+  return { menu: /* @__PURE__ */ d(
     lt,
     {
       width: 340,
       label: "Projects",
       block: r,
-      trigger: (u) => /* @__PURE__ */ m(
+      trigger: (p) => /* @__PURE__ */ m(
         "button",
         {
           type: "button",
@@ -1270,51 +1286,51 @@ function Qt({
           title: n == null ? void 0 : n.repo,
           "aria-label": `Project: ${(n == null ? void 0 : n.name) ?? ""}. Change project`,
           "data-testid": "project-menu",
-          ...u,
+          ...p,
           children: [
-            /* @__PURE__ */ l("span", { className: "sm-ellipsis", children: n == null ? void 0 : n.name }),
-            /* @__PURE__ */ l(dt, {})
+            /* @__PURE__ */ d("span", { className: "sm-ellipsis", children: n == null ? void 0 : n.name }),
+            /* @__PURE__ */ d(dt, {})
           ]
         }
       ),
-      children: (u) => /* @__PURE__ */ l(
+      children: (p) => /* @__PURE__ */ d(
         pt,
         {
           projects: e,
           activeKey: t,
-          close: u,
+          close: p,
           onPick: s,
           onAdd: () => {
-            u(), a("add");
+            p(), a("add");
           },
           onManage: () => {
-            u(), a("manage");
+            p(), a("manage");
           }
         }
       )
     }
   ), dialogs: /* @__PURE__ */ m(F, { children: [
-    /* @__PURE__ */ l(
+    /* @__PURE__ */ d(
       Ye,
       {
         open: c === "add",
         projects: e,
         onClose: o,
-        onBuilt: (u) => {
-          o(), i(), s(u);
+        onBuilt: (p) => {
+          o(), i(), s(p);
         }
       }
     ),
-    /* @__PURE__ */ l(
+    /* @__PURE__ */ d(
       ut,
       {
         open: c === "manage",
         projects: e,
         onClose: o,
         onBuilt: i,
-        onRemoved: (u) => {
-          const f = e.find((h) => h.repo_key !== u);
-          f || o(), u === t && f && s(f.repo_key), i();
+        onRemoved: (p) => {
+          const f = e.find((h) => h.repo_key !== p);
+          f || o(), p === t && f && s(f.repo_key), i();
         }
       }
     )
@@ -1322,54 +1338,55 @@ function Qt({
 }
 export {
   Le as A,
-  Vt as B,
+  $t as B,
   dt as C,
   lt as D,
   Kt as E,
   Gt as F,
   ee as G,
-  Z as H,
-  It as I,
-  Qt as J,
-  St as K,
-  Ht as L,
+  qt as H,
+  Z as I,
+  Nt as J,
+  Jt as K,
+  Ct as L,
   y as M,
-  Ct as N,
-  Be as O,
-  L as P,
-  x as Q,
-  jt as R,
-  Ee as S,
-  $t as T,
+  It as N,
+  Vt as O,
+  Be as P,
+  L as Q,
+  k as R,
+  Ae as S,
+  St as T,
   At as U,
   Lt as V,
-  Dt as W,
-  zt as X,
-  E as Y,
+  zt as W,
+  Rt as X,
+  Dt as Y,
+  A as Z,
   Y as a,
   he as b,
-  Mt as c,
-  Rt as d,
-  Ot as e,
+  Ot as c,
+  Mt as d,
+  Tt as e,
   Pt as f,
-  Bt as g,
-  Ut as h,
+  Ut as g,
+  Ht as h,
   I as i,
   z as j,
-  Yt as k,
+  Qt as k,
   Ye as l,
   yt as m,
-  wt as n,
-  xt as o,
-  qt as p,
-  vt as q,
-  Nt as r,
-  T as s,
-  Tt as t,
+  vt as n,
+  wt as o,
+  Yt as p,
+  kt as q,
+  _t as r,
+  P as s,
+  Ft as t,
   bt as u,
-  _t as v,
-  Ft as w,
-  Et as x,
-  Wt as y,
-  kt as z
+  xt as v,
+  Bt as w,
+  Wt as x,
+  Et as y,
+  jt as z
 };

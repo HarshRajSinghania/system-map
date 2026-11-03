@@ -3,6 +3,7 @@ import { Btn, Card, CardTitle, ContentSkeleton, EmptyState, Input, PageHeader, S
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { AddProject } from './AddProject'
+import { AgentsView } from './Agents'
 import './chrome'
 import { Erd } from './Erd'
 import type { Density } from './Erd'
@@ -35,8 +36,8 @@ import { SystemMap } from './SystemMap'
 import { TAB_PANEL_ID, Tabs } from './Tabs'
 import type { TabItem } from './Tabs'
 import { WorktreesView } from './Worktrees'
-import { BASE, useActiveRepo, useLive, useNode, useOverview, useProposal, useVersioned } from './model'
-import type { ExploreData, Finding, Graph, NodeInfo, Overlap, Plan, PlanStatus, Proposal, ProposalRow, Risk, SavedView, SystemGraph, WorktreeState } from './model'
+import { BASE, useActiveRepo, useAgents, useLive, useNode, useOverview, useProposal, useVersioned } from './model'
+import type { AgentRow, AgentSettings, ExploreData, Finding, Graph, NodeInfo, Overlap, Plan, PlanStatus, Proposal, ProposalRow, Risk, SavedView, SystemGraph, WorktreeState } from './model'
 import { graphOnly, overlapsOn, tablesAtWork, withProposal } from './overlay'
 import { MUTED, SystemTree, TableList } from './parts'
 
@@ -58,6 +59,7 @@ const VIEW_TABS: { value: View; label: string; counts?: string }[] = [
   { value: 'risk', label: 'Risk', counts: 'hot and untested modules' },
   { value: 'worktrees', label: 'Worktrees', counts: 'worktree collisions' },
   { value: 'findings', label: 'Findings', counts: 'findings' },
+  { value: 'agents', label: 'Agents', counts: 'agents' },
   { value: 'explore', label: 'Explore', counts: 'draft proposals' },
 ]
 
@@ -279,6 +281,9 @@ function ProjectPage({
   const planLoad = useVersioned<{ plans: Plan[] }>('/plan', repo, stamp)
   const findingLoad = useVersioned<{ findings: Finding[] }>('/findings', repo, stamp)
   const riskLoad = useVersioned<Risk>('/risk', repo, stamp)
+  const agentLoad = useAgents(repo, stamp)
+  const agentState = agentLoad.value
+  const hasAgents = (agentState?.agents.length ?? 0) > 0
   const graph = graphLoad.value
   const system = systemLoad.value
   const planList = planLoad.value
@@ -301,6 +306,9 @@ function ProjectPage({
   const [showPlans, setShowPlans] = useState(true)
   const [showRisk, setShowRisk] = useState(false)
   const [showWork, setShowWork] = useState(true)
+  const [showAgents, setShowAgents] = useState(false)
+  const [savingAgents, setSavingAgents] = useState(false)
+  const [agentError, setAgentError] = useState<string | null>(null)
   const [coverageError, setCoverageError] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [density, setDensity] = useState<Density>('names')
@@ -337,7 +345,7 @@ function ProjectPage({
   const picked = view === 'map' ? (focus && !/^(area|group):/.test(focus) ? focus : null) : view === 'data' ? selected : null
   // A proposed part doesn't exist yet, so there is nothing to look up.
   const inspected = drawn && proposal?.diff.added.some((row) => row.id === picked) ? null : picked
-  const node = useNode<NodeInfo>(inspected, repo)
+  const node = useNode<NodeInfo>(inspected, repo, stamp)
 
   const flagged = useMemo(() => {
     const counts = new Map<string, number>()
@@ -352,7 +360,7 @@ function ProjectPage({
   const collisions = (worktrees?.counts.high ?? 0) + (worktrees?.counts.medium ?? 0)
   const hotUntested = risk?.modules.filter((row) => row.hot && row.untested).length ?? 0
   const drafts = explore.value?.proposals.filter((row) => row.status === 'draft').length ?? 0
-  const viewCounts: Partial<Record<View, number>> = { findings: findings.length, plan: unbuilt, risk: hotUntested, worktrees: collisions, explore: drafts }
+  const viewCounts: Partial<Record<View, number>> = { findings: findings.length, plan: unbuilt, risk: hotUntested, worktrees: collisions, explore: drafts, agents: agentState?.agents.length }
   const overlaid: Proposal | null = drawn ? proposal : null
   const shownSystem = useMemo(() => (system ? withProposal(system, overlaid) : null), [system, overlaid])
   const shownGraph = useMemo(() => {
@@ -397,6 +405,9 @@ function ProjectPage({
   }
   const askRisk = (id: string) => {
     chat.send(`Use the system-map tools. Look at ${id} and its risk. Say what is most likely to break, and which tests would help most.`)
+  }
+  const askAgent = (row: AgentRow) => {
+    chat.send(`Use the system-map tools. Read ${row.id} with the \`agents\` tool. Say what it does on its own, where it waits for a person, and what to watch out for.`)
   }
   const askOverlap = (row: Overlap) => {
     chat.send(`Use the system-map tools. Worktrees ${row.a} and ${row.b} overlap. Check \`worktrees\`, say what will collide, and how to avoid it.`)
@@ -460,6 +471,32 @@ function ProjectPage({
       await api.post(`${BASE}/plan-status`, { repo, id, status })
       setTick((value) => value + 1)
     })
+  /** Saving rebuilds, so the new version reloads every view. The tick covers a change that needs none. */
+  const saveAgentSettings = async (settings: AgentSettings): Promise<boolean> => {
+    setSavingAgents(true)
+    setAgentError(null)
+    try {
+      await api.post(`${BASE}/agents/settings`, { repo, settings })
+      await refresh()
+      setTick((value) => value + 1)
+      return true
+    } catch (caught) {
+      setAgentError(plainError(caught, 'save the agent settings'))
+      return false
+    } finally {
+      setSavingAgents(false)
+    }
+  }
+  /** A region changes no version, so the tick reloads the map, the agents, the findings and the inspector. */
+  const saveRegion = async (id: string, region: string | null): Promise<string | null> => {
+    try {
+      await api.post(`${BASE}/regions`, { repo, id, region })
+      setTick((value) => value + 1)
+      return null
+    } catch (caught) {
+      return plainError(caught, 'save the region')
+    }
+  }
 
   const showTable = (id: string) => {
     setView('data')
@@ -468,6 +505,16 @@ function ProjectPage({
   const showOnMap = (id: string) => {
     setView('map')
     setFocus(id)
+  }
+  /** An agent lives on the Agents layer, so showing one turns the layer on. */
+  const showAgent = (id: string) => {
+    setSavedView(null)
+    setShowAgents(true)
+    showOnMap(id)
+  }
+  const toggleAgents = () => {
+    setFocus(null)
+    setShowAgents((value) => !value)
   }
   /** From the inspector, stay on the view you are on where you can. */
   const openLink = (id: string) => {
@@ -512,6 +559,14 @@ function ProjectPage({
             PlanHint(unbuilt, showPlans, () => setShowPlans((value) => !value)),
             { key: 'risk', label: 'Risk', on: showRisk, title: 'Mark hot and untested code on the map', onToggle: () => setShowRisk((value) => !value) },
             { key: 'work', label: 'Worktrees', on: showWork, title: 'Show what each worktree is changing', onToggle: () => setShowWork((value) => !value) },
+            {
+              key: 'agents',
+              label: 'Agents',
+              on: showAgents && hasAgents,
+              disabled: !hasAgents,
+              title: hasAgents ? 'Show the agents: what starts each one, who it hands work to, and the models it uses' : 'No agents yet. Point System Map at them in the Agents tab.',
+              onToggle: toggleAgents,
+            },
           ]}
         />
       </div>
@@ -542,6 +597,7 @@ function ProjectPage({
     risk: risk !== null,
     worktrees: worktrees !== null,
     findings: findingList !== null,
+    agents: agentState !== null,
     explore: explore.value !== null,
   }
   const stuck: Record<View, boolean> = {
@@ -551,6 +607,7 @@ function ProjectPage({
     risk: riskLoad.failed,
     worktrees: live.failed,
     findings: findingLoad.failed,
+    agents: agentLoad.failed,
     explore: explore.failed,
   }
   const retryView = () => {
@@ -659,6 +716,7 @@ function ProjectPage({
                     worktrees={showWork ? worktrees : null}
                     only={savedView?.level === 'map' ? savedView.resolved : null}
                     layout={savedView?.layout ?? 'left-right'}
+                    agents={showAgents && hasAgents}
                     tools={mapTools}
                     onFocus={(id) => {
                       setSavedView(null)
@@ -703,7 +761,17 @@ function ProjectPage({
                 {view === 'worktrees' && worktrees && (
                   <WorktreesView state={worktrees} checkedAt={live.checkedAt} canAsk={chat.canAsk} onShow={openNode} onAsk={askOverlap} />
                 )}
-                {view === 'findings' && findingList && <Findings findings={findings} noSchema={overview.tables.length === 0} onShow={showTable} onAsk={askFinding} />}
+                {view === 'findings' && findingList && (
+                  <Findings
+                    findings={findings}
+                    noSchema={overview.tables.length === 0}
+                    onShow={(id) => (id.startsWith('agent:') ? showAgent(id) : showTable(id))}
+                    onAsk={askFinding}
+                  />
+                )}
+                {view === 'agents' && agentState && (
+                  <AgentsView state={agentState} canAsk={chat.canAsk} saving={savingAgents} error={agentError} onShow={showAgent} onAsk={askAgent} onSave={saveAgentSettings} />
+                )}
                 {node && inspected && (
                   <Inspector
                     node={node}
@@ -712,8 +780,9 @@ function ProjectPage({
                     canAsk={chat.canAsk}
                     onAsk={askNode}
                     onAskFinding={askFinding}
-                    onOpen={openLink}
+                    onOpen={(id) => (id.startsWith('agent:') ? showAgent(id) : openLink(id))}
                     onClose={() => (view === 'data' ? setSelected(null) : setFocus(null))}
+                    onRegion={saveRegion}
                   />
                 )}
               </Card>

@@ -622,7 +622,8 @@ export function useLive<T>(path: string, repo: string | null, everyMs: number) {
   return { value: current ? held.value : null, failed: current && held.failed, checkedAt, refresh }
 }
 
-export function useNode<T = TableNode>(id: string | null, repo: string | null = null) {
+/** Load one node. A new `version` loads it again, as after a rebuild or a region you set. */
+export function useNode<T = TableNode>(id: string | null, repo: string | null = null, version?: string) {
   const api = useAppApi()
   const [node, setNode] = useState<T | null>(null)
 
@@ -643,7 +644,7 @@ export function useNode<T = TableNode>(id: string | null, repo: string | null = 
     return () => {
       live = false
     }
-  }, [api, id, repo])
+  }, [api, id, repo, version])
 
   return node
 }

@@ -7,6 +7,8 @@ export interface Layer {
   label: string
   on: boolean
   title: string
+  /** Nothing to draw yet. The title says why. */
+  disabled?: boolean
   onToggle: () => void
 }
 
@@ -16,7 +18,7 @@ export function Layers({ layers }: { layers: Layer[] }) {
     <div className="sm-layers" role="group" aria-label="Map layers">
       <span className="sm-layers-label">Layers</span>
       {layers.map((layer) => (
-        <button key={layer.key} type="button" className="sm-plain sm-layer" aria-pressed={layer.on} title={layer.title} onClick={layer.onToggle}>
+        <button key={layer.key} type="button" className="sm-plain sm-layer" aria-pressed={layer.on} title={layer.title} disabled={layer.disabled} onClick={layer.onToggle}>
           {layer.label}
         </button>
       ))}

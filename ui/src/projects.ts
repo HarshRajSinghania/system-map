@@ -38,7 +38,7 @@ export interface BuildRead {
   unread: { what: string; where: string }[]
 }
 
-export const VIEWS = ['map', 'data', 'plan', 'risk', 'worktrees', 'findings', 'explore'] as const
+export const VIEWS = ['map', 'data', 'plan', 'risk', 'worktrees', 'findings', 'agents', 'explore'] as const
 export type View = (typeof VIEWS)[number]
 
 export type Tone = 'ok' | 'warn' | 'err' | 'muted'
