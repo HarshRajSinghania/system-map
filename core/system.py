@@ -1,4 +1,4 @@
-"""Join the extractors into one system: areas, modules, routes, jobs, services and plans.
+"""Join the extractors into one system: areas, modules, routes, jobs, services, plans and agents.
 
 The result is two lists, nodes and edges. Every view and every agent tool reads them.
 """
@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 
+from . import agents
 from .extractors import drizzle, plans, typescript
 
 CRON_SCHEDULE = re.compile(r"cron\.schedule\(\s*'([\w-]+)'\s*,\s*'([^']+)'")
@@ -14,19 +15,44 @@ SQL_ROOTS = ("supabase/", "db/", "migrations/")
 #: How many area-to-area lines to keep for each pair is decided by the UI, not here.
 
 
-def job_nodes(source) -> tuple[list[dict], list[dict]]:
-    """Scheduled jobs from `cron.schedule` calls, in any SQL file that is not a test."""
+def sql_files(source) -> dict[str, str]:
+    """Every SQL file that is not a test, with its text."""
     paths = [
         path
         for root in SQL_ROOTS
         for path in source.list_files(root, (".sql",))
         if "/tests/" not in path and "/test/" not in path
     ]
-    contents = source.read_many(paths)
+    return source.read_many(paths)
+
+
+def cron_command(text: str, start: int) -> str:
+    """What a `cron.schedule` call runs: from after its schedule to its closing bracket."""
+    depth, quoted = 1, False
+    for index in range(start, len(text)):
+        char = text[index]
+        if char == "'":
+            quoted = not quoted  # A doubled quote flips twice, so it stays inside.
+        elif not quoted and char == "(":
+            depth += 1
+        elif not quoted and char == ")":
+            depth -= 1
+            if depth == 0:
+                return text[start:index]
+    return text[start : start + 400]
+
+
+def job_nodes(source, contents: dict[str, str] | None = None) -> tuple[list[dict], list[dict], dict[str, str]]:
+    """Scheduled jobs from `cron.schedule` calls, in any SQL file that is not a test.
+
+    Also returns what each job runs, so an agent it starts can be found.
+    """
+    contents = sql_files(source) if contents is None else contents
     nodes: dict[str, dict] = {}
     edges: list[dict] = []
+    commands: dict[str, str] = {}
     # Migrations first, so the evidence points at the file that really runs.
-    for path in sorted(paths, key=lambda p: (0 if "/migrations/" in p else 1, p)):
+    for path in sorted(contents, key=lambda p: (0 if "/migrations/" in p else 1, p)):
         text = contents.get(path, "")
         for match in CRON_SCHEDULE.finditer(text):
             name = match.group(1)
@@ -44,10 +70,11 @@ def job_nodes(source) -> tuple[list[dict], list[dict]]:
                 "schedule": match.group(2),
                 "evidence": [evidence],
             }
+            commands[node_id] = cron_command(text, match.end())
             call = text[match.end() : match.end() + 400]
             for url in sorted(set(API_PATH.findall(call))):
                 edges.append({"source": node_id, "target": f"route:{url}", "kind": "calls", "count": 1, "evidence": [evidence]})
-    return list(nodes.values()), edges
+    return list(nodes.values()), edges, commands
 
 
 def plan_edges(plan: dict, module_for) -> list[dict]:
@@ -68,7 +95,8 @@ def plan_edges(plan: dict, module_for) -> list[dict]:
     return list(seen.values())
 
 
-def build(source, tables: list[dict]) -> dict:
+def build(source, tables: list[dict], agent_settings: dict | None = None) -> dict:
+    """Join everything. Agents are found only when `agent_settings` point at them."""
     schema = "main" if any(table["schema"] == "main" for table in tables) else "public"
     known = {table["name"] for table in tables if table["schema"] == schema}
     # Drizzle code names its tables through the schema, even where SQL files made them.
@@ -98,7 +126,8 @@ def build(source, tables: list[dict]) -> dict:
         def module_for(path: str) -> str | None:
             return None
 
-    jobs, job_edges = job_nodes(source)
+    sql = sql_files(source)
+    jobs, job_edges, commands = job_nodes(source, sql)
     nodes += jobs
     known_nodes = {node["id"] for node in nodes}
     edges += [edge for edge in job_edges if edge["target"] in known_nodes]
@@ -106,6 +135,11 @@ def build(source, tables: list[dict]) -> dict:
     for plan in found_plans:
         edges += plan_edges(plan, module_for)
     nodes += found_plans
+    settings = agents.settings_of(agent_settings)
+    if project and settings:
+        found_agents, agent_edges = agents.find(source, project, settings, nodes, commands, sql)
+        nodes += found_agents
+        edges += agent_edges
     return {
         "nodes": nodes,
         "edges": edges,
