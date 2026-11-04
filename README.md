@@ -2,7 +2,7 @@
 
 A live map of your system, as a [Kiro Crew](https://github.com/kirodotdev/KiroCrew) app. Every view reads one model built from your repo's main branch. Agents read that model in small slices, so a design chat does not fill up with the whole system.
 
-Status: early. It reads TypeScript projects, TanStack file routes, Postgres migrations, `cron.schedule` jobs, specs in `docs/specs`, git history and worktrees, and coverage reports from Vitest, Jest or anything that writes lcov. The model format may change, and the app upgrades it when it starts.
+Status: early. It reads TypeScript projects, TanStack file routes, Postgres migrations, `cron.schedule` jobs, specs in `docs/specs`, agents you point it at, git history and worktrees, and coverage reports from Vitest, Jest or anything that writes lcov. The model format may change, and the app upgrades it when it starts.
 
 ## What it does
 
@@ -12,6 +12,9 @@ Status: early. It reads TypeScript projects, TanStack file routes, Postgres migr
 - **Risk.** Code that changes often, has many paths and few tests, worst first. It works from imports alone, and a coverage report gives it real numbers.
 - **Worktrees.** What each worktree is changing, live, and where two of them collide. A conflict comes from a real trial merge, and two worktrees on one table raise a warning. The Map, the Data model and the chat side panel show it too.
 - **Findings.** Rule checks such as a table without row level security or a foreign key with no index. Each one cites its file and line.
+- **Agents.** Point it at the list of your agents, and it shows what starts each one, who it hands work to, which models it uses, and where it waits for a person. It never guesses: an agent comes from the list you name or a module you mark.
+  - **Agents layer:** the same picture on the Map, with the models in one dashed band per region.
+  - **Regions:** say where each service runs, and set a home region. An agent whose model runs elsewhere becomes a finding, with the line that calls it.
 - **Explore.** Think about what the system could be, with nothing touching your repo.
   - **What if:** describe a change, and the Design chat drafts a proposal. You get a diff against today, what Postgres will refuse, what breaks, draft SQL, and which use case gaps it closes. Draw it on the Map or in the Data model, then go back to today.
   - **Use cases:** map what someone needs to do to its routes, tables and tests. Gaps show what is missing, untested, or more than the schema can hold.
@@ -28,6 +31,7 @@ Status: early. It reads TypeScript projects, TanStack file routes, Postgres migr
 | Routes | Next.js App Router and Pages Router, TanStack and Remix file routes |
 | Code | TypeScript and JavaScript, with `paths` and `baseUrl` from `tsconfig.json` or `jsconfig.json` |
 | Plans | `docs/specs`, `docs/plans`, `specs`, and a `BRIEF`, `PLAN`, `ROADMAP`, `PRD`, `SPEC` or `TODO` file at the top of the repo |
+| Agents | The exported list you name in the Agents tab, or modules you mark. Hand-offs, model calls and calls that ask a person are found by the names you give there. Jobs start an agent when their `cron.schedule` command, or the SQL function it calls, names it |
 
 A project needs no git history, though Risk has no churn without it, and there are no worktrees. Add project lists git repos and any folder with a `package.json`. Use a full path for anything else.
 

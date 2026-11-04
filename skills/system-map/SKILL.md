@@ -16,13 +16,16 @@ Go from small to large, and stop as soon as you can answer:
 2. `search`: find node ids by name, column or foreign key target.
 3. `node` or `neighbors`: one thing and its links. Ids look like `table:public.users`,
    `module:src/agents/inbox`, `area:src/agents`, `route:/desk`, `job:renewals`,
-   `service:anthropic` and `plan:inbox`.
+   `service:anthropic`, `plan:inbox` and `agent:triage`.
 4. `plan`: what the specs promise and what does not exist yet. Filter by status.
 5. `findings`: rule checks, such as a foreign key with no index. Filter by node or severity.
 6. `risk`: code that changes often, has many paths and few tests, worst first.
 7. `worktrees`: what each worktree is changing, live, and where two collide. Pass a node id
    to see only who is working on it.
-8. `export_all`: only for a job that truly needs the whole schema.
+8. `agents`: the project's agents, what starts each one, who it hands work to, which models it
+   uses and where they run, and where it waits for a person. Pass an id for one agent with
+   evidence.
+9. `export_all`: only for a job that truly needs the whole schema.
 
 Before you change a table or module, check `worktrees` with its id. If another worktree is on
 it, say so before you start.
@@ -50,6 +53,13 @@ count them, for the routes they open.
 
 In `worktrees`, `high` means a real trial merge conflicted, or two worktrees change one table.
 A merge is only tried on commits, so `merge: uncommitted` means nobody knows yet.
+
+Agents come only from what a person pointed System Map at, in its Agents tab. An empty
+`agents` list means nobody has, not that there are none: say so, and name its `suggestions`.
+A model called through a name the person gave links to every model the project uses, so
+`uses_model` means it can reach that model, not that it always does. Regions and the home
+region are set by a person too. Say `leaves_region` came from their tags, and never set
+agent settings or regions yourself.
 
 ## Exploring
 

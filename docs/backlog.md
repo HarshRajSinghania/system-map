@@ -5,9 +5,9 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 ## Before you start
 
 - Everything so far is on stacked branches with no `main` and no remote. Work from the tip,
-  `feat/drizzle-reader`, on version 0.8.1.
-- Run the checks in the README's Checks section. All pass at the tip: 692 Python tests and
-  74 UI tests.
+  `slice-7/agents`, on version 0.9.0.
+- Run the checks in the README's Checks section. All pass at the tip: 749 Python tests and
+  92 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
 - Look at screenshots before you commit UI. Checks have passed while pictures showed faults.
@@ -27,6 +27,8 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 | Show button | Press Hide on Map or Data model, then Show modules or Show tables | Hide was seen for real, Show was not |
 | Folder window on a Mac and Linux | Press Browse on each | Only WSL has run for real. The others are stubbed |
 | Design chat opens on its first message | Sync, open a project with no chat, leave, and look for no New Session. Then send a message | Proven only in `ui/dev`, whose chat is a stand-in |
+| Agents tab, layer and regions | Sync, set the agent list, open an agent, Show on map, set a service's region, then look in Findings | The tab and the layer were seen for real. Show on map, regions, bands, the region findings and the darker model cards (`b7abd40`) were not |
+| Agents in the side panel and dark theme | Open the panel tab on an agent, and switch the theme | Not looked at yet |
 
 ## Small fixes
 
@@ -50,6 +52,9 @@ From the scope document. Each needs a short spec first, kept as an artifact like
 | C6 | Sub-agents get ids and paths, write results to files and return a path | Soon | See `docs/context-management.md` |
 | M6 | Scheduled refresh | Later | Crons and `permissions.spawn` are in the SDK, not tried |
 | E6 | Agents propose Intent edits for you to accept | Later | Drafts work for proposals only. Only a person may accept |
+| G1 | Find my agents: the Design chat reads the code and drafts the agent settings for you to accept | Next | Asked for after slice 7. The backend has no model, so it goes through the chat, as E6 does |
+| G2 | Agents from SDKs: Claude Agent SDK, OpenAI Agents, LangGraph, Mastra | Soon | Found with no settings. Hold each reader to the SDK's own types |
+| G3 | Evals and guardrails beside each agent | Later | No sign in code says what is an eval or a budget yet. Cut from slice 7 |
 
 ## Store listing
 
@@ -57,7 +62,7 @@ From the scope document. Each needs a short spec first, kept as an artifact like
 |---|---|
 | Hero image and screenshot | `docs/platform-notes.md`, App Store. The 512x512 icon is done |
 | Public repo with a `main` branch | Decide how the stacked branches land on `main`. Keep `ui/dist` committed |
-| Publish check of all git history | Scan every commit and message, not just the tip |
+| Publish check of all git history | Scan every commit and message, not just the tip. The first copy of the slice 7 spec named a private project, in `a0fdf04` and the commits after it until task 7 |
 | Listing request | An issue on the Kiro Crew repo. A maintainer writes the catalog entry |
 
 ## Known limits
@@ -79,6 +84,11 @@ These are named on screen, not hidden. Each is a choice, not a bug.
 | MySQL and MongoDB | `core/extractors/` | Each needs its own module behind the boundary |
 | Limits on what-ifs are Postgres only | `limits_apply` in `core/explore.py` | They are proven against real Postgres. SQLite needs its own sweep |
 | SQL built from pieces at runtime | `sql_uses` in `core/extractors/typescript.py` | Only SQL seen as one whole string links to its tables |
+| Agents need settings | `settings_of` in `core/agents.py` | With none, there are no agents, only suggestions. G1 and G2 are the way out |
+| A model called through a passed-in object | `_calls` in `core/agents.py` | It links to every model the project uses, since text can't tell which one is passed in |
+| An agent that shares its file with others | `_regions` in `core/agents.py` | It gets only its own object, and none of that file's imports |
+| Asks you, or only tells you | `asks_you` in `core/agents.py` | A call to an asks-you name counts either way. Telling the two apart needs the call's arguments |
+| A job that starts an agent two calls deep | `find` in `core/agents.py` | Only the job's command and the one SQL function it calls are read |
 
 ## Screen walks
 
