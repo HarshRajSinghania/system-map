@@ -980,7 +980,7 @@ function at(e) {
   }
   const n = e.home_region ?? null, c = /* @__PURE__ */ new Map(), a = [...s].map((l) => {
     const u = t.get(l);
-    return u.kind !== "service" ? X(u) : (u.region && c.set(u.region, [...c.get(u.region) ?? [], l]), { ...X(u), subtitle: u.region ?? "no region set" });
+    return u.kind !== "service" ? X(u) : (u.region && c.set(u.region, [...c.get(u.region) ?? [], l]), { ...X(u), subtitle: u.region ?? "no region set", strong: !0 });
   }), o = [...c].map(([l, u]) => {
     const p = n ? st(l, n) ? "home" : "away" : "unknown";
     return { id: `band:${l}`, label: p === "home" ? `${l} · home` : l, tone: p, members: u };

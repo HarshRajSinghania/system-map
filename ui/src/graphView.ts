@@ -9,6 +9,8 @@ export interface Card {
   status?: string
   /** A short flag beside the subtitle, such as `asks you`. */
   badge?: string
+  /** Drawn darker, as the models are on the Agents layer. */
+  strong?: boolean
 }
 
 /** One line on the map, after rolling many links up into one. */
@@ -294,7 +296,7 @@ export function agentsView(system: SystemGraph): MapView {
     const node = byId.get(id) as SystemNode
     if (node.kind !== 'service') return cardFor(node)
     if (node.region) regions.set(node.region, [...(regions.get(node.region) ?? []), id])
-    return { ...cardFor(node), subtitle: node.region ?? 'no region set' }
+    return { ...cardFor(node), subtitle: node.region ?? 'no region set', strong: true }
   })
   const bands: Band[] = [...regions].map(([region, members]) => {
     const tone = !home ? 'unknown' : sameRegion(region, home) ? 'home' : 'away'

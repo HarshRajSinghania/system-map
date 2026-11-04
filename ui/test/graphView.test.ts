@@ -218,6 +218,11 @@ test('an agent card says its jobs, when it is not built, and when it asks you', 
   assert.equal(cards.get('service:anthropic')?.subtitle, 'US')
 })
 
+test('models stand out on the Agents layer, and only there', () => {
+  assert.equal(agentsView(withAgents).cards.find((card) => card.id === 'service:anthropic')?.strong, true)
+  assert.equal(buildView(withAgents, null, 33, true).cards.find((card) => card.id === 'service:anthropic')?.strong, undefined)
+})
+
 test('services fall into one band per region, named against the home region', () => {
   const bands = agentsView(withAgents).bands ?? []
   assert.deepEqual(

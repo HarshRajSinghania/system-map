@@ -81,7 +81,8 @@ const SystemCard = memo(function SystemCard({ data }: NodeProps<CardNode>) {
   const outside = card.kind === 'service'
   const crowded = work.length > 1
   const accent = proposed ? 'var(--accent, #2563eb)' : planned ? STATUS_COLOR[card.status ?? 'unclear'] : crowded ? 'var(--warn-text, #b45309)' : undefined
-  const line = focused ? 'var(--accent, #2563eb)' : (accent ?? 'var(--border-strong, #a1a1aa)')
+  const line = focused ? 'var(--accent, #2563eb)' : (accent ?? (card.strong ? 'var(--text, #18181b)' : 'var(--border-strong, #a1a1aa)'))
+  const weight = focused || crowded ? 2 : card.strong ? 1.5 : 1
   return (
     <div
       title={work.length ? `Worktrees here: ${work.join(', ')}` : undefined}
@@ -97,7 +98,7 @@ const SystemCard = memo(function SystemCard({ data }: NodeProps<CardNode>) {
         borderRadius: outside ? 29 : 8,
         background: card.kind === 'group' ? 'var(--bg-hover, #f4f4f5)' : 'var(--card, #fff)',
         color: 'var(--text, #18181b)',
-        border: `${focused || crowded ? 2 : 1}px ${planned || outside ? 'dashed' : 'solid'} ${line}`,
+        border: `${weight}px ${planned || outside ? 'dashed' : 'solid'} ${line}`,
         boxShadow: [band ? `inset 5px 0 0 ${BAND[band].color}` : '', focused ? '0 0 0 3px var(--accent-subtle, rgba(37,99,235,.2))' : ''].filter(Boolean).join(', ') || undefined,
       }}
     >
@@ -321,7 +322,7 @@ function Diagram({
     ],
     [view, places, placed],
   )
-  useFrame(rects, inspecting ? INSPECTOR_ROOM : 0)
+  useFrame(rects, inspecting ? INSPECTOR_ROOM : 0, agents && !only ? 'top' : 'center')
   const kinds = useMemo(() => new Set(view.lines.map((line) => (line.leaves ? 'leaves_region' : line.kind))), [view])
 
   const open = (id: string) => {

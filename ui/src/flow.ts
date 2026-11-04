@@ -51,7 +51,11 @@ export function useCanvasWidth(): number {
   return useStore((state) => state.width)
 }
 
-export function useFrame(rects: Rect[], room: number) {
+/** Room above a picture pinned to the top, below the tools. */
+const TOP_GAP = 16
+
+/** `top` pins a picture that fits at full size under the tools, instead of in the middle. */
+export function useFrame(rects: Rect[], room: number, align: 'center' | 'top' = 'center') {
   const flow = useReactFlow()
   const width = useStore((state) => state.width)
   const height = useStore((state) => state.height)
@@ -72,7 +76,8 @@ export function useFrame(rects: Rect[], room: number) {
       1,
       0.05,
     )
-    void flow.setViewport({ ...view, y: view.y + TOP_ROOM }, { duration: moved.current ? 200 : 0 })
+    const y = align === 'top' ? Math.min(view.y, TOP_GAP - top * view.zoom) : view.y
+    void flow.setViewport({ ...view, y: y + TOP_ROOM }, { duration: moved.current ? 200 : 0 })
     moved.current = true
-  }, [flow, rects, room, width, height])
+  }, [flow, rects, room, width, height, align])
 }
