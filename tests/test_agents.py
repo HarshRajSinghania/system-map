@@ -168,6 +168,20 @@ class Listed(Fixture):
         status = {name: nodes[f"agent:{name}"]["status"] for name in ("sorter", "reader", "mail", "digest")}
         self.assertEqual(status, {"sorter": "built", "reader": "built", "mail": "planned", "digest": "empty"})
 
+    def test_a_dated_spec_or_a_spec_titled_after_the_agent_makes_it_planned(self):
+        (self.repo / "docs" / "specs" / "2026-11-10-digest.md").write_text("# Weekly\n")
+        _, nodes, _ = self.build()
+        self.assertEqual(nodes["agent:digest"]["status"], "planned")
+        (self.repo / "docs" / "specs" / "2026-11-10-digest.md").unlink()
+        (self.repo / "docs" / "specs" / "next.md").write_text("# Digest (agent)\n")
+        _, nodes, _ = self.build()
+        self.assertEqual(nodes["agent:digest"]["status"], "planned")
+
+    def test_a_spec_that_only_shares_a_word_does_not(self):
+        (self.repo / "docs" / "specs" / "digest-emails.md").write_text("# Digest emails\n")
+        _, nodes, _ = self.build()
+        self.assertEqual(nodes["agent:digest"]["status"], "empty")
+
     def test_a_list_file_that_is_not_there_finds_none(self):
         joined, _, _ = self.build({**SETTINGS, "list": "src/nope.ts"})
         self.assertFalse([n for n in joined["nodes"] if n["kind"] == "agent"])
@@ -212,6 +226,14 @@ class Models(Fixture):
         for name in ("mail", "digest"):
             self.assertFalse([key for key in edges if key[0] == f"agent:{name}" and key[1] == "uses_model"], name)
 
+    def test_one_agent_written_in_the_list_does_not_take_the_lists_imports(self):
+        registry = self.repo / "src" / "agents" / "registry.ts"
+        registry.write_text(registry.read_text().replace('  { name: "digest", handlers: {} },\n', ""))
+        _, nodes, edges = self.build()
+        self.assertNotIn("agent:digest", nodes)
+        self.assertFalse([key for key in edges if key[0] == "agent:mail" and key[1] == "uses_model"])
+        self.assertIn(("agent:reader", "uses_model", "service:anthropic"), edges)
+
     def test_a_definition_of_the_name_is_not_a_call(self):
         _, _, edges = self.build({**SETTINGS, "model_calls": ["model", "done"]})
         line = line_of("src/agents/handlers/sorter.ts", "async function done")
@@ -221,6 +243,29 @@ class Models(Fixture):
     def test_no_model_calls_set_means_imports_only(self):
         _, _, edges = self.build({**SETTINGS, "model_calls": []})
         self.assertNotIn(("agent:sorter", "uses_model", "service:anthropic"), edges)
+
+
+class Calls(unittest.TestCase):
+    """What counts as a call to a name, read straight from one file."""
+
+    def lines(self, text: str) -> list[int]:
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "a.ts").write_text(text)
+            files = agents._Files(TreeSource(Path(tmp)), {"a.ts"}, [])
+            files.load(["a.ts"])
+            return agents._calls(files, ["ask"], "a.ts", 0, len(text))
+
+    def test_a_call_that_opens_a_block_or_follows_a_comma_counts(self):
+        self.assertEqual(self.lines("if (unsure) {\n  ask({ title: 'x' })\n}\n"), [2])
+        self.assertEqual(self.lines("then(() => { ask(x) })\n"), [1])
+        self.assertEqual(self.lines("f(a, ask(x))\n"), [1])
+        self.assertEqual(self.lines("const y = ready ? ask(x) : later\n"), [1])
+
+    def test_a_definition_or_a_typed_signature_does_not(self):
+        self.assertEqual(self.lines("interface Q {\n  ask(p: string): Promise<string>;\n  ask2(): void\n}\n"), [])
+        self.assertEqual(self.lines("interface Q {\n  ask(p: string): Promise<string>\n}\n"), [])
+        self.assertEqual(self.lines("const o = {\n  ask(p) {\n    return p\n  },\n}\n"), [])
+        self.assertEqual(self.lines("async function ask(p) {}\n"), [])
 
 
 class AsksYou(Fixture):

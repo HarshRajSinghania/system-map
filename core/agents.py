@@ -25,6 +25,9 @@ IDENT = r"[A-Za-z_$][\w$]*"
 LIST = re.compile(rf"\bexport\s+(?:(?:const|let|var)\s+{IDENT}\s*(?::[^=;]*)?=|default)\s*")
 #: A word before `name(` that makes it a definition, not a call.
 NOT_CALLS = {"function", "async", "get", "set", "static", "public", "private", "protected"}
+#: After a name's `)`: a return type, then the end of a signature or the start of a body.
+SIGNATURE = re.compile(r"\s*:\s*[A-Za-z_$][\w$.]*\s*(?:<[^;{()]*>)?\s*(?:\[\])*\s*[;{\n]")
+DATED = re.compile(r"^\d{4}-\d{2}-\d{2}-")
 SQL_CALL = re.compile(r"\b(?:SELECT|PERFORM)\s+(?:\"?\w+\"?\.)?\"?(\w+)\"?\s*\(", re.I)
 SQL_FUNCTION = re.compile(r"\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:\"?\w+\"?\.)?\"?(\w+)\"?\s*\(", re.I)
 SQL_BODY = re.compile(r"\bAS\s+(\$\w*\$)", re.I)
@@ -381,8 +384,8 @@ def _marked(files: _Files, settings: dict, nodes: dict[str, dict], code_root: st
 def _regions(files: _Files, agents: list[dict], imports: dict[str, set[str]], list_file: str) -> dict[str, list[tuple[str, int, int]]]:
     """Where each agent's own code is: its file and what that file imports, but nothing shared.
 
-    A file two agents import belongs to neither. Where two agents are defined in one file,
-    each gets only its own object.
+    A file two agents import belongs to neither. Where two agents are defined in one file, or
+    an agent is written in the list itself, each gets only its own object.
     """
     defined: dict[str, int] = {}
     for agent in agents:
@@ -399,7 +402,7 @@ def _regions(files: _Files, agents: list[dict], imports: dict[str, set[str]], li
             regions[agent["name"]] = [(path, 0, len(files.cache[path][0])) for path in agent["files"] if path in files.cache]
             continue
         path = agent["path"]
-        if defined[path] > 1:
+        if defined[path] > 1 or path == list_file:
             regions[agent["name"]] = [(path, *agent["span"])]
             continue
         own = [path] + sorted(
@@ -443,10 +446,13 @@ def _calls(files: _Files, call_names: list[str], path: str, start: int, end: int
         before = code[: match.start()].rstrip()
         if not before.endswith("."):
             word = re.search(r"([\w$]+)\s*$", before)
-            if (word and word.group(1) in NOT_CALLS) or before.endswith(("{", ",")):
+            if word and word.group(1) in NOT_CALLS:
                 continue
-        if re.match(r"\s*\{", code[_close(code, match.end() - 1) + 1 :]):
+        after = code[_close(code, match.end() - 1) + 1 :]
+        if re.match(r"\s*\{", after):
             continue  # A method's body follows.
+        if not before.endswith("?") and SIGNATURE.match(after):
+            continue  # A typed signature, as in an interface: `name(x): Type;`.
         lines.append(_line(text, match.start()))
     return lines
 
@@ -501,7 +507,13 @@ def find(source, project, settings: dict, nodes: list[dict], job_calls: dict[str
     names = {agent["name"] for agent in agents}
     regions = _regions(files, agents, project.imports, settings["list"])
     services = {node["name"]: node["id"] for node in nodes if is_ai_service(node)}
-    plans = {_slug(node["id"].split(":", 1)[1]) for node in nodes if node["kind"] == "plan"}
+    plans = set()
+    for node in nodes:
+        if node["kind"] == "plan":
+            stem = node["id"].split(":", 1)[1]
+            # The spec's file name, without a date in front, or its title, without `(agent)`.
+            plans |= {_slug(DATED.sub("", stem)), _slug(node["name"]), _slug(re.sub(r"\s*\([^)]*\)", "", node["name"]))}
+    plans.discard("")
     edges = _Edges()
 
     found = []
@@ -516,12 +528,14 @@ def find(source, project, settings: dict, nodes: list[dict], job_calls: dict[str
                     edges.add(node_id, service, "uses_model", f"{path}:{line}")
             asks += [f"{path}:{line}" for line in _calls(files, settings["asks_you_calls"], path, start, end)]
         # Only whole files lead on through their imports: an agent that shares its file with
-        # others can't claim what that file imports for them all.
+        # others can't claim what that file imports for them all. The walk stops at the list,
+        # and at other agents' own files, whose models are theirs.
         whole = [path for path, start, end in regions[agent["name"]] if start == 0 and end == len(files.cache[path][0])]
-        reach, queue = set(), whole
+        theirs = {other["path"] for other in agents if other["source"] == "list" and other["name"] != agent["name"]} | {settings["list"]}
+        reach, queue = set(), list(whole)
         while queue:
             path = queue.pop()
-            if path in reach or ts.TEST_FILE.search(path):
+            if path in reach or ts.TEST_FILE.search(path) or (path in theirs and path not in whole):
                 continue
             reach.add(path)
             queue += [target for target in project.imports.get(path, ()) if target.endswith(ts.CODE_SUFFIXES)]
