@@ -307,6 +307,8 @@ function ProjectPage({
   const [showRisk, setShowRisk] = useState(false)
   const [showWork, setShowWork] = useState(true)
   const [showAgents, setShowAgents] = useState(false)
+  /** Where the map was when the Agents layer went on. */
+  const beforeAgents = useRef<string | null>(null)
   const [savingAgents, setSavingAgents] = useState(false)
   const [agentError, setAgentError] = useState<string | null>(null)
   const [coverageError, setCoverageError] = useState<string | null>(null)
@@ -508,13 +510,22 @@ function ProjectPage({
   }
   /** An agent lives on the Agents layer, so showing one turns the layer on. */
   const showAgent = (id: string) => {
+    if (!showAgents) beforeAgents.current = view === 'map' ? focus : null
     setSavedView(null)
     setShowAgents(true)
     showOnMap(id)
   }
+  /** Turning the layer off goes back to where you were before it was on. */
   const toggleAgents = () => {
-    setFocus(null)
-    setShowAgents((value) => !value)
+    if (showAgents) {
+      setFocus(beforeAgents.current)
+      beforeAgents.current = null
+    } else {
+      beforeAgents.current = focus
+      setSavedView(null)
+      setFocus(null)
+    }
+    setShowAgents(!showAgents)
   }
   /** From the inspector, stay on the view you are on where you can. */
   const openLink = (id: string) => {
