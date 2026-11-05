@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 
 from .extractors import typescript as ts
+from .sources import is_migration
 
 #: Services that are models. Names come from `SERVICE_PACKAGES`, hosts from URLs the code calls.
 AI_SERVICE_NAMES = frozenset({"Anthropic", "OpenAI", "Google AI", "Google Vertex AI"})
@@ -24,7 +25,9 @@ IDENT = r"[A-Za-z_$][\w$]*"
 #: `export const AGENTS: readonly Agent[] =` or `export default`, before the `[`.
 LIST = re.compile(rf"\bexport\s+(?:(?:const|let|var)\s+{IDENT}\s*(?::[^=;]*)?=|default)\s*")
 #: A word before `name(` that makes it a definition, not a call.
-NOT_CALLS = {"function", "async", "get", "set", "static", "public", "private", "protected"}
+NOT_CALLS = {"function", "async", "get", "set", "static", "public", "private", "protected", "abstract", "override", "declare", "accessor"}
+#: A name used as a value: not a key before `:`, and not a member after `.`.
+NAME_USE = re.compile(rf"(?<![\w$.])({IDENT})(?![\w$])(?!\s*:)")
 #: After a member's `)`: a return type, then the end of the member or the start of its body.
 SIGNATURE = re.compile(r"\s*:\s*[A-Za-z_$][\w$.]*\s*(?:<[^;{()]*>)?\s*(?:\[\])*\s*[;{},\n]")
 DATED = re.compile(r"^\d{4}-\d{2}-\d{2}-")
@@ -421,10 +424,27 @@ def _regions(files: _Files, agents: list[dict], imports: dict[str, set[str]], li
     for agent in agents:
         if agent["source"] == "list":
             defined[agent["path"]] = defined.get(agent["path"], 0) + 1
-    imported: dict[str, int] = {}
-    for path in defined:
-        for target in imports.get(path, ()):
-            imported[target] = imported.get(target, 0) + 1
+    # First, what each agent could call its own. Then a file more than one could claim is taken out.
+    could: dict[str, list[str]] = {}
+    spans: dict[str, tuple[str, int, int]] = {}
+    for agent in agents:
+        if agent["source"] == "module":
+            continue
+        path = agent["path"]
+        if defined[path] > 1 or path == list_file:
+            start, end = agent["span"]
+            spans[agent["name"]] = (path, start, end)
+            bound = files.bindings(path)
+            found = {bound[match.group(1)] for match in NAME_USE.finditer(files.cache[path][2], start, end) if match.group(1) in bound}
+        else:
+            found = set(imports.get(path, ()))
+        could[agent["name"]] = sorted(
+            target for target in found if target not in defined and target != list_file and target.endswith(ts.CODE_SUFFIXES) and not ts.TEST_FILE.search(target)
+        )
+    claims: dict[str, int] = {}
+    for targets in could.values():
+        for target in targets:
+            claims[target] = claims.get(target, 0) + 1
     regions: dict[str, list[tuple[str, int, int]]] = {}
     for agent in agents:
         if agent["source"] == "module":
@@ -432,26 +452,10 @@ def _regions(files: _Files, agents: list[dict], imports: dict[str, set[str]], li
             regions[agent["name"]] = [(path, 0, len(files.cache[path][0])) for path in agent["files"] if path in files.cache]
             continue
         path = agent["path"]
-        if defined[path] > 1 or path == list_file:
-            start, end = agent["span"]
-            bound = files.bindings(path)
-            used = set(re.findall(IDENT, files.cache[path][2][start:end]))
-            extra = sorted(
-                {bound[name] for name in used if name in bound}
-                - set(defined)
-                - {list_file}
-            )
-            extra = [target for target in extra if target.endswith(ts.CODE_SUFFIXES) and not ts.TEST_FILE.search(target)]
-            files.load(extra)
-            regions[agent["name"]] = [(path, start, end)] + [(target, 0, len(files.cache[target][0])) for target in extra if target in files.cache]
-            continue
-        own = [path] + sorted(
-            target
-            for target in imports.get(path, ())
-            if imported.get(target) == 1 and target not in defined and target != list_file and target.endswith(ts.CODE_SUFFIXES) and not ts.TEST_FILE.search(target)
-        )
-        files.load(own)
-        regions[agent["name"]] = [(target, 0, len(files.cache[target][0])) for target in own if target in files.cache]
+        mine = [target for target in could[agent["name"]] if claims[target] == 1]
+        files.load([path, *mine])
+        head = [spans[agent["name"]]] if agent["name"] in spans else [(path, 0, len(files.cache[path][0]))]
+        regions[agent["name"]] = head + [(target, 0, len(files.cache[target][0])) for target in mine if target in files.cache]
     return regions
 
 
@@ -493,8 +497,13 @@ def _calls(files: _Files, call_names: list[str], path: str, start: int, end: int
             continue  # A method's body follows.
         # Only a name where a member starts can be a typed signature, as in an interface:
         # `name(x): Type;`. After `.`, `await`, `?` or `=` it is a call, whatever follows.
+        # A generator member, `*name()`, starts there too. A new line starts a member unless
+        # the line before ends a choice's `?` or `:`.
         lead = code[: match.start()].rstrip(" \t")
-        if (not lead or lead[-1] in "{;,\n") and SIGNATURE.match(after):
+        if lead.endswith("*"):
+            lead = lead[:-1].rstrip(" \t")
+        member = not lead or lead[-1] in "{;," or (lead[-1] == "\n" and not lead.rstrip().endswith(("?", ":")))
+        if member and SIGNATURE.match(after):
             continue
         lines.append(_line(text, match.start()))
     return lines
@@ -521,7 +530,7 @@ def _ai_uses(files: _Files, path: str, services: dict[str, str]) -> list[tuple[s
 def _sql_functions(sql: dict[str, str]) -> dict[str, str]:
     """Each SQL function's body. A later migration's definition wins."""
     bodies: dict[str, str] = {}
-    for path in sorted(sql, key=lambda p: (1 if "/migrations/" in p else 0, p)):
+    for path in sorted(sql, key=lambda p: (1 if is_migration(p) else 0, p)):
         text = sql[path]
         for match in SQL_FUNCTION.finditer(text):
             header_end = text.find(";", match.end())
@@ -554,7 +563,8 @@ def find(source, project, settings: dict, nodes: list[dict], job_calls: dict[str
     for node in nodes:
         if node["kind"] == "plan":
             stem = node["id"].split(":", 1)[1]
-            # The spec's file name, without a date in front, or its title, without `(agent)`.
+            # The spec's file name, without a date in front, or its title, with or without any part in
+            # brackets, such as `(agent)`.
             plans |= {_slug(DATED.sub("", stem)), _slug(node["name"]), _slug(re.sub(r"\s*\([^)]*\)", "", node["name"]))}
     plans.discard("")
     edges = _Edges()

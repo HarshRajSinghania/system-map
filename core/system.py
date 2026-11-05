@@ -8,6 +8,7 @@ import re
 
 from . import agents
 from .extractors import drizzle, plans, typescript
+from .sources import is_migration
 
 CRON_SCHEDULE = re.compile(r"cron\.schedule\(\s*'([\w-]+)'\s*,\s*'([^']+)'")
 API_PATH = re.compile(r"/api/[\w-]+")
@@ -54,12 +55,12 @@ def job_nodes(source, contents: dict[str, str] | None = None) -> tuple[list[dict
     # Migrations first, oldest to newest, so the evidence points at the file that really runs.
     # A later migration that schedules a job again replaces all of it. Other SQL files, such as
     # a full setup script, only add jobs no migration has.
-    for path in sorted(contents, key=lambda p: (0 if "/migrations/" in p else 1, p)):
+    for path in sorted(contents, key=lambda p: (0 if is_migration(p) else 1, p)):
         text = contents.get(path, "")
         for match in CRON_SCHEDULE.finditer(text):
             name = match.group(1)
             node_id = f"job:{name}"
-            if node_id in nodes and "/migrations/" not in path:
+            if node_id in nodes and not is_migration(path):
                 continue
             line = text.count("\n", 0, match.start()) + 1
             evidence = f"{path}:{line}"

@@ -150,6 +150,11 @@ class TreeSource:
         return {path: (self.root / path).read_text(encoding="utf-8", errors="replace") for path in paths}
 
 
+def is_migration(path: str) -> bool:
+    """A SQL file in a `migrations` folder, at the top of the repo or below it."""
+    return path.startswith("migrations/") or "/migrations/" in path
+
+
 def package_dependencies(source) -> dict[str, set[str]]:
     """What package.json asks for, split into what ships and what is only for development."""
     if "package.json" not in source.blobs:

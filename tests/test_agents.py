@@ -257,6 +257,31 @@ class Models(Fixture):
         self.assertEqual(edges[("agent:mail", "uses_model", "service:anthropic")]["evidence"], ["src/agents/ai.ts:1"])
         self.assertFalse([key for key in edges if key[0] == "agent:digest" and key[1] == "uses_model"])
 
+    def test_a_helper_an_agent_in_the_list_shares_belongs_to_nobody(self):
+        # mail, written in the list, names retry from shared.ts, which sorter and reader import too.
+        registry = self.repo / "src" / "agents" / "registry.ts"
+        text = registry.read_text().replace('import { sorterAgent } from "./handlers/sorter";\n', 'import { sorterAgent } from "./handlers/sorter";\nimport { retry } from "./shared";\n')
+        registry.write_text(text.replace('description: "Reads your email.", handlers: {}', 'description: "Reads your email.", handlers: { "mail.retry": retry }'))
+        _, _, edges = self.build()
+        self.assertNotIn(("agent:mail", "hands_off_to", "agent:sorter"), edges)
+        self.assertIn(("module:src/agents", "starts", "agent:sorter"), edges)
+
+    def test_a_key_named_like_an_import_does_not_pull_it_in(self):
+        registry = self.repo / "src" / "agents" / "registry.ts"
+        registry.write_text('import { summarize as handlers } from "./ai";\n' + registry.read_text())
+        _, _, edges = self.build({**SETTINGS, "model_calls": []})
+        self.assertFalse([key for key in edges if key[0] in ("agent:mail", "agent:digest") and key[1] == "uses_model"])
+
+    def test_the_walk_stops_at_the_list(self):
+        # mail's handler imports the list, which imports a model helper no agent names.
+        (self.repo / "src" / "agents" / "mail").mkdir()
+        (self.repo / "src" / "agents" / "mail" / "read.ts").write_text('import { AGENTS } from "../registry";\nexport const readMail = () => AGENTS;\n')
+        registry = self.repo / "src" / "agents" / "registry.ts"
+        text = 'import { summarize } from "./ai";\nimport { readMail } from "./mail/read";\n' + registry.read_text()
+        registry.write_text(text.replace('description: "Reads your email.", handlers: {}', 'description: "Reads your email.", handlers: { "mail.read": readMail }'))
+        _, _, edges = self.build({**SETTINGS, "model_calls": []})
+        self.assertFalse([key for key in edges if key[0] == "agent:mail" and key[1] == "uses_model"])
+
     def test_the_walk_stops_at_another_agents_file(self):
         # sorter.ts imports reader.ts, whose model is reader's, not sorter's.
         sorter = self.repo / "src" / "agents" / "handlers" / "sorter.ts"
@@ -305,6 +330,8 @@ class Calls(unittest.TestCase):
         self.assertEqual(self.lines("unsure ? ctx.ask(x) : fallback\n"), [1])
         self.assertEqual(self.lines("const y = unsure\n  ? await ctx.ask(x)\n  : auto\n"), [2])
         self.assertEqual(self.lines("const y = sure ? auto : ctx.ask(x);\n"), [1])
+        self.assertEqual(self.lines("const y = cond ?\n  ask(x)\n  : fallback\n"), [2])
+        self.assertEqual(self.lines("const y = cond\n  ? auto\n  :\n  ask(x)\n"), [4])
 
     def test_a_definition_or_a_typed_signature_does_not(self):
         self.assertEqual(self.lines("interface Q {\n  ask(p: string): Promise<string>;\n  ask2(): void\n}\n"), [])
@@ -314,6 +341,13 @@ class Calls(unittest.TestCase):
         self.assertEqual(self.lines("type Ctx = { ask(q: string): string, other(): void }\n"), [])
         self.assertEqual(self.lines("const o = {\n  ask(p) {\n    return p\n  },\n}\n"), [])
         self.assertEqual(self.lines("async function ask(p) {}\n"), [])
+        self.assertEqual(self.lines("interface Q {\n  other(): Promise<string>\n  ask(p: string): Promise<string>\n}\n"), [])
+
+    def test_abstract_override_and_generator_members_are_not_calls(self):
+        self.assertEqual(self.lines("abstract class A {\n  abstract ask(q: string): Promise<string>;\n}\n"), [])
+        self.assertEqual(self.lines("class B extends A {\n  override ask(q: string): Promise<string> {\n    return q\n  }\n}\n"), [])
+        self.assertEqual(self.lines("class C {\n  *ask(q: string): Generator<string> {\n    yield q\n  }\n}\n"), [])
+        self.assertEqual(self.lines("const n = x * ask(y)\n"), [1])
 
 
 class AsksYou(Fixture):
@@ -429,6 +463,20 @@ class Reading(unittest.TestCase):
         self.assertNotIn("'reader'", commands["job:nightly"])
         self.assertEqual((nodes[0]["schedule"], nodes[0]["evidence"]), ("0 5 * * *", ["supabase/migrations/005_b.sql:1"]))
         self.assertEqual([edge["target"] for edge in edges], ["route:/api/new"])
+
+    def test_a_migrations_folder_at_the_top_of_the_repo_counts_too(self):
+        files = {
+            "migrations/001_a.sql": "SELECT cron.schedule('nightly', '0 1 * * *', 'SELECT q(''reader'')');\nCREATE FUNCTION f() RETURNS void AS $$ SELECT 'old' $$;",
+            "migrations/005_b.sql": "SELECT cron.schedule('nightly', '0 5 * * *', 'SELECT q(''mail'')');\nCREATE OR REPLACE FUNCTION f() RETURNS void AS $$ SELECT 'new' $$;",
+            "db/setup.sql": "CREATE FUNCTION f() RETURNS void AS $$ SELECT 'setup' $$;",
+        }
+        for name, text in files.items():
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).write_text(text)
+        nodes, _, commands = system.job_nodes(TreeSource(self.root))
+        self.assertEqual((nodes[0]["schedule"], nodes[0]["evidence"]), ("0 5 * * *", ["migrations/005_b.sql:1"]))
+        self.assertIn("'mail'", commands["job:nightly"])
+        self.assertEqual(agents._sql_functions(system.sql_files(TreeSource(self.root)))["f"].strip(), "SELECT 'new'")
 
 
 class Rows(Fixture):
