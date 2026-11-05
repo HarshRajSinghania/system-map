@@ -199,9 +199,14 @@ class _Files:
         self.cache: dict[str, tuple[str, str, str]] = {}
 
     def load(self, paths) -> None:
+        """Read many files in one go, which costs one git process."""
         missing = [path for path in paths if path not in self.cache and path in self.every]
         for path, text in self.source.read_many(missing).items():
-            self.cache[path] = (text, ts.mask_code(text), ts.mask_code(text, strings=True))
+            self.put(path, text)
+
+    def put(self, path: str, text: str) -> None:
+        """Keep a file already read."""
+        self.cache[path] = (text, ts.mask_code(text), ts.mask_code(text, strings=True))
 
     def get(self, path: str) -> tuple[str, str, str] | None:
         self.load([path])
@@ -286,29 +291,28 @@ class _Edges:
 
 
 def _listed(files: _Files, settings: dict) -> list[dict]:
-    """Each agent the list holds, read from its object literal."""
+    """Each agent in the first exported list that holds any, read from its object literal."""
     path = settings["list"]
     entry = files.get(path) if path else None
     if not entry:
         return []
     code = entry[2]
-    elements: list[tuple[int, int]] = []
     for match in LIST.finditer(code):
-        if code.startswith("[", match.end()):
-            elements = _items(code, match.end(), _close(code, match.end()))
-            break
-    found = []
-    for start, end in elements:
-        if code[start] == "{":
-            where = (path, start, start)
-        else:
-            name = _ident(code, start, end)
-            where = files.object(name, path) if name else None
-        if where:
-            agent = _read_agent(files, settings, *where)
+        if not code.startswith("[", match.end()):
+            continue
+        found = []
+        for start, end in _items(code, match.end(), _close(code, match.end())):
+            if code[start] == "{":
+                where = (path, start, start)
+            else:
+                name = _ident(code, start, end)
+                where = files.object(name, path) if name else None
+            agent = _read_agent(files, settings, *where) if where else None
             if agent:
                 found.append(agent)
-    return found
+        if found:
+            return found
+    return []
 
 
 def _read_agent(files: _Files, settings: dict, path: str, declared: int, brace: int) -> dict | None:
@@ -351,20 +355,23 @@ def _jobs(files: _Files, settings: dict, path: str, where: tuple[int, int] | Non
         if key.startswith("["):
             inner = key[1:-1]
             value = inner[1:-1] if inner[:1] in "\"'`" and inner[-1:] == inner[:1] else files.const(inner, path)
-            if value:
-                jobs.append(value)
+            # A key that can't be read, such as `[Kind.Read]`, is still a job: keep it as written.
+            jobs.append(value or inner)
         else:
             jobs.append(key)
     return jobs
 
 
 def _marked(files: _Files, settings: dict, nodes: dict[str, dict], code_root: str, paths: list[str]) -> list[dict]:
-    """Each module a person marked as an agent."""
+    """Each module a person marked as an agent. A second module with the same name is left out,
+    since an agent's id is its name. Saving settings refuses that case first."""
     found = []
+    seen: set[str] = set()
     for node_id in settings["modules"]:
         node = nodes.get(node_id)
-        if not node or node["kind"] != "module":
+        if not node or node["kind"] != "module" or node["name"] in seen:
             continue
+        seen.add(node["name"])
         own = [path for path in paths if ts.module_of(path, code_root)[1] == node["path"] and not ts.TEST_FILE.search(path)]
         found.append(
             {
@@ -539,6 +546,7 @@ def find(source, project, settings: dict, nodes: list[dict], job_calls: dict[str
                 continue
             reach.add(path)
             queue += [target for target in project.imports.get(path, ()) if target.endswith(ts.CODE_SUFFIXES)]
+        files.load(sorted(reach))
         for path in sorted(reach):
             for service, line in _ai_uses(files, path, services):
                 edges.add(node_id, service, "uses_model", f"{path}:{line}")
@@ -573,9 +581,14 @@ def find(source, project, settings: dict, nodes: list[dict], job_calls: dict[str
     owned = {path for spans in regions.values() for path, _, _ in spans} | {settings["list"]}
     keys = settings["hand_off_keys"]
     others = [path for path in paths if path not in owned and not ts.TEST_FILE.search(path)]
-    files.load(others)
+    # Read the rest in one go, and only mask a file that names a hand-off key at all.
+    for path, text in source.read_many([path for path in others if path not in files.cache]).items():
+        if any(key in text for key in keys):
+            files.put(path, text)
     for path in others:
-        text = files.cache[path][0] if path in files.cache else ""
+        if path not in files.cache:
+            continue
+        text = files.cache[path][0]
         if not any(key in text for key in keys):
             continue
         module = f"module:{ts.module_of(path, project.code_root)[1]}"

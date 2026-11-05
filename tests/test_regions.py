@@ -69,6 +69,17 @@ class Settings(Fixture):
         store.build(self.repo, self.data)
         self.assertIn("agent:sorter", self.nodes())
 
+    def test_two_marked_modules_with_one_name_are_refused(self):
+        for name in ("src/a/mail/x.ts", "src/b/mail/y.ts"):
+            path = self.repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("export const x = 1\n")
+        commit_all(self.repo)
+        store.build(self.repo, self.data)
+        with self.assertRaisesRegex(ValueError, "both named mail"):
+            store.set_agent_settings(self.target, {"modules": ["module:src/a/mail", "module:src/b/mail"]})
+        self.assertEqual(store.load_agent_settings(self.target), {})
+
     def test_bad_settings_are_refused_and_nothing_is_saved(self):
         cases = [
             {"colour": "red"},

@@ -595,10 +595,14 @@ def _check_agent_settings(target: Path, settings: dict) -> dict:
         if kept["list"] not in source.blobs:
             raise ValueError(f"no file {kept['list']!r} at {manifest['ref']}")
     if "modules" in kept:
-        known = {node["id"] for node in load_system(target)["nodes"] if node["kind"] == "module"}
+        known = {node["id"]: node["name"] for node in load_system(target)["nodes"] if node["kind"] == "module"}
         unknown = [item for item in kept["modules"] if item not in known]
         if unknown:
             raise ValueError(f"not a module: {', '.join(unknown)}")
+        names = [known[item] for item in kept["modules"]]
+        twice = sorted({name for name in names if names.count(name) > 1})
+        if twice:
+            raise ValueError(f"two marked modules are both named {', '.join(twice)}. An agent is named after its module, so mark one")
     return kept
 
 

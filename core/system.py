@@ -58,6 +58,9 @@ def job_nodes(source, contents: dict[str, str] | None = None) -> tuple[list[dict
             name = match.group(1)
             node_id = f"job:{name}"
             if node_id in nodes:
+                # A later migration that schedules it again replaces what it runs.
+                if "/migrations/" in path:
+                    commands[node_id] = cron_command(text, match.end())
                 continue
             line = text.count("\n", 0, match.start()) + 1
             evidence = f"{path}:{line}"

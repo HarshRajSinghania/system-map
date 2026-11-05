@@ -28,7 +28,7 @@ export const AGENTS: readonly AgentDefinition[] = [
     "src/agents/shared.ts": 'export const retry = () => ({ agent: "sorter" });\n',
     "src/agents/ai.ts": 'import Anthropic from "@anthropic-ai/sdk";\nexport const summarize = () => new Anthropic();\n',
     "src/agents/gemini.ts": 'const URL = "https://us-central1-aiplatform.googleapis.com/v1";\nexport const g = () => fetch(URL);\n',
-    "src/agents/sorter/pick.ts": 'export function pick() {\n  return { agent: "mail" };\n}\n',
+    "src/agents/sorter/pick.ts": 'export function pick() {\n  return { agent: "mail" };\n}\nexport const later = { agent: "billing" };\n',
     "src/agents/handlers/sorter.ts": """import type { AgentDefinition } from "../types";
 import { SORTER } from "../names";
 import { pick } from "../sorter/pick";
@@ -182,6 +182,24 @@ class Listed(Fixture):
         _, nodes, _ = self.build()
         self.assertEqual(nodes["agent:digest"]["status"], "empty")
 
+    def test_the_first_exported_list_that_holds_agents_is_read(self):
+        registry = self.repo / "src" / "agents" / "registry.ts"
+        registry.write_text('export const AGENT_NAMES = ["mail", "sorter"] as const;\n' + registry.read_text())
+        _, nodes, _ = self.build()
+        self.assertEqual(sorted(n for n in nodes if n.startswith("agent:")), ["agent:digest", "agent:mail", "agent:reader", "agent:sorter"])
+
+    def test_a_list_can_be_the_default_export(self):
+        registry = self.repo / "src" / "agents" / "registry.ts"
+        registry.write_text(registry.read_text().replace("export const AGENTS: readonly AgentDefinition[] =", "export default"))
+        _, nodes, _ = self.build()
+        self.assertIn("agent:sorter", nodes)
+
+    def test_a_job_key_that_cant_be_read_is_kept_as_written(self):
+        reader = self.repo / "src" / "agents" / "handlers" / "reader.ts"
+        reader.write_text(reader.read_text().replace("[READ_KIND]: run", "[READ_KIND]: run, [Kinds.Later]: run"))
+        _, nodes, _ = self.build()
+        self.assertEqual(nodes["agent:reader"]["jobs"], ["doc.read", "Kinds.Later"])
+
     def test_a_list_file_that_is_not_there_finds_none(self):
         joined, _, _ = self.build({**SETTINGS, "list": "src/nope.ts"})
         self.assertFalse([n for n in joined["nodes"] if n["kind"] == "agent"])
@@ -203,8 +221,10 @@ class HandOffs(Fixture):
         self.assertNotIn(("agent:reader", "hands_off_to", "agent:sorter"), edges)
 
     def test_only_listed_names_count(self):
-        _, _, edges = self.build({**SETTINGS, "list": "src/agents/registry.ts"})
-        self.assertFalse([key for key in edges if key[1] == "hands_off_to" and not key[2].startswith("agent:")])
+        # pick.ts hands off to "billing", which is not on the list.
+        _, nodes, edges = self.build()
+        self.assertNotIn("agent:billing", nodes)
+        self.assertFalse([key for key in edges if key[2] == "agent:billing"])
 
 
 class Models(Fixture):
@@ -308,9 +328,77 @@ class Marked(Fixture):
         self.assertIn(("agent:desk", "hands_off_to", "agent:sorter"), edges)
         self.assertNotIn(("module:src/desk", "starts", "agent:sorter"), edges)
 
+    def test_two_marked_modules_with_one_name_make_one_agent(self):
+        for name in ("src/a/mail/x.ts", "src/b/mail/y.ts"):
+            path = self.repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("export const x = 1\n")
+        joined, _, _ = self.build({"modules": ["module:src/a/mail", "module:src/b/mail"]})
+        found = [n for n in joined["nodes"] if n["kind"] == "agent"]
+        self.assertEqual([(n["id"], n["path"]) for n in found], [("agent:mail", "src/a/mail")])
+
     def test_an_unknown_module_is_ignored(self):
         joined, _, _ = self.build({"modules": ["module:src/nope"]})
         self.assertFalse([n for n in joined["nodes"] if n["kind"] == "agent"])
+
+
+def files_of(root: Path, texts: dict[str, str]) -> "agents._Files":
+    for name, text in texts.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_text(text)
+    return agents._Files(TreeSource(root), set(texts), [])
+
+
+class Reading(unittest.TestCase):
+    """Small parts of the reader, each on its own files."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name)
+
+    def test_a_constant_is_followed_through_re_exports(self):
+        files = files_of(
+            self.root,
+            {
+                "a.ts": 'export const A = "x"\n',
+                "b.ts": 'export * from "./a"\n',
+                "c.ts": 'export { A as B } from "./a"\n',
+                "d.ts": 'import { A } from "./b"\nimport { B } from "./c"\n',
+            },
+        )
+        self.assertEqual((files.const("A", "d.ts"), files.const("B", "d.ts")), ("x", "x"))
+        self.assertIsNone(files.const("C", "d.ts"))
+
+    def test_the_newest_definition_of_a_sql_function_wins(self):
+        bodies = agents._sql_functions(
+            {
+                "supabase/migrations/002_b.sql": "CREATE OR REPLACE FUNCTION public.f() RETURNS void AS $$ SELECT 'new' $$;",
+                "supabase/migrations/001_a.sql": "CREATE FUNCTION public.f() RETURNS void AS $$ SELECT 'old' $$;",
+                "supabase/setup.sql": "CREATE FUNCTION f() RETURNS void AS $body$ SELECT 'setup' $body$;",
+            }
+        )
+        self.assertEqual(bodies["f"].strip(), "SELECT 'new'")
+
+    def test_a_cron_command_ends_at_its_own_bracket(self):
+        text = "SELECT cron.schedule('a', '* * * * *', 'SELECT q(''x'')'); SELECT 2;"
+        start = text.index("'* * * * *'") + len("'* * * * *'")
+        self.assertEqual(system.cron_command(text, start), ", 'SELECT q(''x'')'")
+        open_ended = "SELECT cron.schedule('a', '* * * * *', 'SELECT q(" + "x" * 500
+        self.assertEqual(len(system.cron_command(open_ended, start)), 400)
+
+    def test_a_job_scheduled_again_runs_the_newest_command(self):
+        files = {
+            "supabase/migrations/001_a.sql": "SELECT cron.schedule('nightly', '0 1 * * *', 'SELECT q(''reader'')');",
+            "supabase/migrations/005_b.sql": "SELECT cron.schedule('nightly', '0 1 * * *', 'SELECT q(''mail'')');",
+        }
+        for name, text in files.items():
+            (self.root / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / name).write_text(text)
+        nodes, _, commands = system.job_nodes(TreeSource(self.root))
+        self.assertIn("'mail'", commands["job:nightly"])
+        self.assertNotIn("'reader'", commands["job:nightly"])
+        self.assertEqual(nodes[0]["evidence"], ["supabase/migrations/001_a.sql:1"])
 
 
 class Rows(Fixture):
