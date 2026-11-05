@@ -36,8 +36,8 @@ import { SystemMap } from './SystemMap'
 import { TAB_PANEL_ID, Tabs } from './Tabs'
 import type { TabItem } from './Tabs'
 import { WorktreesView } from './Worktrees'
-import { BASE, useActiveRepo, useAgents, useLive, useNode, useOverview, useProposal, useVersioned } from './model'
-import type { AgentRow, AgentSettings, ExploreData, Finding, Graph, NodeInfo, Overlap, Plan, PlanStatus, Proposal, ProposalRow, Risk, SavedView, SystemGraph, WorktreeState } from './model'
+import { BASE, useActiveRepo, useLive, useNode, useOverview, useProposal, useVersioned } from './model'
+import type { AgentRow, AgentSettings, AgentState, ExploreData, Finding, Graph, NodeInfo, Overlap, Plan, PlanStatus, Proposal, ProposalRow, Risk, SavedView, SystemGraph, WorktreeState } from './model'
 import { graphOnly, overlapsOn, tablesAtWork, withProposal } from './overlay'
 import { MUTED, SystemTree, TableList } from './parts'
 
@@ -281,7 +281,8 @@ function ProjectPage({
   const planLoad = useVersioned<{ plans: Plan[] }>('/plan', repo, stamp)
   const findingLoad = useVersioned<{ findings: Finding[] }>('/findings', repo, stamp)
   const riskLoad = useVersioned<Risk>('/risk', repo, stamp)
-  const agentLoad = useAgents(repo, stamp)
+  // A region tag changes no version, so saving one moves the tick, as everything else here does.
+  const agentLoad = useVersioned<AgentState>('/agents', repo, stamp)
   const agentState = agentLoad.value
   const hasAgents = (agentState?.agents.length ?? 0) > 0
   const graph = graphLoad.value

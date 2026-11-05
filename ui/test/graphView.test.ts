@@ -236,6 +236,15 @@ test('services fall into one band per region, named against the home region', ()
   assert.deepEqual(unknown.map((band) => band.tone), ['unknown', 'unknown'])
 })
 
+test('one region written two ways is one band, named as first written', () => {
+  const mixed = { ...withAgents, nodes: withAgents.nodes.map((item) => (item.id === 'service:openai' ? { ...item, region: ' us ' } : item)) }
+  const bands = agentsView(mixed).bands ?? []
+  assert.deepEqual(bands.map((band) => [band.label, band.members.length]), [
+    ['US', 2],
+    ['canada · home', 1],
+  ])
+})
+
 test('a service with no region stays out of every band', () => {
   const plain = { ...withAgents, nodes: withAgents.nodes.map((item) => (item.id === 'service:openai' ? { ...item, region: undefined } : item)) }
   const view = agentsView(plain)

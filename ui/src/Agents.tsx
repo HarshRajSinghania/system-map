@@ -122,10 +122,18 @@ function Setup({ state, saving, error, onSave, onCancel }: { state: AgentState; 
   }
   return (
     <div data-testid="agent-setup" style={{ maxWidth: 640, fontSize: 13 }}>
-      {state.agents.length === 0 && (
+      {state.agents.length === 0 && !state.settings.list && (
         <>
           <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 600 }}>No agents yet.</p>
           <p style={{ ...MUTED, margin: '0 0 12px' }}>Point System Map at the file that lists your agents, or mark a module as one. Nothing is written to your repo.</p>
+        </>
+      )}
+      {state.agents.length === 0 && state.settings.list && (
+        <>
+          <p style={{ margin: '0 0 4px', fontSize: 14, fontWeight: 600 }} data-testid="agents-not-found">
+            No agents found in <span style={MONO}>{state.settings.list}</span>.
+          </p>
+          <p style={{ ...MUTED, margin: '0 0 12px' }}>It needs an exported list of objects that each have a name. Check the file, or mark a module instead.</p>
         </>
       )}
       {state.agents.length === 0 && state.suggestions.length > 0 && (
@@ -208,7 +216,7 @@ export function AgentsView({
         </span>
       </p>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        {AGENT_FILTERS.filter((item) => item.key === 'all' || counts[item.key] > 0).map((item) => (
+        {AGENT_FILTERS.map((item) => (
           <Btn key={item.key} primary={filter === item.key} title={item.title} onClick={() => setFilter(item.key)}>
             {item.label} {counts[item.key]}
           </Btn>
@@ -248,6 +256,7 @@ export function AgentsView({
               ))}
             </tbody>
           </table>
+          {shown.length === 0 && <p style={{ ...MUTED, fontSize: 13 }}>No agents here. Pick All to see every agent.</p>}
         </div>
         {chosen && (
           <aside style={{ width: 320, flexShrink: 0, overflowY: 'auto', paddingLeft: 16, borderLeft: '1px solid var(--border, #e4e4e7)' }}>

@@ -291,16 +291,21 @@ export function agentsView(system: SystemGraph): MapView {
     else lines.set(id, { id, source: edge.source, target: edge.target, kind: edge.kind, count: edge.count, leaves: edge.leaves_region || undefined })
   }
   const home = system.home_region ?? null
-  const regions = new Map<string, string[]>()
+  // One band per region, whatever its case: "US" and "us" are one place, named as first written.
+  const regions = new Map<string, { region: string; members: string[] }>()
   const cards = [...ids].map((id) => {
     const node = byId.get(id) as SystemNode
     if (node.kind !== 'service') return cardFor(node)
-    if (node.region) regions.set(node.region, [...(regions.get(node.region) ?? []), id])
+    if (node.region) {
+      const key = node.region.trim().toLowerCase()
+      const band = regions.get(key) ?? { region: node.region.trim(), members: [] }
+      regions.set(key, { ...band, members: [...band.members, id] })
+    }
     return { ...cardFor(node), subtitle: node.region ?? 'no region set', strong: true }
   })
-  const bands: Band[] = [...regions].map(([region, members]) => {
+  const bands: Band[] = [...regions].map(([key, { region, members }]) => {
     const tone = !home ? 'unknown' : sameRegion(region, home) ? 'home' : 'away'
-    return { id: `band:${region}`, label: tone === 'home' ? `${region} · home` : region, tone, members }
+    return { id: `band:${key}`, label: tone === 'home' ? `${region} · home` : region, tone, members }
   })
   return { cards, lines: [...lines.values()], bands }
 }

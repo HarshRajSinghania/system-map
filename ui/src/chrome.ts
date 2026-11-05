@@ -41,6 +41,7 @@ const CSS = `
 .sm-layer { padding: 3px 8px; border-radius: 6px; color: var(--muted, #71717a); white-space: nowrap; }
 .sm-layer:hover { background: var(--bg-hover, #f4f4f5); }
 .sm-layer[aria-pressed="true"] { background: var(--accent-subtle, rgba(47, 125, 92, .18)); color: var(--text, #18181b); }
+.sm-layer:disabled, .sm-layer:disabled:hover { background: none; color: var(--muted, #71717a); opacity: .5; cursor: default; }
 .sm-tool-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .sm-show-list { padding: 5px 10px; white-space: nowrap; color: var(--muted, #71717a); }
 .sm-show-list:hover { color: var(--text, #18181b); border-color: var(--border-strong, #a1a1aa); }

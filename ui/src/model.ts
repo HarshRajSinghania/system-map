@@ -538,30 +538,6 @@ export function useVersioned<T>(path: string, repo: string | null, version: stri
   return held.repo === repo ? { value: held.value, failed: held.failed } : { value: null, failed: false }
 }
 
-/** The agents. Loads again when the model changes, or on `refresh`, since a region tag changes no version. */
-export function useAgents(repo: string | null, version: string | undefined) {
-  const api = useAppApi()
-  const [held, setHeld] = useState<{ repo: string | null; value: AgentState | null; failed: boolean }>({ repo, value: null, failed: false })
-  const [tick, setTick] = useState(0)
-  useEffect(() => {
-    if (!version) return
-    let live = true
-    api
-      .get<AgentState>(withRepo('/agents', repo))
-      .then((reply) => {
-        if (live) setHeld({ repo, value: reply, failed: false })
-      })
-      .catch(() => {
-        if (live) setHeld({ repo, value: null, failed: true })
-      })
-    return () => {
-      live = false
-    }
-  }, [api, repo, version, tick])
-  const refresh = useCallback(() => setTick((value) => value + 1), [])
-  const current = held.repo === repo
-  return { value: current ? held.value : null, failed: current && held.failed, refresh }
-}
 
 /** Load one proposal with its diff and limits. Change `tick` to load it again. */
 export function useProposal(id: string | null, repo: string | null, tick: number): Proposal | null {
