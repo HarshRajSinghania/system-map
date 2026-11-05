@@ -25,8 +25,8 @@ IDENT = r"[A-Za-z_$][\w$]*"
 LIST = re.compile(rf"\bexport\s+(?:(?:const|let|var)\s+{IDENT}\s*(?::[^=;]*)?=|default)\s*")
 #: A word before `name(` that makes it a definition, not a call.
 NOT_CALLS = {"function", "async", "get", "set", "static", "public", "private", "protected"}
-#: After a name's `)`: a return type, then the end of a signature or the start of a body.
-SIGNATURE = re.compile(r"\s*:\s*[A-Za-z_$][\w$.]*\s*(?:<[^;{()]*>)?\s*(?:\[\])*\s*[;{\n]")
+#: After a member's `)`: a return type, then the end of the member or the start of its body.
+SIGNATURE = re.compile(r"\s*:\s*[A-Za-z_$][\w$.]*\s*(?:<[^;{()]*>)?\s*(?:\[\])*\s*[;{},\n]")
 DATED = re.compile(r"^\d{4}-\d{2}-\d{2}-")
 SQL_CALL = re.compile(r"\b(?:SELECT|PERFORM)\s+(?:\"?\w+\"?\.)?\"?(\w+)\"?\s*\(", re.I)
 SQL_FUNCTION = re.compile(r"\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:\"?\w+\"?\.)?\"?(\w+)\"?\s*\(", re.I)
@@ -234,6 +234,28 @@ class _Files:
                 found.append((target, name))
         return found
 
+    def bindings(self, path: str) -> dict[str, str]:
+        """Each name a file imports from another repo file, and that file."""
+        entry = self.get(path)
+        if not entry:
+            return {}
+        found: dict[str, str] = {}
+        for match in ts.IMPORT_NAMES.finditer(entry[1]):
+            target = ts.resolve(match.group(3), path, self.every, self.aliases)
+            if not target:
+                continue
+            clause = re.sub(r"^type\s+", "", match.group(1).strip())
+            for block in re.findall(r"\{([^}]*)\}", clause):
+                for item in filter(None, (part.strip() for part in block.split(","))):
+                    real, _, local = re.sub(r"^type\s+", "", item).partition(" as ")
+                    found[(local.strip() or real.strip())] = target
+            for part in re.sub(r"\{[^}]*\}", "", clause).split(","):
+                part = part.strip()
+                name = part[5:].strip() if part.startswith("* as ") else part
+                if re.fullmatch(IDENT, name):
+                    found[name] = target
+        return found
+
     def const(self, name: str, path: str, hops: int = 3) -> str | None:
         """The string a constant holds, here or where it is imported from."""
         entry = self.get(path)
@@ -392,7 +414,8 @@ def _regions(files: _Files, agents: list[dict], imports: dict[str, set[str]], li
     """Where each agent's own code is: its file and what that file imports, but nothing shared.
 
     A file two agents import belongs to neither. Where two agents are defined in one file, or
-    an agent is written in the list itself, each gets only its own object.
+    an agent is written in the list itself, each gets only its own object, and the files that
+    the names in it are imported from.
     """
     defined: dict[str, int] = {}
     for agent in agents:
@@ -410,7 +433,17 @@ def _regions(files: _Files, agents: list[dict], imports: dict[str, set[str]], li
             continue
         path = agent["path"]
         if defined[path] > 1 or path == list_file:
-            regions[agent["name"]] = [(path, *agent["span"])]
+            start, end = agent["span"]
+            bound = files.bindings(path)
+            used = set(re.findall(IDENT, files.cache[path][2][start:end]))
+            extra = sorted(
+                {bound[name] for name in used if name in bound}
+                - set(defined)
+                - {list_file}
+            )
+            extra = [target for target in extra if target.endswith(ts.CODE_SUFFIXES) and not ts.TEST_FILE.search(target)]
+            files.load(extra)
+            regions[agent["name"]] = [(path, start, end)] + [(target, 0, len(files.cache[target][0])) for target in extra if target in files.cache]
             continue
         own = [path] + sorted(
             target
@@ -458,8 +491,11 @@ def _calls(files: _Files, call_names: list[str], path: str, start: int, end: int
         after = code[_close(code, match.end() - 1) + 1 :]
         if re.match(r"\s*\{", after):
             continue  # A method's body follows.
-        if not before.endswith("?") and SIGNATURE.match(after):
-            continue  # A typed signature, as in an interface: `name(x): Type;`.
+        # Only a name where a member starts can be a typed signature, as in an interface:
+        # `name(x): Type;`. After `.`, `await`, `?` or `=` it is a call, whatever follows.
+        lead = code[: match.start()].rstrip(" \t")
+        if (not lead or lead[-1] in "{;,\n") and SIGNATURE.match(after):
+            continue
         lines.append(_line(text, match.start()))
     return lines
 

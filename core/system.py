@@ -49,18 +49,17 @@ def job_nodes(source, contents: dict[str, str] | None = None) -> tuple[list[dict
     """
     contents = sql_files(source) if contents is None else contents
     nodes: dict[str, dict] = {}
-    edges: list[dict] = []
+    calls: dict[str, list[dict]] = {}
     commands: dict[str, str] = {}
-    # Migrations first, so the evidence points at the file that really runs.
+    # Migrations first, oldest to newest, so the evidence points at the file that really runs.
+    # A later migration that schedules a job again replaces all of it. Other SQL files, such as
+    # a full setup script, only add jobs no migration has.
     for path in sorted(contents, key=lambda p: (0 if "/migrations/" in p else 1, p)):
         text = contents.get(path, "")
         for match in CRON_SCHEDULE.finditer(text):
             name = match.group(1)
             node_id = f"job:{name}"
-            if node_id in nodes:
-                # A later migration that schedules it again replaces what it runs.
-                if "/migrations/" in path:
-                    commands[node_id] = cron_command(text, match.end())
+            if node_id in nodes and "/migrations/" not in path:
                 continue
             line = text.count("\n", 0, match.start()) + 1
             evidence = f"{path}:{line}"
@@ -75,9 +74,11 @@ def job_nodes(source, contents: dict[str, str] | None = None) -> tuple[list[dict
             }
             commands[node_id] = cron_command(text, match.end())
             call = text[match.end() : match.end() + 400]
-            for url in sorted(set(API_PATH.findall(call))):
-                edges.append({"source": node_id, "target": f"route:{url}", "kind": "calls", "count": 1, "evidence": [evidence]})
-    return list(nodes.values()), edges, commands
+            calls[node_id] = [
+                {"source": node_id, "target": f"route:{url}", "kind": "calls", "count": 1, "evidence": [evidence]}
+                for url in sorted(set(API_PATH.findall(call)))
+            ]
+    return list(nodes.values()), [edge for found in calls.values() for edge in found], commands
 
 
 def plan_edges(plan: dict, module_for) -> list[dict]:

@@ -246,6 +246,25 @@ class Models(Fixture):
         for name in ("mail", "digest"):
             self.assertFalse([key for key in edges if key[0] == f"agent:{name}" and key[1] == "uses_model"], name)
 
+    def test_an_agent_written_in_the_list_reaches_the_files_it_names(self):
+        (self.repo / "src" / "agents" / "mail").mkdir()
+        (self.repo / "src" / "agents" / "mail" / "read.ts").write_text('import { summarize } from "../ai";\nexport const readMail = () => summarize();\n')
+        registry = self.repo / "src" / "agents" / "registry.ts"
+        text = registry.read_text().replace('import { sorterAgent } from "./handlers/sorter";\n', 'import { sorterAgent } from "./handlers/sorter";\nimport { readMail } from "./mail/read";\n')
+        registry.write_text(text.replace('description: "Reads your email.", handlers: {}', 'description: "Reads your email.", handlers: { "mail.read": readMail }'))
+        _, nodes, edges = self.build({**SETTINGS, "model_calls": []})
+        self.assertEqual(nodes["agent:mail"]["jobs"], ["mail.read"])
+        self.assertEqual(edges[("agent:mail", "uses_model", "service:anthropic")]["evidence"], ["src/agents/ai.ts:1"])
+        self.assertFalse([key for key in edges if key[0] == "agent:digest" and key[1] == "uses_model"])
+
+    def test_the_walk_stops_at_another_agents_file(self):
+        # sorter.ts imports reader.ts, whose model is reader's, not sorter's.
+        sorter = self.repo / "src" / "agents" / "handlers" / "sorter.ts"
+        sorter.write_text('import { readerAgent } from "./reader";\n' + sorter.read_text())
+        _, _, edges = self.build({**SETTINGS, "model_calls": []})
+        self.assertIn(("agent:reader", "uses_model", "service:anthropic"), edges)
+        self.assertNotIn(("agent:sorter", "uses_model", "service:anthropic"), edges)
+
     def test_one_agent_written_in_the_list_does_not_take_the_lists_imports(self):
         registry = self.repo / "src" / "agents" / "registry.ts"
         registry.write_text(registry.read_text().replace('  { name: "digest", handlers: {} },\n', ""))
@@ -279,11 +298,20 @@ class Calls(unittest.TestCase):
         self.assertEqual(self.lines("if (unsure) {\n  ask({ title: 'x' })\n}\n"), [2])
         self.assertEqual(self.lines("then(() => { ask(x) })\n"), [1])
         self.assertEqual(self.lines("f(a, ask(x))\n"), [1])
+
+    def test_a_call_in_either_branch_of_a_choice_counts(self):
         self.assertEqual(self.lines("const y = ready ? ask(x) : later\n"), [1])
+        self.assertEqual(self.lines("unsure ? await ctx.ask({ q: 1 }) : null;\n"), [1])
+        self.assertEqual(self.lines("unsure ? ctx.ask(x) : fallback\n"), [1])
+        self.assertEqual(self.lines("const y = unsure\n  ? await ctx.ask(x)\n  : auto\n"), [2])
+        self.assertEqual(self.lines("const y = sure ? auto : ctx.ask(x);\n"), [1])
 
     def test_a_definition_or_a_typed_signature_does_not(self):
         self.assertEqual(self.lines("interface Q {\n  ask(p: string): Promise<string>;\n  ask2(): void\n}\n"), [])
         self.assertEqual(self.lines("interface Q {\n  ask(p: string): Promise<string>\n}\n"), [])
+        self.assertEqual(self.lines("interface Q {\n  other(): void; ask(p: string): Promise<string>;\n}\n"), [])
+        self.assertEqual(self.lines("type Ctx = { ask(q: string): Promise<string> }\n"), [])
+        self.assertEqual(self.lines("type Ctx = { ask(q: string): string, other(): void }\n"), [])
         self.assertEqual(self.lines("const o = {\n  ask(p) {\n    return p\n  },\n}\n"), [])
         self.assertEqual(self.lines("async function ask(p) {}\n"), [])
 
@@ -387,18 +415,20 @@ class Reading(unittest.TestCase):
         open_ended = "SELECT cron.schedule('a', '* * * * *', 'SELECT q(" + "x" * 500
         self.assertEqual(len(system.cron_command(open_ended, start)), 400)
 
-    def test_a_job_scheduled_again_runs_the_newest_command(self):
+    def test_a_job_scheduled_again_is_all_the_newest_migration(self):
         files = {
-            "supabase/migrations/001_a.sql": "SELECT cron.schedule('nightly', '0 1 * * *', 'SELECT q(''reader'')');",
-            "supabase/migrations/005_b.sql": "SELECT cron.schedule('nightly', '0 1 * * *', 'SELECT q(''mail'')');",
+            "supabase/migrations/001_a.sql": "SELECT cron.schedule('nightly', '0 1 * * *', 'SELECT q(''reader'', ''/api/old'')');",
+            "supabase/migrations/005_b.sql": "SELECT cron.schedule('nightly', '0 5 * * *', 'SELECT q(''mail'', ''/api/new'')');",
+            "supabase/setup.sql": "SELECT cron.schedule('nightly', '0 9 * * *', 'SELECT q(''setup'')');",
         }
         for name, text in files.items():
             (self.root / name).parent.mkdir(parents=True, exist_ok=True)
             (self.root / name).write_text(text)
-        nodes, _, commands = system.job_nodes(TreeSource(self.root))
+        nodes, edges, commands = system.job_nodes(TreeSource(self.root))
         self.assertIn("'mail'", commands["job:nightly"])
         self.assertNotIn("'reader'", commands["job:nightly"])
-        self.assertEqual(nodes[0]["evidence"], ["supabase/migrations/001_a.sql:1"])
+        self.assertEqual((nodes[0]["schedule"], nodes[0]["evidence"]), ("0 5 * * *", ["supabase/migrations/005_b.sql:1"]))
+        self.assertEqual([edge["target"] for edge in edges], ["route:/api/new"])
 
 
 class Rows(Fixture):
