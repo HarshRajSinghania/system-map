@@ -6,8 +6,8 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 
 - Everything so far is on stacked branches with no `main` and no remote. Work from the tip,
   `slice-7/agents`, on version 0.9.0.
-- Run the checks in the README's Checks section. All pass at the tip: 763 Python tests and
-  93 UI tests.
+- Run the checks in the README's Checks section. All pass at the tip: 766 Python tests and
+  96 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
 - Look at screenshots before you commit UI. Checks have passed while pictures showed faults.
@@ -86,7 +86,7 @@ These are named on screen, not hidden. Each is a choice, not a bug.
 | SQL built from pieces at runtime | `sql_uses` in `core/extractors/typescript.py` | Only SQL seen as one whole string links to its tables |
 | Agents need settings | `settings_of` in `core/agents.py` | With none, there are no agents, only suggestions. G1 and G2 are the way out |
 | A model called through a passed-in object | `_calls` in `core/agents.py` | It links to every model the project uses, since text can't tell which one is passed in |
-| An agent that shares its file with others | `_regions` in `core/agents.py` | It gets only its own object, and none of that file's imports |
+| An agent that shares its file with others | `_regions` in `core/agents.py` | It gets its own object and the files its names are imported from. A handler written in that same file, outside the object, is not read |
 | Asks you, or only tells you | `asks_you` in `core/agents.py` | A call to an asks-you name counts either way. Telling the two apart needs the call's arguments |
 | A job that starts an agent two calls deep | `find` in `core/agents.py` | Only the job's command and the one SQL function it calls are read |
 
