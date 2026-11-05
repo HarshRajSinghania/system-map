@@ -26,8 +26,7 @@ IDENT = r"[A-Za-z_$][\w$]*"
 LIST = re.compile(rf"\bexport\s+(?:(?:const|let|var)\s+{IDENT}\s*(?::[^=;]*)?=|default)\s*")
 #: A word before `name(` that makes it a definition, not a call.
 NOT_CALLS = {"function", "async", "get", "set", "static", "public", "private", "protected", "abstract", "override", "declare", "accessor"}
-#: A name used as a value: not a key before `:`, and not a member after `.`.
-NAME_USE = re.compile(rf"(?<![\w$.])({IDENT})(?![\w$])(?!\s*:)")
+NAME = re.compile(rf"(?<![\w$])({IDENT})(?![\w$])")
 #: After a member's `)`: a return type, then the end of the member or the start of its body.
 SIGNATURE = re.compile(r"\s*:\s*[A-Za-z_$][\w$.]*\s*(?:<[^;{()]*>)?\s*(?:\[\])*\s*[;{},\n]")
 DATED = re.compile(r"^\d{4}-\d{2}-\d{2}-")
@@ -413,6 +412,21 @@ def _marked(files: _Files, settings: dict, nodes: dict[str, dict], code_root: st
     return found
 
 
+def _names_used(code: str, start: int, end: int) -> set[str]:
+    """Names this stretch of code uses as values. A key before `:`, right after `{` or `,`, is not
+    one, nor is a member after a single `.`. A spread, `...x`, and either branch of a choice are."""
+    found = set()
+    for match in NAME.finditer(code, start, end):
+        lead = code[max(start, match.start() - 200) : match.start()]
+        if lead.endswith(".") and not lead.endswith("..."):
+            continue
+        before = lead.rstrip()
+        if (not before or before[-1] in "{,") and code[match.end() : end].lstrip().startswith(":"):
+            continue
+        found.add(match.group(1))
+    return found
+
+
 def _regions(files: _Files, agents: list[dict], imports: dict[str, set[str]], list_file: str) -> dict[str, list[tuple[str, int, int]]]:
     """Where each agent's own code is: its file and what that file imports, but nothing shared.
 
@@ -424,9 +438,13 @@ def _regions(files: _Files, agents: list[dict], imports: dict[str, set[str]], li
     for agent in agents:
         if agent["source"] == "list":
             defined[agent["path"]] = defined.get(agent["path"], 0) + 1
+    def keep(target: str) -> bool:
+        return target not in defined and target != list_file and target.endswith(ts.CODE_SUFFIXES) and not ts.TEST_FILE.search(target)
+
     # First, what each agent could call its own. Then a file more than one could claim is taken out.
     could: dict[str, list[str]] = {}
     spans: dict[str, tuple[str, int, int]] = {}
+    named: dict[str, set[str]] = {}
     for agent in agents:
         if agent["source"] == "module":
             continue
@@ -435,16 +453,21 @@ def _regions(files: _Files, agents: list[dict], imports: dict[str, set[str]], li
             start, end = agent["span"]
             spans[agent["name"]] = (path, start, end)
             bound = files.bindings(path)
-            found = {bound[match.group(1)] for match in NAME_USE.finditer(files.cache[path][2], start, end) if match.group(1) in bound}
+            found = {bound[name] for name in _names_used(files.cache[path][2], start, end) if name in bound}
+            named.setdefault(path, set()).update(found)
         else:
             found = set(imports.get(path, ()))
-        could[agent["name"]] = sorted(
-            target for target in found if target not in defined and target != list_file and target.endswith(ts.CODE_SUFFIXES) and not ts.TEST_FILE.search(target)
-        )
+        could[agent["name"]] = sorted(target for target in found if keep(target))
     claims: dict[str, int] = {}
     for targets in could.values():
         for target in targets:
             claims[target] = claims.get(target, 0) + 1
+    # A file that holds several agents may use an import through its own code, for any of them.
+    # Such an import, which no object there names, counts as one more claim, so it stays shared.
+    for path, names in named.items():
+        for target in imports.get(path, ()):
+            if keep(target) and target not in names:
+                claims[target] = claims.get(target, 0) + 1
     regions: dict[str, list[tuple[str, int, int]]] = {}
     for agent in agents:
         if agent["source"] == "module":
@@ -488,6 +511,9 @@ def _calls(files: _Files, call_names: list[str], path: str, start: int, end: int
         if match.start() < start:
             continue
         before = code[: match.start()].rstrip()
+        # A generator's `*` sits between the word and the name, as in `async *name()`.
+        if before.endswith("*"):
+            before = before[:-1].rstrip()
         if not before.endswith("."):
             word = re.search(r"([\w$]+)\s*$", before)
             if word and word.group(1) in NOT_CALLS:

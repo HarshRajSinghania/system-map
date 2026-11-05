@@ -266,11 +266,65 @@ class Models(Fixture):
         self.assertNotIn(("agent:mail", "hands_off_to", "agent:sorter"), edges)
         self.assertIn(("module:src/agents", "starts", "agent:sorter"), edges)
 
-    def test_a_key_named_like_an_import_does_not_pull_it_in(self):
+    def mail_uses(self, handlers: str, imports: str, extra: dict[str, str]) -> dict:
+        """Build with mail, written in the list, given these handlers, imports and files."""
+        for name, text in extra.items():
+            path = self.repo / "src" / "agents" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text)
         registry = self.repo / "src" / "agents" / "registry.ts"
-        registry.write_text('import { summarize as handlers } from "./ai";\n' + registry.read_text())
-        _, _, edges = self.build({**SETTINGS, "model_calls": []})
-        self.assertFalse([key for key in edges if key[0] in ("agent:mail", "agent:digest") and key[1] == "uses_model"])
+        text = imports + registry.read_text()
+        registry.write_text(text.replace('description: "Reads your email.", handlers: {}', f'description: "Reads your email.", handlers: {handlers}'))
+        return self.build({**SETTINGS, "model_calls": []})[2]
+
+    # talk.ts uses a model, and no agent but mail could claim it.
+    TALK = {"talk.ts": 'import Anthropic from "@anthropic-ai/sdk";\nexport const talk = () => new Anthropic();\n'}
+
+    def test_a_key_named_like_an_import_does_not_pull_it_in(self):
+        edges = self.mail_uses("{}", 'import { talk as description } from "./talk";\n', self.TALK)
+        self.assertNotIn(("agent:mail", "uses_model", "service:anthropic"), edges)
+
+    def test_a_member_named_like_an_import_does_not_pull_it_in(self):
+        edges = self.mail_uses('{ "mail.x": (ctx) => ctx.talk() }', 'import { talk } from "./talk";\n', self.TALK)
+        self.assertNotIn(("agent:mail", "uses_model", "service:anthropic"), edges)
+
+    def test_a_name_used_as_a_value_pulls_it_in(self):
+        edges = self.mail_uses('{ "mail.x": talk }', 'import { talk } from "./talk";\n', self.TALK)
+        self.assertEqual(edges[("agent:mail", "uses_model", "service:anthropic")]["evidence"], ["src/agents/talk.ts:1"])
+
+    def test_a_spread_and_either_branch_of_a_choice_count(self):
+        hand = 'export const {name} = {{ x: () => ({{ agent: "reader" }}) }};\n'
+        for handlers, imports, name in (
+            ("{ ...mailHandlers }", 'import { mailHandlers } from "./mail/all";\n', "mailHandlers"),
+            ('{ "mail.x": QUICK ? fast : slow }', 'import { fast } from "./mail/all";\nconst QUICK = true;\nconst slow = 1;\n', "fast"),
+            ('{ "mail.x": QUICK ? slow : fast }', 'import { fast } from "./mail/all";\nconst QUICK = true;\nconst slow = 1;\n', "fast"),
+        ):
+            with self.subTest(handlers=handlers):
+                self.setUp()
+                edges = self.mail_uses(handlers, imports, {"mail/all.ts": hand.format(name=name)})
+                self.assertIn(("agent:mail", "hands_off_to", "agent:reader"), edges)
+
+    def test_an_import_a_file_of_several_agents_uses_through_its_own_code_is_shared(self):
+        # pair.ts holds alpha and beta, which both run `run`, which calls help from helper.ts.
+        # sorter.ts imports helper.ts too, so helper.ts belongs to no one.
+        handlers = self.repo / "src" / "agents" / "handlers"
+        (self.repo / "src" / "agents" / "helper.ts").write_text('export const help = () => ({ agent: "mail" });\n')
+        (handlers / "pair.ts").write_text(
+            'import { help } from "../helper";\n'
+            "const run = (ctx) => help(ctx);\n"
+            'export const alphaAgent = { name: "alpha", handlers: { x: run } };\n'
+            'export const betaAgent = { name: "beta", handlers: { y: run } };\n'
+        )
+        sorter = handlers / "sorter.ts"
+        sorter.write_text('import { help } from "../helper";\n' + sorter.read_text())
+        registry = self.repo / "src" / "agents" / "registry.ts"
+        text = registry.read_text().replace("  readerAgent,\n", "  readerAgent,\n  alphaAgent,\n  betaAgent,\n")
+        registry.write_text('import { alphaAgent, betaAgent } from "./handlers/pair";\n' + text)
+        _, nodes, edges = self.build()
+        self.assertIn("agent:alpha", nodes)
+        # sorter hands off to mail through pick.ts anyway; helper.ts must not be its evidence.
+        self.assertNotIn("src/agents/helper.ts:1", edges[("agent:sorter", "hands_off_to", "agent:mail")]["evidence"])
+        self.assertEqual(edges[("module:src/agents", "starts", "agent:mail")]["evidence"], ["src/agents/helper.ts:1"])
 
     def test_the_walk_stops_at_the_list(self):
         # mail's handler imports the list, which imports a model helper no agent names.
@@ -278,6 +332,7 @@ class Models(Fixture):
         (self.repo / "src" / "agents" / "mail" / "read.ts").write_text('import { AGENTS } from "../registry";\nexport const readMail = () => AGENTS;\n')
         registry = self.repo / "src" / "agents" / "registry.ts"
         text = 'import { summarize } from "./ai";\nimport { readMail } from "./mail/read";\n' + registry.read_text()
+        text = text.replace('  { name: "digest", handlers: {} },\n', "")  # Alone in the list, so no other agent's file is the list.
         registry.write_text(text.replace('description: "Reads your email.", handlers: {}', 'description: "Reads your email.", handlers: { "mail.read": readMail }'))
         _, _, edges = self.build({**SETTINGS, "model_calls": []})
         self.assertFalse([key for key in edges if key[0] == "agent:mail" and key[1] == "uses_model"])
@@ -331,7 +386,7 @@ class Calls(unittest.TestCase):
         self.assertEqual(self.lines("const y = unsure\n  ? await ctx.ask(x)\n  : auto\n"), [2])
         self.assertEqual(self.lines("const y = sure ? auto : ctx.ask(x);\n"), [1])
         self.assertEqual(self.lines("const y = cond ?\n  ask(x)\n  : fallback\n"), [2])
-        self.assertEqual(self.lines("const y = cond\n  ? auto\n  :\n  ask(x)\n"), [4])
+        self.assertEqual(self.lines("const y = a ?\n  b ? c :\n  ask(x)\n  : d\n"), [3])
 
     def test_a_definition_or_a_typed_signature_does_not(self):
         self.assertEqual(self.lines("interface Q {\n  ask(p: string): Promise<string>;\n  ask2(): void\n}\n"), [])
@@ -347,7 +402,10 @@ class Calls(unittest.TestCase):
         self.assertEqual(self.lines("abstract class A {\n  abstract ask(q: string): Promise<string>;\n}\n"), [])
         self.assertEqual(self.lines("class B extends A {\n  override ask(q: string): Promise<string> {\n    return q\n  }\n}\n"), [])
         self.assertEqual(self.lines("class C {\n  *ask(q: string): Generator<string> {\n    yield q\n  }\n}\n"), [])
+        for word in ("async", "static", "private"):
+            self.assertEqual(self.lines(f"class C {{\n  {word} *ask(q: string): AsyncGenerator<string> {{\n    yield q\n  }}\n}}\n"), [], word)
         self.assertEqual(self.lines("const n = x * ask(y)\n"), [1])
+        self.assertEqual(self.lines("function* g() {\n  yield* ask(y)\n}\n"), [2])
 
 
 class AsksYou(Fixture):
@@ -468,7 +526,8 @@ class Reading(unittest.TestCase):
         files = {
             "migrations/001_a.sql": "SELECT cron.schedule('nightly', '0 1 * * *', 'SELECT q(''reader'')');\nCREATE FUNCTION f() RETURNS void AS $$ SELECT 'old' $$;",
             "migrations/005_b.sql": "SELECT cron.schedule('nightly', '0 5 * * *', 'SELECT q(''mail'')');\nCREATE OR REPLACE FUNCTION f() RETURNS void AS $$ SELECT 'new' $$;",
-            "db/setup.sql": "CREATE FUNCTION f() RETURNS void AS $$ SELECT 'setup' $$;",
+            # Sorts after `migrations/` by name, so only the migration check keeps it from winning.
+            "supabase/setup.sql": "CREATE FUNCTION f() RETURNS void AS $$ SELECT 'setup' $$;",
         }
         for name, text in files.items():
             (self.root / name).parent.mkdir(parents=True, exist_ok=True)
