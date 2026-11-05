@@ -4,6 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { CSSProperties, ReactNode } from 'react'
 import { AddProject } from './AddProject'
 import { AgentsView } from './Agents'
+import { openSavedViewLayer, showAgentOnLayer, toggleAgentsLayer } from './agentRows'
+import type { LayerFocus } from './agentRows'
 import './chrome'
 import { Erd } from './Erd'
 import type { Density } from './Erd'
@@ -452,6 +454,7 @@ function ProjectPage({
       await explore.refresh()
     })
   const openSavedView = (saved: SavedView) => {
+    applyLayer(openSavedViewLayer())
     setSavedView(saved)
     setShowRisk(saved.overlays.risk)
     setShowWork(saved.overlays.worktrees)
@@ -509,24 +512,22 @@ function ProjectPage({
     setView('map')
     setFocus(id)
   }
+  const applyLayer = (next: LayerFocus) => {
+    setShowAgents(next.on)
+    setFocus(next.focus)
+    beforeAgents.current = next.before
+  }
   /** An agent lives on the Agents layer, so showing one turns the layer on. */
   const showAgent = (id: string) => {
-    if (!showAgents) beforeAgents.current = view === 'map' ? focus : null
     setSavedView(null)
-    setShowAgents(true)
-    showOnMap(id)
+    setView('map')
+    applyLayer(showAgentOnLayer({ on: showAgents, focus, before: beforeAgents.current }, id, view === 'map'))
   }
   /** Turning the layer off goes back to where you were before it was on. */
   const toggleAgents = () => {
-    if (showAgents) {
-      setFocus(beforeAgents.current)
-      beforeAgents.current = null
-    } else {
-      beforeAgents.current = focus
-      setSavedView(null)
-      setFocus(null)
-    }
-    setShowAgents(!showAgents)
+    const next = toggleAgentsLayer({ on: showAgents, focus, before: beforeAgents.current })
+    if (next.closeSavedView) setSavedView(null)
+    applyLayer(next)
   }
   /** From the inspector, stay on the view you are on where you can. */
   const openLink = (id: string) => {

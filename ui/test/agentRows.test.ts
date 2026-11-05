@@ -1,6 +1,21 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { filterAgents, filterCounts, fromForm, handsOffTo, markModule, modelLabel, modelsOf, nodeLabel, regionTone, startsFrom, toForm } from '../src/agentRows.ts'
+import {
+  filterAgents,
+  filterCounts,
+  fromForm,
+  handsOffTo,
+  markModule,
+  modelLabel,
+  modelsOf,
+  nodeLabel,
+  openSavedViewLayer,
+  regionTone,
+  showAgentOnLayer,
+  startsFrom,
+  toForm,
+  toggleAgentsLayer,
+} from '../src/agentRows.ts'
 import type { AgentModel, AgentRow } from '../src/model.ts'
 
 function model(extra: Partial<AgentModel>): AgentModel {
@@ -106,6 +121,29 @@ test('the form saves lists, module ids and leaves empty fields out', () => {
     modules: ['module:src/mail', 'module:src/desk'],
     home_region: 'Canada',
   })
+})
+
+test('turning the Agents layer off goes back to where the map was', () => {
+  const on = toggleAgentsLayer({ on: false, focus: 'area:src/agents', before: null })
+  assert.deepEqual(on, { on: true, focus: null, before: 'area:src/agents', closeSavedView: true })
+  const picked = { ...on, focus: 'agent:triage' }
+  assert.deepEqual(toggleAgentsLayer(picked), { on: false, focus: 'area:src/agents', before: null, closeSavedView: false })
+})
+
+test('showing an agent turns the layer on, and off goes back to the map, not elsewhere', () => {
+  const fromMap = showAgentOnLayer({ on: false, focus: 'module:src/desk', before: null }, 'agent:triage', true)
+  assert.deepEqual(fromMap, { on: true, focus: 'agent:triage', before: 'module:src/desk' })
+  assert.equal(toggleAgentsLayer(fromMap).focus, 'module:src/desk')
+  const fromTab = showAgentOnLayer({ on: false, focus: 'module:src/desk', before: null }, 'agent:triage', false)
+  assert.equal(fromTab.before, null)
+  const again = showAgentOnLayer(fromMap, 'agent:intake', false)
+  assert.equal(again.before, 'module:src/desk')
+})
+
+test('a saved view turns the layer off, so the button never shows on over it', () => {
+  assert.deepEqual(openSavedViewLayer(), { on: false, focus: null, before: null })
+  const on = toggleAgentsLayer({ on: false, focus: null, before: null })
+  assert.equal(on.closeSavedView, true)
 })
 
 test('marking a module keeps the rest of the settings and adds it once', () => {

@@ -71,6 +71,30 @@ export function modelLabel(model: AgentModel): string {
   return model.region ? `${model.name} · ${model.region}` : model.name
 }
 
+/** Where the map is, as far as the Agents layer cares. */
+export interface LayerFocus {
+  on: boolean
+  focus: string | null
+  /** Where the map was when the layer went on, to go back to. */
+  before: string | null
+}
+
+/** Turning the layer on remembers where the map was and closes a saved view. Off goes back there. */
+export function toggleAgentsLayer(state: LayerFocus): LayerFocus & { closeSavedView: boolean } {
+  if (state.on) return { on: false, focus: state.before, before: null, closeSavedView: false }
+  return { on: true, focus: null, before: state.focus, closeSavedView: true }
+}
+
+/** Showing an agent turns the layer on and opens it. From another view there is no map place to go back to. */
+export function showAgentOnLayer(state: LayerFocus, id: string, fromMap: boolean): LayerFocus {
+  return { on: true, focus: id, before: state.on ? state.before : fromMap ? state.focus : null }
+}
+
+/** A saved view draws only what it names, so the layer goes off and forgets where it was. */
+export function openSavedViewLayer(): LayerFocus {
+  return { on: false, focus: null, before: null }
+}
+
 /** The settings form holds text. Lists are written with commas. */
 export interface AgentForm {
   list: string
