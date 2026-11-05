@@ -6,8 +6,8 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 
 - Everything so far is on stacked branches with no `main` and no remote. Work from the tip,
   `slice-7/agents`, on version 0.9.0.
-- Run the checks in the README's Checks section. All pass at the tip: 749 Python tests and
-  92 UI tests.
+- Run the checks in the README's Checks section. All pass at the tip: 763 Python tests and
+  93 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
 - Look at screenshots before you commit UI. Checks have passed while pictures showed faults.
@@ -27,7 +27,7 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 | Show button | Press Hide on Map or Data model, then Show modules or Show tables | Hide was seen for real, Show was not |
 | Folder window on a Mac and Linux | Press Browse on each | Only WSL has run for real. The others are stubbed |
 | Design chat opens on its first message | Sync, open a project with no chat, leave, and look for no New Session. Then send a message | Proven only in `ui/dev`, whose chat is a stand-in |
-| Agents tab, layer and regions | Sync, set the agent list, open an agent, Show on map, set a service's region, then look in Findings | The tab and the layer were seen for real. Show on map, regions, bands, the region findings and the darker model cards (`b7abd40`) were not |
+| Agents after review | Sync. Turn the Agents layer on and off from an open area, pick a filter whose count is 0, and look at a disabled Agents button on a project with no agents | The tab, layer, Show on map, regions, bands and region findings were seen for real, in the light theme. The review fixes (`3ceff3e`, `c33c9be`) were not |
 | Agents in the side panel and dark theme | Open the panel tab on an agent, and switch the theme | Not looked at yet |
 
 ## Small fixes
