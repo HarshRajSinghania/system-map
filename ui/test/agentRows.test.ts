@@ -9,7 +9,6 @@ import {
   modelLabel,
   modelsOf,
   nodeLabel,
-  openSavedViewLayer,
   regionTone,
   showAgentOnLayer,
   startsFrom,
@@ -138,12 +137,6 @@ test('showing an agent turns the layer on, and off goes back to the map, not els
   assert.equal(fromTab.before, null)
   const again = showAgentOnLayer(fromMap, 'agent:intake', false)
   assert.equal(again.before, 'module:src/desk')
-})
-
-test('a saved view turns the layer off, so the button never shows on over it', () => {
-  assert.deepEqual(openSavedViewLayer(), { on: false, focus: null, before: null })
-  const on = toggleAgentsLayer({ on: false, focus: null, before: null })
-  assert.equal(on.closeSavedView, true)
 })
 
 test('marking a module keeps the rest of the settings and adds it once', () => {

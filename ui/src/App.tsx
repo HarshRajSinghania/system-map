@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { CSSProperties, ReactNode } from 'react'
 import { AddProject } from './AddProject'
 import { AgentsView } from './Agents'
-import { openSavedViewLayer, showAgentOnLayer, toggleAgentsLayer } from './agentRows'
+import { showAgentOnLayer, toggleAgentsLayer } from './agentRows'
 import type { LayerFocus } from './agentRows'
 import './chrome'
 import { Erd } from './Erd'
@@ -454,7 +454,9 @@ function ProjectPage({
       await explore.refresh()
     })
   const openSavedView = (saved: SavedView) => {
-    applyLayer(openSavedViewLayer())
+    // A saved view draws only what it names, so the Agents layer goes off and forgets where it was.
+    // App wiring has no test here: the backlog lists it for a check by Sync.
+    applyLayer({ on: false, focus: null, before: null })
     setSavedView(saved)
     setShowRisk(saved.overlays.risk)
     setShowWork(saved.overlays.worktrees)

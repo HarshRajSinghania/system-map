@@ -90,11 +90,6 @@ export function showAgentOnLayer(state: LayerFocus, id: string, fromMap: boolean
   return { on: true, focus: id, before: state.on ? state.before : fromMap ? state.focus : null }
 }
 
-/** A saved view draws only what it names, so the layer goes off and forgets where it was. */
-export function openSavedViewLayer(): LayerFocus {
-  return { on: false, focus: null, before: null }
-}
-
 /** The settings form holds text. Lists are written with commas. */
 export interface AgentForm {
   list: string
