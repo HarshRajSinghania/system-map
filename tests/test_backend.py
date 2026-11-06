@@ -1,3 +1,4 @@
+import email.message
 import json
 import os
 import socket
@@ -9,32 +10,38 @@ import unittest
 import urllib.error
 import urllib.request
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
+from backend import server  # noqa: E402
 from core import store  # noqa: E402
-from helpers import commit_all, git  # noqa: E402
+from helpers import PROXY_SECRET, commit_all, git, proxy_signature, proxy_v2, signed_request  # noqa: E402
 from test_agents import FILES, SETTINGS  # noqa: E402
 
 
 class Served(unittest.TestCase):
-    """Run the real backend process on `cls.data` and call it over HTTP."""
+    """Run the real backend process on `cls.data` and call it over HTTP, signed as the gateway does."""
+
+    #: What the gateway puts in the backend's environment. A class can change it.
+    gateway_env = {"KIROCREW_PROXY_SECRET": PROXY_SECRET, "KIROCREW_SPAWNED": "1"}
 
     @classmethod
     def serve(cls):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             cls.port = probe.getsockname()[1]
+        env = {k: v for k, v in os.environ.items() if k not in ("KIROCREW_PROXY_SECRET", "KIROCREW_SPAWNED", "SYSTEM_MAP_UNSIGNED")}
         cls.server = subprocess.Popen(
             [sys.executable, str(ROOT / "backend" / "server.py")],
-            env={**os.environ, "PORT": str(cls.port), "SYSTEM_MAP_DATA": str(cls.data), "PYTHONDONTWRITEBYTECODE": "1"},
+            env={**env, **cls.gateway_env, "PORT": str(cls.port), "SYSTEM_MAP_DATA": str(cls.data), "PYTHONDONTWRITEBYTECODE": "1"},
         )
         deadline = time.time() + 10
         while time.time() < deadline:
             try:
-                cls.get("/health")
+                cls.raw("/health")
                 return
             except OSError:
                 time.sleep(0.05)
@@ -47,15 +54,31 @@ class Served(unittest.TestCase):
         cls._tmp.cleanup()
 
     @classmethod
+    def url(cls, path):
+        return f"http://127.0.0.1:{cls.port}{path}"
+
+    @classmethod
+    def raw(cls, path, data=None, headers=None, method=None):
+        """Call with no signature unless `headers` carries one."""
+        request = urllib.request.Request(cls.url(path), data=data, headers=headers or {}, method=method)
+        with urllib.request.urlopen(request, timeout=5) as reply:
+            return json.load(reply)
+
+    @classmethod
     def get(cls, path):
-        with urllib.request.urlopen(f"http://127.0.0.1:{cls.port}{path}", timeout=5) as reply:
+        with urllib.request.urlopen(signed_request(cls.url(path)), timeout=5) as reply:
             return json.load(reply)
 
     def post(self, path, body):
-        request = urllib.request.Request(
-            f"http://127.0.0.1:{self.port}{path}", data=json.dumps(body).encode(), method="POST"
-        )
-        return urllib.request.urlopen(request, timeout=30)
+        return urllib.request.urlopen(signed_request(self.url(path), json.dumps(body).encode()), timeout=30)
+
+    def status(self, path, data=None, headers=None, method=None):
+        """The HTTP status of an unsigned call, or of one signed by `headers`."""
+        try:
+            self.raw(path, data, headers, method)
+            return 200
+        except urllib.error.HTTPError as error:
+            return error.code
 
 
 class BackendTests(Served):
@@ -207,6 +230,190 @@ class AgentRoutes(Served):
         self.post("/agents/settings", {"settings": {**SETTINGS, "home_region": "Canada"}})
         self.post("/regions", {"id": "service:anthropic", "region": "US"})
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
+
+
+def message(**pairs):
+    """Headers as the backend gets them: names match in any case."""
+    found = email.message.Message()
+    for name, value in pairs.items():
+        found[name.replace("_", "-")] = value
+    return found
+
+
+class Signature(unittest.TestCase):
+    """The App Kit's signing rule, held to `server.signed` with a fixed clock."""
+
+    NOW = 1_800_000_000
+    TARGET = "/apps/system-map/api/overview?repo=a%20b"
+    BODY = b'{"repo": "x"}'
+    NONCE = "0123456789abcdef0123456789abcdef"
+
+    def setUp(self):
+        server._nonces.clear()
+
+    def check(self, headers, method="POST", target=TARGET, body=BODY, secret=PROXY_SECRET, now=NOW):
+        return server.signed(headers, method, target, body, secret, now)
+
+    def v1(self, method="POST", target=TARGET, body=BODY, secret=PROXY_SECRET, stamp=NOW):
+        return proxy_signature(method, target, body, secret, stamp)
+
+    def v2(self, nonce=NONCE, stamp=NOW):
+        return proxy_v2("POST", self.TARGET, self.BODY, nonce, stamp=stamp)
+
+    def test_a_good_v1_signature_passes(self):
+        self.assertTrue(self.check(message(X_KiroCrew_Proxy=self.v1())))
+        self.assertTrue(self.check(message(x_kirocrew_proxy=self.v1())))
+
+    def test_each_signed_part_is_bound(self):
+        for changed in (
+            {"method": "GET"},
+            {"target": "/apps/system-map/api/overview"},
+            {"body": b'{"repo": "y"}'},
+            {"secret": "another-secret"},
+        ):
+            with self.subTest(changed=changed):
+                self.assertFalse(self.check(message(X_KiroCrew_Proxy=self.v1(**changed))))
+
+    def test_a_stamp_is_good_for_60_seconds_either_way(self):
+        for offset, good in ((-61, False), (-60, True), (0, True), (60, True), (61, False)):
+            with self.subTest(offset=offset):
+                header = message(X_KiroCrew_Proxy=self.v1(stamp=self.NOW + offset))
+                self.assertEqual(self.check(header), good)
+
+    def test_a_bad_header_fails_without_raising(self):
+        mac = self.v1().partition(":")[2]
+        for value in ("", ":", "abc", str(self.NOW), f"{self.NOW}:", f"12x:{mac}", f"²:{mac}", f"{self.NOW}:é", f"1{self.NOW:012d}:{mac}"):
+            with self.subTest(value=value):
+                self.assertFalse(self.check(message(X_KiroCrew_Proxy=value)))
+        self.assertFalse(self.check(message()))
+
+    def test_no_secret_means_nothing_passes(self):
+        header = message(X_KiroCrew_Proxy=self.v1(secret=""))
+        self.assertFalse(self.check(header, secret=""))
+
+    def test_a_good_v2_passes_once(self):
+        header = message(X_KiroCrew_Proxy=self.v1(), X_KiroCrew_Proxy_V2=self.v2(), X_KiroCrew_Proxy_Nonce=self.NONCE)
+        self.assertTrue(self.check(header))
+        self.assertFalse(self.check(header))
+
+    def test_a_bad_v2_does_not_fall_back_to_v1(self):
+        good_v1 = self.v1()
+        for extra in (
+            {"X_KiroCrew_Proxy_V2": self.v2(nonce="f" * 32), "X_KiroCrew_Proxy_Nonce": self.NONCE},
+            {"X_KiroCrew_Proxy_Nonce": self.NONCE},
+            {"X_KiroCrew_Proxy_V2": self.v2()},
+            {"X_KiroCrew_Proxy_V2": self.v2(nonce=self.NONCE.upper()), "X_KiroCrew_Proxy_Nonce": self.NONCE.upper()},
+        ):
+            with self.subTest(extra=sorted(extra)):
+                self.assertFalse(self.check(message(X_KiroCrew_Proxy=good_v1, **extra)))
+
+    def test_a_full_nonce_store_refuses_until_old_nonces_expire(self):
+        def request(nonce, now):
+            stamp = int(now)
+            header = message(X_KiroCrew_Proxy_V2=self.v2(nonce, stamp), X_KiroCrew_Proxy_Nonce=nonce)
+            return self.check(header, now=now)
+
+        with mock.patch.object(server, "NONCE_LIMIT", 2):
+            self.assertTrue(request("a" * 32, self.NOW))
+            self.assertTrue(request("b" * 32, self.NOW))
+            self.assertFalse(request("c" * 32, self.NOW))
+            self.assertTrue(request("c" * 32, self.NOW + 61))
+
+
+class Gate(Served):
+    """The running backend refuses any call the gateway didn't sign."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        base = Path(cls._tmp.name)
+        cls.repo = base / "repo"
+        (cls.repo / "supabase" / "migrations").mkdir(parents=True)
+        (cls.repo / "supabase" / "migrations" / "001.sql").write_text("CREATE TABLE public.orgs (id uuid PRIMARY KEY);\n")
+        subprocess.run(["git", "-C", str(cls.repo), "init", "-q"], check=True)
+        cls.data = base / "data"
+        store.build(cls.repo, cls.data)
+        cls.serve()
+
+    def test_health_needs_no_signature(self):
+        self.assertEqual(self.raw("/health"), {"status": "ok"})
+
+    def test_an_unsigned_read_is_a_401_saying_why(self):
+        for path in ("/repos", "/apps/system-map/api/overview", "/nope"):
+            with self.subTest(path=path):
+                self.assertEqual(self.status(path), 401)
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            self.raw("/repos")
+        self.assertIn("Kiro Crew", json.load(caught.exception)["error"])
+
+    def test_an_unsigned_remove_is_refused_and_removes_nothing(self):
+        key = self.get("/repos")["repos"][0]["repo_key"]
+        self.assertEqual(self.status("/repo-remove", json.dumps({"repo": key}).encode(), method="POST"), 401)
+        self.assertEqual([row["repo_key"] for row in self.get("/repos")["repos"]], [key])
+
+    def test_a_signature_made_with_another_secret_is_a_401(self):
+        header = proxy_signature("GET", "/repos", b"", secret="another-secret")
+        self.assertEqual(self.status("/repos", headers={"X-KiroCrew-Proxy": header}), 401)
+
+    def test_a_stale_signature_is_a_401(self):
+        header = proxy_signature("GET", "/repos", b"", stamp=int(time.time()) - 120)
+        self.assertEqual(self.status("/repos", headers={"X-KiroCrew-Proxy": header}), 401)
+
+    def test_a_body_changed_after_signing_is_a_401(self):
+        header = proxy_signature("POST", "/plan-status", b'{"id": "a"}')
+        self.assertEqual(self.status("/plan-status", b'{"id": "b"}', {"X-KiroCrew-Proxy": header}, "POST"), 401)
+
+    def test_the_query_is_signed_too(self):
+        header = proxy_signature("GET", "/overview", b"")
+        self.assertEqual(self.status("/overview?repo=x", headers={"X-KiroCrew-Proxy": header}), 401)
+
+    def test_a_replayed_v2_request_is_a_401(self):
+        nonce = os.urandom(16).hex()
+        headers = {
+            "X-KiroCrew-Proxy": proxy_signature("GET", "/repos", b""),
+            "X-KiroCrew-Proxy-V2": proxy_v2("GET", "/repos", b"", nonce),
+            "X-KiroCrew-Proxy-Nonce": nonce,
+        }
+        self.assertEqual(self.status("/repos", headers=headers), 200)
+        self.assertEqual(self.status("/repos", headers=headers), 401)
+
+
+class Bare(Served):
+    """A backend over an empty data folder, started with `gateway_env`."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        cls.data = Path(cls._tmp.name) / "data"
+        cls.serve()
+
+
+class NoSecret(Bare):
+    """A gateway with no secret for the app: fail closed, but stay healthy."""
+
+    gateway_env = {"KIROCREW_SPAWNED": "1"}
+
+    def test_even_a_signed_call_is_refused(self):
+        self.assertEqual(self.status("/repos", headers={"X-KiroCrew-Proxy": proxy_signature("GET", "/repos", b"")}), 401)
+        self.assertEqual(self.raw("/health"), {"status": "ok"})
+
+
+class DevUnsigned(Bare):
+    """`ui/dev` asks for unsigned calls by name."""
+
+    gateway_env = {"SYSTEM_MAP_UNSIGNED": "1"}
+
+    def test_an_unsigned_call_works(self):
+        self.assertEqual(self.raw("/repos")["repos"], [])
+
+
+class DevFlagUnderTheGateway(Bare):
+    """A backend the gateway starts ignores the dev flag."""
+
+    gateway_env = {"SYSTEM_MAP_UNSIGNED": "1", "KIROCREW_SPAWNED": "1", "KIROCREW_PROXY_SECRET": PROXY_SECRET}
+
+    def test_an_unsigned_call_is_still_refused(self):
+        self.assertEqual(self.status("/repos"), 401)
 
 
 if __name__ == "__main__":

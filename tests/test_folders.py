@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from core import folders, store  # noqa: E402
 from core.sources import canonical_root  # noqa: E402
-from helpers import commit_all, git  # noqa: E402
+from helpers import PROXY_SECRET, commit_all, git, signed_request  # noqa: E402
 
 
 def make_repo(path: Path) -> Path:
@@ -382,6 +382,7 @@ class Routes(unittest.TestCase):
                 "SYSTEM_MAP_DATA": str(base / "data"),
                 "SYSTEM_MAP_NO_WINDOW": "1",
                 "PYTHONDONTWRITEBYTECODE": "1",
+                "KIROCREW_PROXY_SECRET": PROXY_SECRET,
             },
         )
         deadline = time.time() + 10
@@ -402,7 +403,7 @@ class Routes(unittest.TestCase):
     @classmethod
     def call(cls, path, body=None):
         data = None if body is None else json.dumps(body).encode()
-        with urllib.request.urlopen(urllib.request.Request(f"http://127.0.0.1:{cls.port}{path}", data=data), timeout=5) as reply:
+        with urllib.request.urlopen(signed_request(f"http://127.0.0.1:{cls.port}{path}", data), timeout=5) as reply:
             return json.load(reply)
 
     def failure(self, path, body=None):

@@ -4,11 +4,17 @@ Stdlib only. The gateway starts it, binds it to loopback and proxies it at
 `/apps/system-map/api/...`. It reads the model and lists folder names. Every POST writes only
 to the app's own data, except one that opens the computer's folder window. No route writes to
 a repo.
+
+Any local program can reach a loopback port, so every request except `/health` must carry the
+gateway's signature, made with the app's secret (the App Kit's "Reverse Proxy Authentication").
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import os
+import re
 import sys
 import threading
 import time
@@ -25,6 +31,72 @@ PORT = int(os.environ.get("PORT", 9100))
 WORKTREE_TTL_SECONDS = 5
 _worktree_cache: dict[str, tuple[float, dict]] = {}
 _worktree_lock = threading.Lock()
+
+#: The gateway hands the backend its per-app secret in this variable.
+SECRET_ENV = "KIROCREW_PROXY_SECRET"
+#: A signature is good for this many seconds either side of now.
+MAX_SKEW_SECONDS = 60
+#: The gateway's health probe calls the backend directly, with no signature.
+OPEN_PATHS = frozenset({"/health"})
+#: Nonces kept for the replay check. When full, new requests are refused rather than letting
+#: an old nonce go while it could still be replayed.
+NONCE_LIMIT = 4096
+_STAMP = re.compile(r"[0-9]{1,12}")
+_NONCE = re.compile(r"[0-9a-f]{32}")
+_nonces: dict[str, int] = {}
+_nonce_lock = threading.Lock()
+
+
+def _mac(secret: str, message: str) -> bytes:
+    return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest().encode()
+
+
+def _matches(expected: bytes, given: str) -> bool:
+    # Bytes, not str: compare_digest raises on a str with a non-ASCII character.
+    return hmac.compare_digest(expected, given.encode("utf-8", "surrogatepass"))
+
+
+def _fresh(stamp: str, now: float) -> bool:
+    return bool(_STAMP.fullmatch(stamp)) and abs(now - int(stamp)) <= MAX_SKEW_SECONDS
+
+
+def _first_use(nonce: str, expires: int, now: float) -> bool:
+    with _nonce_lock:
+        for seen, until in list(_nonces.items()):
+            if until < now:
+                del _nonces[seen]
+        if nonce in _nonces or len(_nonces) >= NONCE_LIMIT:
+            return False
+        _nonces[nonce] = expires
+        return True
+
+
+def signed(headers, method: str, target: str, body: bytes, secret: str, now: float | None = None) -> bool:
+    """True when the gateway signed this exact request with the app's secret.
+
+    Every gateway sends a v1 signature. Newer ones also send v2, bound to a one-time nonce. When
+    any v2 header is there, v2 must pass and its nonce must be new, so a replay can't fall back to
+    v1. `target` is the request-target as it came on the wire, query included.
+    """
+    if not secret:
+        return False
+    now = time.time() if now is None else now
+    digest = hashlib.sha256(body).hexdigest()
+    v2, nonce = headers.get("X-KiroCrew-Proxy-V2"), headers.get("X-KiroCrew-Proxy-Nonce")
+    if v2 is not None or nonce is not None:
+        stamp, _, mac = (v2 or "").partition(":")
+        if not (nonce and _NONCE.fullmatch(nonce) and _fresh(stamp, now) and mac):
+            return False
+        if not _matches(_mac(secret, f"v2:{stamp}:{nonce}:{method}:{target}:{digest}"), mac):
+            return False
+        return _first_use(nonce, int(stamp) + MAX_SKEW_SECONDS, now)
+    stamp, _, mac = (headers.get("X-KiroCrew-Proxy") or "").partition(":")
+    return _fresh(stamp, now) and bool(mac) and _matches(_mac(secret, f"{stamp}:{method}:{target}:{digest}"), mac)
+
+
+def unsigned_allowed() -> bool:
+    """Only `ui/dev` runs unsigned, and only when asked. A backend the gateway starts never does."""
+    return os.environ.get("SYSTEM_MAP_UNSIGNED") == "1" and os.environ.get("KIROCREW_SPAWNED") != "1"
 
 
 def worktree_state(target: Path) -> dict:
@@ -52,7 +124,21 @@ def agent_state(target: Path) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _body(self) -> bytes:
+        return self.rfile.read(int(self.headers.get("Content-Length") or 0))
+
+    def _allowed(self, body: bytes) -> bool:
+        """Answer 401 and return False unless the gateway sent this request."""
+        if urlparse(self.path).path in OPEN_PATHS or unsigned_allowed():
+            return True
+        if signed(self.headers, self.command, self.path, body, os.environ.get(SECRET_ENV, "")):
+            return True
+        self._json(401, {"error": "This request did not come through Kiro Crew."})
+        return False
+
     def do_GET(self):
+        if not self._allowed(self._body()):
+            return
         url = urlparse(self.path)
         path, query = url.path, parse_qs(url.query)
         repo = (query.get("repo") or [None])[0]
@@ -110,9 +196,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(400, {"error": str(error)})
 
     def do_POST(self):
-        length = int(self.headers.get("Content-Length") or 0)
+        raw = self._body()
+        if not self._allowed(raw):
+            return
         try:
-            body = json.loads(self.rfile.read(length) or b"{}")
+            body = json.loads(raw or b"{}")
         except json.JSONDecodeError:
             self._json(400, {"error": "bad JSON"})
             return

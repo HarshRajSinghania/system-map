@@ -167,11 +167,14 @@ With Vitest, list every source file in `coverage.include`, or a file no test loa
 
 ```bash
 SYSTEM_MAP_DATA=/tmp/model python3 -m core build <repo>
-SYSTEM_MAP_DATA=/tmp/model PORT=9191 python3 backend/server.py &
+SYSTEM_MAP_DATA=/tmp/model PORT=9191 SYSTEM_MAP_UNSIGNED=1 python3 backend/server.py &
 (cd ui && npm run dev)
 ```
 
 Open <http://127.0.0.1:5199>. Add `?theme=dark` or `?view=panel`.
+
+The backend refuses any call the gateway didn't sign, except `/health`. `ui/dev` can't sign, so
+`SYSTEM_MAP_UNSIGNED=1` lets it in. A backend that Kiro Crew starts ignores that flag.
 
 ## License
 

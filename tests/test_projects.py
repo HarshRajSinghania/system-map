@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core import store  # noqa: E402
-from tests.helpers import commit_all, git, write_migration  # noqa: E402
+from tests.helpers import PROXY_SECRET, commit_all, git, signed_request, write_migration  # noqa: E402
 
 SCHEMA = "CREATE TABLE public.orgs (id uuid PRIMARY KEY);\n"
 MORE = "CREATE TABLE public.users (id uuid PRIMARY KEY);\n"
@@ -214,7 +214,13 @@ class BackendRoutes(unittest.TestCase):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             self.port = probe.getsockname()[1]
-        env = {**os.environ, "PORT": str(self.port), "SYSTEM_MAP_DATA": str(self.data), "PYTHONDONTWRITEBYTECODE": "1"}
+        env = {
+            **os.environ,
+            "PORT": str(self.port),
+            "SYSTEM_MAP_DATA": str(self.data),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "KIROCREW_PROXY_SECRET": PROXY_SECRET,
+        }
         self.server = subprocess.Popen([sys.executable, str(ROOT / "backend" / "server.py")], env=env)
         self.addCleanup(self.stop)
         deadline = time.time() + 10
@@ -231,13 +237,11 @@ class BackendRoutes(unittest.TestCase):
         self.server.wait(timeout=5)
 
     def get(self, path):
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}{path}", timeout=5) as reply:
+        with urllib.request.urlopen(signed_request(f"http://127.0.0.1:{self.port}{path}"), timeout=5) as reply:
             return json.load(reply)
 
     def post(self, path, body):
-        request = urllib.request.Request(
-            f"http://127.0.0.1:{self.port}{path}", data=json.dumps(body).encode(), method="POST"
-        )
+        request = signed_request(f"http://127.0.0.1:{self.port}{path}", json.dumps(body).encode())
         return json.load(urllib.request.urlopen(request, timeout=10))
 
     def refused(self, path, body):
