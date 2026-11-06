@@ -12,8 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from core import store  # noqa: E402
+from core import agent_drafts, store  # noqa: E402
 from helpers import commit_all, git  # noqa: E402
+from test_agent_drafts import EVIDENCE  # noqa: E402
 from test_agents import FILES, SETTINGS, line_of  # noqa: E402
 
 
@@ -217,6 +218,7 @@ class McpServerTests(unittest.TestCase):
         value = json.loads(self.tool("agents", repo=str(repo))["content"][0]["text"])
         self.assertEqual((value["agents"], value["suggestions"]), ([], ["module:src/agents"]))
         self.assertIn("Agents tab", value["note"])
+        self.assertIn("`draft_agents`", value["note"])
 
     def test_agents_lists_each_one_short(self):
         repo, target = self.agent_repo()
@@ -276,6 +278,32 @@ class McpServerTests(unittest.TestCase):
         replies = self.talk([1], "x", {"jsonrpc": "2.0", "id": 2, "method": "ping"})
         self.assertEqual([reply["error"]["code"] for reply in replies[:2]], [-32600, -32600])
         self.assertEqual(replies[2], {"jsonrpc": "2.0", "id": 2, "result": {}})
+
+    def test_a_dry_run_draft_shows_the_agents_and_saves_nothing(self):
+        repo, target = self.agent_repo()
+        body = self.read("draft_agents", repo=str(repo), settings=SETTINGS, evidence=EVIDENCE, dry_run=True)
+        self.assertEqual((body["count"], body["saved"]), (4, False))
+        self.assertEqual([row["id"] for row in body["agents"]], ["agent:sorter", "agent:reader", "agent:mail", "agent:digest"])
+        self.assertIsNone(agent_drafts.load(target)["draft"])
+
+    def test_a_draft_is_kept_for_a_person_and_changes_no_settings(self):
+        repo, target = self.agent_repo()
+        body = self.read("draft_agents", repo=str(repo), settings=SETTINGS, evidence=EVIDENCE, note="Read the registry.")
+        self.assertTrue(body["saved"])
+        self.assertEqual(agent_drafts.load(target)["draft"]["note"], "Read the registry.")
+        self.assertEqual(store.load_agent_settings(target), {})
+
+    def test_a_draft_with_no_evidence_is_an_error_result_saying_why(self):
+        repo, target = self.agent_repo()
+        reply = self.tool("draft_agents", repo=str(repo), settings=SETTINGS, evidence={})
+        self.assertTrue(reply["isError"])
+        self.assertIn("needs evidence", reply["content"][0]["text"])
+
+    def test_no_tool_can_use_or_drop_a_draft(self):
+        tools = self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]["result"]["tools"]
+        self.assertEqual([tool["name"] for tool in tools if "draft" in tool["name"]], ["draft_agents"])
+        schema = next(tool for tool in tools if tool["name"] == "draft_agents")["inputSchema"]
+        self.assertEqual(set(schema["properties"]), {"settings", "evidence", "note", "dry_run", "repo", "budget_chars"})
 
 
 class Faults(unittest.TestCase):

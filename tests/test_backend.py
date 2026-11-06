@@ -19,8 +19,9 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tests"))
 
 from backend import server  # noqa: E402
-from core import store  # noqa: E402
+from core import agent_drafts, store  # noqa: E402
 from helpers import PROXY_SECRET, commit_all, git, proxy_signature, proxy_v2, signed_request  # noqa: E402
+from test_agent_drafts import EVIDENCE  # noqa: E402
 from test_agents import FILES, SETTINGS  # noqa: E402
 
 
@@ -190,11 +191,17 @@ class AgentRoutes(Served):
         commit_all(cls.repo)
         cls.data = base / "data"
         store.build(cls.repo, cls.data)
+        cls.target = store.repo_dir(cls.repo, cls.data)
         cls.serve()
 
     def setUp(self):
         self.post("/agents/settings", {"settings": {}})
         self.post("/regions", {"id": "service:anthropic", "region": None})
+        (self.target / "intent" / "agents-draft.json").unlink(missing_ok=True)
+
+    def draft(self):
+        """What the Design chat does through `draft_agents`."""
+        agent_drafts.save(self.target, SETTINGS, EVIDENCE, "Read the registry.")
 
     def refused(self, path, body):
         with self.assertRaises(urllib.error.HTTPError) as caught:
@@ -235,9 +242,43 @@ class AgentRoutes(Served):
         self.assertEqual(self.refused("/regions", {"id": "module:src/desk", "region": "US"})[0], 404)
         self.assertEqual(self.refused("/regions", {"id": "service:anthropic", "region": ""})[0], 400)
 
+    def test_no_draft_reads_as_none(self):
+        self.assertEqual(self.get("/agents/draft"), {"draft": None, "changed": [], "stale": False})
+
+    def test_a_draft_reads_back_with_what_it_would_change(self):
+        self.draft()
+        value = self.get("/agents/draft")
+        self.assertEqual((value["draft"]["settings"], value["draft"]["note"], value["stale"]), (SETTINGS, "Read the registry.", False))
+        self.assertEqual(value["changed"], ["list", "hand_off_keys", "model_calls", "asks_you_calls"])
+
+    def test_using_a_draft_saves_it_and_shows_the_agents(self):
+        self.draft()
+        reply = json.load(self.post("/agents/draft", {"action": "use"}))
+        self.assertEqual(reply["settings"], SETTINGS)
+        self.assertEqual([row["name"] for row in self.get("/agents")["agents"]], ["sorter", "reader", "mail", "digest"])
+        self.assertIsNone(self.get("/agents/draft")["draft"])
+
+    def test_dropping_a_draft_keeps_the_settings(self):
+        self.post("/agents/settings", {"settings": {"home_region": "Canada"}})
+        self.draft()
+        self.assertEqual(json.load(self.post("/agents/draft", {"action": "drop"})), {"dropped": True})
+        self.assertIsNone(self.get("/agents/draft")["draft"])
+        self.assertEqual(self.get("/agents")["settings"], {"home_region": "Canada"})
+
+    def test_a_draft_action_must_be_use_or_drop_and_need_a_draft(self):
+        self.assertEqual(self.refused("/agents/draft", {"action": "use"}), (404, "no agent draft"))
+        self.assertEqual(self.refused("/agents/draft", {"action": "drop"}), (404, "no agent draft"))
+        self.draft()
+        self.assertEqual(self.refused("/agents/draft", {"action": "accept"}), (400, "action must be use or drop"))
+        self.assertIsNotNone(self.get("/agents/draft")["draft"])
+
     def test_no_route_touches_the_repo(self):
         self.post("/agents/settings", {"settings": {**SETTINGS, "home_region": "Canada"}})
         self.post("/regions", {"id": "service:anthropic", "region": "US"})
+        self.draft()
+        self.post("/agents/draft", {"action": "use"})
+        self.draft()
+        self.post("/agents/draft", {"action": "drop"})
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
 
 

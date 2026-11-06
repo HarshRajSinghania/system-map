@@ -24,7 +24,7 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import agents, explore, folder_window, folders, store  # noqa: E402
+from core import agent_drafts, agents, explore, folder_window, folders, store  # noqa: E402
 
 PORT = int(os.environ.get("PORT", 9100))
 #: The page and the side panel both poll, so one answer serves both for this long.
@@ -195,6 +195,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, {"findings": store.load_findings(store.resolve_repo(repo))})
             elif path.endswith("/agents"):
                 self._json(200, agent_state(store.resolve_repo(repo)))
+            elif path.endswith("/agents/draft"):
+                self._json(200, agent_drafts.load(store.resolve_repo(repo)))
             elif path.endswith("/node"):
                 self._json(200, store.load_node(store.resolve_repo(repo), query["id"][0]))
             elif path.endswith("/neighbors"):
@@ -272,6 +274,19 @@ class Handler(BaseHTTPRequestHandler):
                     if not isinstance(settings, dict):
                         raise ValueError("settings must be an object")
                     self._json(200, store.set_agent_settings(target, settings))
+            except KeyError as error:
+                self._json(404, {"error": str(error).strip("'\"")})
+            except (ValueError, OSError) as error:
+                self._json(400, {"error": str(error)})
+            return
+        if route.endswith("/agents/draft"):
+            # Only a person, through this page, uses or drops a draft. No agent tool can.
+            try:
+                target = store.resolve_repo(body.get("repo"))
+                action = body.get("action")
+                if action not in ("use", "drop"):
+                    raise ValueError("action must be use or drop")
+                self._json(200, (agent_drafts.use if action == "use" else agent_drafts.drop)(target))
             except KeyError as error:
                 self._json(404, {"error": str(error).strip("'\"")})
             except (ValueError, OSError) as error:
