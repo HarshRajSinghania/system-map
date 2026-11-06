@@ -120,7 +120,10 @@ backend restarts and upgrades models. A new tool reaches new sessions only.
 
 Use only names listed in the host's vendor stubs, `kirocrew-ui.mjs` and `kirocrew-app-sdk.mjs`.
 Naming any other export fails the whole app at load. `IconButton` is in the app kit's source,
-but not in the stub.
+but not in the stub. `tests/test_contract.py` checks every built bundle against the stubs and the
+host page's import map, using the Kiro Crew that the `kirocrew` launcher runs (or
+`KIROCREW_PYTHON`). It also runs the host's own manifest parser. Both skip when no Kiro Crew is
+installed.
 
 The host wraps every page in `<main id="main-content" tabindex="-1">`, and `ui/dev` does too. A
 click on anything that can't take focus moves focus to that `main`. So a popup that closes when
