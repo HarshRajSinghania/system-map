@@ -18,6 +18,7 @@ through a chat. The layout is:
       intent/plan_status.json        statuses a person set; these beat derived ones
       intent/agents.json             where a person said the agents are, and the home region
       intent/regions.json            where a person said each service runs
+      intent/agents-draft.json       agent settings the Design chat drafted; a person uses them
       intent/proposals/<id>.json     what-ifs. Agents write drafts, and a person accepts them
       intent/use_cases/<id>.json     what someone needs to do, mapped to its parts
       intent/views/<id>.json         saved filters that the app draws
@@ -843,6 +844,16 @@ def load_notes(target: Path, node_id: str) -> list[dict]:
     return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(directory.glob("*.json"))]
 
 
+def check_evidence(source, evidence: list, ref: str) -> None:
+    """Each entry must be a path or path:line that names a file in `source`."""
+    for item in evidence:
+        if not isinstance(item, str):
+            raise ValueError("evidence must be a list of path or path:line")
+        relative = item.rsplit(":", 1)[0] if re.search(r":\d+$", item) else item
+        if relative not in source.blobs:
+            raise ValueError(f"evidence {item!r} is not a file at {ref}")
+
+
 def add_note(target: Path, node_id: str, text: str, evidence: list[str]) -> dict:
     """Save an agent's note. Every evidence entry must name a file at the model's commit."""
     load_node(target, node_id)
@@ -851,11 +862,7 @@ def add_note(target: Path, node_id: str, text: str, evidence: list[str]) -> dict
     if not evidence:
         raise ValueError("a note needs at least one evidence entry, as path or path:line")
     manifest = read_manifest(target)
-    source = open_source(Path(manifest["repo"]), manifest["commit"])
-    for item in evidence:
-        relative = item.rsplit(":", 1)[0] if re.search(r":\d+$", item) else item
-        if relative not in source.blobs:
-            raise ValueError(f"evidence {item!r} is not a file at {manifest['ref']}")
+    check_evidence(open_source(Path(manifest["repo"]), manifest["commit"]), evidence, manifest["ref"])
     note = {
         "node": node_id,
         "layer": "reads",

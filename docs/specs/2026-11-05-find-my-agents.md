@@ -1,7 +1,7 @@
 ---
 title: Find my agents (the Design chat drafts the agent settings)
 estimate: 270m
-status: approved
+status: in-progress
 ---
 # Find my agents
 
