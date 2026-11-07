@@ -58,6 +58,23 @@ test('the top level shows areas, groups, services and unbuilt plans', () => {
   assert.deepEqual(ids(view), ['area:src/a', 'area:src/b', GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, 'plan:next', 'service:stripe'].sort())
 })
 
+test('a folder of only tests says how many test files it holds, and one reads as one', () => {
+  const tested: SystemGraph = {
+    nodes: [
+      node('area:tests', 'area', { path: 'tests', files: 0, lines: 0, test_files: 1 }),
+      node('area:e2e', 'area', { path: 'e2e', files: 0, lines: 0, test_files: 3 }),
+      node('area:src/lib', 'area', { path: 'src/lib', files: 1, lines: 1, test_files: 2 }),
+      node('area:src/app', 'area', { path: 'src/app', files: 2, lines: 40 }),
+    ],
+    edges: [],
+  }
+  const subtitles = new Map(buildView(tested, null, 0, true).cards.map((card) => [card.id, card.subtitle]))
+  assert.equal(subtitles.get('area:tests'), '1 test file')
+  assert.equal(subtitles.get('area:e2e'), '3 test files')
+  assert.equal(subtitles.get('area:src/lib'), '1 file, 1 line')
+  assert.equal(subtitles.get('area:src/app'), '2 files, 40 lines')
+})
+
 test('the routes folder folds into the Routes group', () => {
   assert.ok(!ids(buildView(system, null, 33, true)).includes('area:src/routes'))
 })

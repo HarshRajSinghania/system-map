@@ -52,8 +52,14 @@ export const GROUP_TABLES = 'group:tables'
 export const GROUP_ROUTES = 'group:routes'
 export const GROUP_JOBS = 'group:jobs'
 
+const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+
+/** Code files and lines. A folder of only tests has neither, so it counts its test files. */
 function sizeOf(node: SystemNode): string {
-  return `${node.files} ${node.files === 1 ? 'file' : 'files'}, ${node.lines} lines`
+  const files = node.files ?? 0
+  const tests = node.test_files ?? 0
+  if (files === 0 && tests > 0) return count(tests, 'test file', 'test files')
+  return `${count(files, 'file', 'files')}, ${count(node.lines ?? 0, 'line', 'lines')}`
 }
 
 export function shortPath(path: string): string {
