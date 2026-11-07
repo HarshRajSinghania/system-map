@@ -613,15 +613,18 @@ export function useLive<T>(path: string, repo: string | null, everyMs: number) {
   const latest = useRef<string | null>(repo)
   latest.current = repo
 
-  const refresh = useCallback(async () => {
-    if (!repo) return
+  /** Resolves to what it read, or null when it read nothing for this repo. */
+  const refresh = useCallback(async (): Promise<T | null> => {
+    if (!repo) return null
     try {
       const reply = await api.get<T>(withRepo(path, repo))
-      if (latest.current !== repo) return
+      if (latest.current !== repo) return null
       setHeld({ repo, value: reply, failed: false })
       setCheckedAt(Date.now())
+      return reply
     } catch {
       if (latest.current === repo) setHeld({ repo, value: null, failed: true })
+      return null
     }
   }, [api, path, repo])
 

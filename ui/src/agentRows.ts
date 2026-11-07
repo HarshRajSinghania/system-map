@@ -138,6 +138,30 @@ export function markModule(settings: AgentSettings, moduleId: string): AgentSett
   return { ...settings, modules: [...new Set([...(settings.modules ?? []), moduleId])] }
 }
 
+/** What Mark as agent saves: the form as edited when it opened on a draft, else the saved settings. */
+export function markedSettings(saved: AgentSettings, moduleId: string, draftForm: AgentForm | null): AgentSettings {
+  return markModule(draftForm ? fromForm(draftForm) : saved, moduleId)
+}
+
+/** The settings form starts again whenever what it opened on changes, so it never shows old values. */
+export function setupKey(draftId: string | null, saved: AgentSettings): string {
+  return draftId ? `draft:${draftId}` : `saved:${JSON.stringify(saved)}`
+}
+
+/** A use or drop that failed, and the draft on screen once it came back. */
+export interface DraftError {
+  id: string | null
+  text: string
+}
+
+/** An error shows only on the draft it came back with, never on the next one the chat saves. */
+export function draftErrorFor(error: DraftError | null, draftId: string): string | null {
+  return error && error.id === draftId ? error.text : null
+}
+
+/** Why Find my agents is off, shown beside it. */
+export const FIND_OFF = "The Design chat needs this project's folder."
+
 /** Each setting's name on screen, in the form's order. */
 export const SETTING_LABELS: Record<AgentSettingKey, string> = {
   list: 'Agent list',
@@ -201,5 +225,6 @@ export function draftFinds(draft: AgentDraft): string {
 }
 
 export function staleLine(draft: AgentDraft): string {
-  return `Drafted at ${draft.commit ? draft.commit.slice(0, 7) : 'an older commit'}. The code has changed since, so check it first.`
+  const when = draft.commit ? `Drafted at ${draft.commit.slice(0, 7)}.` : 'Drafted before the last build.'
+  return `${when} The code has changed since, so check it first.`
 }

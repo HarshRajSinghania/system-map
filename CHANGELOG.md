@@ -7,6 +7,18 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- The review round on Find my agents:
+  - **Mark as agent** on a form opened from a draft saves the draft as edited. It used to save the
+    old settings and drop the draft.
+  - A draft the chat saves while you use another is kept.
+  - A draft goes stale on a project with no git when its code changes and the model is rebuilt.
+  - An open settings form shows the new values after **Use these**.
+  - A failed use or drop shows its error only on the draft it came back with.
+  - Using or dropping a draft needs its id.
+  - The draft's changed marks update as soon as you save settings.
+  - Why **Find my agents** is off shows beside it, not only on hover.
+
 ## [0.10.0] - 2026-11-07
 
 ### Security

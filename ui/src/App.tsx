@@ -5,7 +5,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { AddProject } from './AddProject'
 import { AgentsView } from './Agents'
 import { FIND_AGENTS_MESSAGE, showAgentOnLayer, toggleAgentsLayer } from './agentRows'
-import type { LayerFocus } from './agentRows'
+import type { DraftError, LayerFocus } from './agentRows'
 import './chrome'
 import { Erd } from './Erd'
 import type { Density } from './Erd'
@@ -317,7 +317,7 @@ function ProjectPage({
   const beforeAgents = useRef<string | null>(null)
   const [savingAgents, setSavingAgents] = useState(false)
   const [agentError, setAgentError] = useState<string | null>(null)
-  const [draftError, setDraftError] = useState<string | null>(null)
+  const [draftError, setDraftError] = useState<DraftError | null>(null)
   const [coverageError, setCoverageError] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [density, setDensity] = useState<Density>('names')
@@ -491,6 +491,8 @@ function ProjectPage({
       await api.post(`${BASE}/agents/settings`, { repo, settings })
       await refresh()
       setTick((value) => value + 1)
+      // A draft's changed marks compare it with the saved settings, so read it again now.
+      await agentDraft.refresh()
       return true
     } catch (caught) {
       setAgentError(plainError(caught, 'save the agent settings'))
@@ -503,6 +505,7 @@ function ProjectPage({
   const actOnDraft = async (action: 'use' | 'drop', id: string): Promise<boolean> => {
     setSavingAgents(true)
     setDraftError(null)
+    let failed: string | null = null
     try {
       await api.post(`${BASE}/agents/draft`, { repo, action, id })
       if (action === 'use') {
@@ -511,11 +514,13 @@ function ProjectPage({
       }
       return true
     } catch (caught) {
-      setDraftError(plainError(caught, action === 'use' ? 'use the draft' : 'drop the draft'))
+      failed = plainError(caught, action === 'use' ? 'use the draft' : 'drop the draft')
       return false
     } finally {
       setSavingAgents(false)
-      await agentDraft.refresh()
+      const now = await agentDraft.refresh()
+      // The error belongs to the draft now on screen: the same one, or the newer one it was refused for.
+      if (failed) setDraftError({ id: now?.draft?.id ?? null, text: failed })
     }
   }
   /** A region changes no version, so the tick reloads the map, the agents, the findings and the inspector. */

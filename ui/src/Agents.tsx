@@ -2,8 +2,8 @@ import { Badge, Btn, Input } from '@kirocrew/app-sdk/ui'
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { AgentDraftCard } from './AgentDraft'
-import { AGENT_FILTERS, draftSettings, filterAgents, filterCounts, fromForm, handsOffTo, markModule, modelLabel, modelsOf, nodeLabel, regionTone, SETTING_LABELS, startsFrom, STATUS_LABEL, toForm } from './agentRows'
-import type { AgentFilter, AgentForm, RegionTone } from './agentRows'
+import { AGENT_FILTERS, draftErrorFor, draftSettings, filterAgents, filterCounts, FIND_OFF, fromForm, handsOffTo, markedSettings, modelLabel, modelsOf, nodeLabel, regionTone, SETTING_LABELS, setupKey, startsFrom, STATUS_LABEL, toForm } from './agentRows'
+import type { AgentFilter, AgentForm, DraftError, RegionTone } from './agentRows'
 import type { AgentDraft, AgentDraftState, AgentModel, AgentRow, AgentSettings, AgentState, AgentStatus } from './model'
 import { MONO, MUTED } from './parts'
 
@@ -119,7 +119,7 @@ const FIELDS: { key: keyof AgentForm; help: string }[] = [
 /** Sends the fixed message to the Design chat, which drafts the settings. */
 function FindButton({ canAsk, onFind }: { canAsk: boolean; onFind: () => void }) {
   return (
-    <Btn onClick={onFind} disabled={!canAsk} title={canAsk ? 'The Design chat reads your code and drafts these settings for you to check' : "The Design chat needs this project's folder"}>
+    <Btn onClick={onFind} disabled={!canAsk} title={canAsk ? 'The Design chat reads your code and drafts these settings for you to check' : FIND_OFF}>
       Find my agents
     </Btn>
   )
@@ -168,7 +168,9 @@ function Setup({
       {state.agents.length === 0 && (
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16 }}>
           <FindButton canAsk={canAsk} onFind={onFind} />
-          <span style={MUTED}>The Design chat reads your code and drafts these settings for you to check.</span>
+          <span style={MUTED} data-testid="find-agents-why">
+            {canAsk ? 'The Design chat reads your code and drafts these settings for you to check.' : FIND_OFF}
+          </span>
         </div>
       )}
       {state.agents.length === 0 && state.suggestions.length > 0 && (
@@ -177,7 +179,7 @@ function Setup({
           {state.suggestions.map((id) => (
             <div key={id} style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '4px 0' }}>
               <span style={{ ...MONO, fontSize: 12, flex: 1 }}>{nodeLabel(id, [])}</span>
-              <Btn disabled={saving} onClick={() => void save(markModule(state.settings, id))}>
+              <Btn disabled={saving} onClick={() => void save(markedSettings(state.settings, id, start ? form : null))}>
                 Mark as agent
               </Btn>
             </div>
@@ -224,7 +226,7 @@ export function AgentsView({
   canAsk: boolean
   saving: boolean
   error: string | null
-  draftError: string | null
+  draftError: DraftError | null
   onShow: (id: string) => void
   onAsk: (row: AgentRow) => void
   onSave: (settings: AgentSettings) => Promise<boolean>
@@ -259,7 +261,7 @@ export function AgentsView({
           stale={draft.stale}
           saved={state.settings}
           busy={saving}
-          error={draftError}
+          error={draftErrorFor(draftError, drafted.id)}
           onUse={() => void onDraft('use', drafted.id)}
           onEdit={() => setEditing({ from: 'draft', draft: drafted })}
           onDrop={() => void onDraft('drop', drafted.id)}
@@ -273,7 +275,7 @@ export function AgentsView({
       <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', padding: 16, color: 'var(--text, inherit)' }}>
         {card}
         <Setup
-          key={opened ? `draft:${opened.id}` : 'saved'}
+          key={setupKey(opened?.id ?? null, state.settings)}
           state={state}
           start={opened ? draftSettings(opened, state.settings) : undefined}
           saving={saving}
@@ -305,6 +307,11 @@ export function AgentsView({
           </Btn>
         ))}
         <span style={{ flex: 1 }} />
+        {!canAsk && (
+          <span style={{ ...MUTED, fontSize: 12 }} data-testid="find-agents-why">
+            {FIND_OFF}
+          </span>
+        )}
         <FindButton canAsk={canAsk} onFind={onFind} />
         <Btn onClick={() => setEditing({ from: 'settings' })}>Agent settings</Btn>
       </div>

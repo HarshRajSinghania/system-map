@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  draftErrorFor,
   draftFinds,
   draftRows,
   draftSettings,
@@ -9,11 +10,13 @@ import {
   FIND_AGENTS_MESSAGE,
   fromForm,
   handsOffTo,
+  markedSettings,
   markModule,
   modelLabel,
   modelsOf,
   nodeLabel,
   regionTone,
+  setupKey,
   showAgentOnLayer,
   staleLine,
   startsFrom,
@@ -203,6 +206,35 @@ test('the card counts what the draft finds, and says when the code has moved', (
   assert.equal(draftFinds(draft({ count: 1 })), 'With these, System Map finds 1 agent:')
   assert.equal(draftFinds(draft({ count: 0 })), 'With these, System Map finds no agents.')
   assert.equal(staleLine(draft()), 'Drafted at f1051a3. The code has changed since, so check it first.')
+  assert.equal(staleLine(draft({ commit: null })), 'Drafted before the last build. The code has changed since, so check it first.')
+})
+
+test('Mark as agent on a form opened from a draft keeps the draft as edited', () => {
+  const saved = { list: 'old.ts', home_region: 'Canada' }
+  const form = { ...toForm(draftSettings(draft(), saved), {}), asks_you_calls: 'addTask' }
+  assert.deepEqual(markedSettings(saved, 'module:src/mail', form), {
+    list: 'src/agents/registry.ts',
+    model_calls: ['claude', 'readQuote'],
+    asks_you_calls: ['addTask'],
+    modules: ['module:src/mail'],
+    home_region: 'Canada',
+  })
+  assert.deepEqual(markedSettings(saved, 'module:src/mail', null), { ...saved, modules: ['module:src/mail'] })
+})
+
+test('the settings form starts again when the saved settings change, and per draft', () => {
+  assert.notEqual(setupKey(null, { list: 'a.ts' }), setupKey(null, { list: 'b.ts' }))
+  assert.equal(setupKey(null, { list: 'a.ts' }), setupKey(null, { list: 'a.ts' }))
+  assert.equal(setupKey('1a2b', { list: 'a.ts' }), setupKey('1a2b', { list: 'b.ts' }))
+  assert.notEqual(setupKey('1a2b', {}), setupKey('3c4d', {}))
+})
+
+test('an error shows only on the draft it came back with', () => {
+  const error = { id: '1a2b', text: 'Could not use the draft.' }
+  assert.equal(draftErrorFor(error, '1a2b'), 'Could not use the draft.')
+  assert.equal(draftErrorFor(error, '3c4d'), null)
+  assert.equal(draftErrorFor({ id: null, text: 'x' }, '1a2b'), null)
+  assert.equal(draftErrorFor(null, '1a2b'), null)
 })
 
 test('Find my agents asks the chat to follow the skill and save a draft', () => {
