@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import subprocess
@@ -5,6 +6,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -240,6 +242,54 @@ class McpServerTests(unittest.TestCase):
     def test_agents_is_in_the_tool_list(self):
         reply = self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]
         self.assertIn("agents", [tool["name"] for tool in reply["result"]["tools"]])
+
+    def call(self, request_id, name, **arguments):
+        return {"jsonrpc": "2.0", "id": request_id, "method": "tools/call", "params": {"name": name, "arguments": arguments}}
+
+    def test_arguments_are_held_to_the_tools_schema_and_the_server_lives_on(self):
+        cases = [
+            (self.call(1, "note", id="table:public.orgs", text="x", evidence="001.sql:1"), "evidence must be a list"),
+            (self.call(2, "note", id="table:public.orgs", text="x", evidence=[1]), "each evidence entry must be text"),
+            (self.call(3, "findings", budget_chars="lots"), "budget_chars must be a whole number"),
+            (self.call(4, "risk", limit=True), "limit must be a whole number"),
+            (self.call(5, "risk", all="yes"), "all must be true or false"),
+            (self.call(6, "plan", status="done"), "status must be one of: planned, partial, unclear, built"),
+            (self.call(7, "node"), "node needs id"),
+            (self.call(8, "node", id=None), "node needs id"),
+            ({"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "overview", "arguments": ["x"]}}, "arguments must be an object"),
+            ({"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": "overview"}, "params must be an object"),
+        ]
+        replies = self.talk(*[request for request, _ in cases], self.call(11, "overview"))
+        self.assertEqual(len(replies), len(cases) + 1)
+        for (request, wanted), reply in zip(cases, replies):
+            with self.subTest(wanted=wanted):
+                self.assertEqual(reply["id"], request["id"])
+                self.assertTrue(reply["result"]["isError"])
+                self.assertEqual(reply["result"]["content"][0]["text"], wanted)
+        self.assertNotIn("isError", replies[-1]["result"])
+
+    def test_a_null_optional_argument_counts_as_left_out(self):
+        reply = self.tool("findings", node=None, severity=None, budget_chars=None)
+        self.assertNotIn("isError", reply)
+
+    def test_a_request_that_is_not_an_object_gets_an_error_and_the_server_lives_on(self):
+        replies = self.talk([1], "x", {"jsonrpc": "2.0", "id": 2, "method": "ping"})
+        self.assertEqual([reply["error"]["code"] for reply in replies[:2]], [-32600, -32600])
+        self.assertEqual(replies[2], {"jsonrpc": "2.0", "id": 2, "result": {}})
+
+
+class Faults(unittest.TestCase):
+    """A fault no tool expected is reported as an internal error, and the next line still gets an answer."""
+
+    def test_an_unexpected_fault_is_an_internal_error(self):
+        from mcp_server import server
+
+        line = json.dumps({"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "overview", "arguments": {}}})
+        with mock.patch.object(server, "call", side_effect=RuntimeError("boom")), mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            reply = server.handle(line)
+        self.assertEqual(reply, {"jsonrpc": "2.0", "id": 7, "error": {"code": -32603, "message": "internal error: RuntimeError: boom"}})
+        self.assertIn("Traceback", err.getvalue())
+        self.assertEqual(server.handle(json.dumps({"jsonrpc": "2.0", "id": 8, "method": "ping"}))["result"], {})
 
 
 if __name__ == "__main__":

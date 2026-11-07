@@ -1,10 +1,12 @@
 import email.message
+import http.client
 import json
 import os
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 import urllib.error
@@ -378,6 +380,50 @@ class Gate(Served):
         self.assertEqual(self.status("/repos", headers=headers), 401)
 
 
+class Threads(unittest.TestCase):
+    """A long build holds the write turn, but reads still get answers, and other writes wait."""
+
+    def test_reads_go_on_while_a_build_runs(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        started, release = threading.Event(), threading.Event()
+
+        def slow_build(path, *args, **kwargs):
+            started.set()
+            release.wait(10)
+            return {"repo_key": "k", "unchanged": True}
+
+        env = {"KIROCREW_PROXY_SECRET": PROXY_SECRET, "KIROCREW_SPAWNED": "1", "SYSTEM_MAP_DATA": tmp.name}
+        with (
+            mock.patch.dict(os.environ, env),
+            mock.patch.object(server.store, "build", side_effect=slow_build),
+            mock.patch.object(server.store, "check_folder", side_effect=lambda path: path),
+        ):
+            httpd = server.Server(("127.0.0.1", 0), server.Handler)
+            threading.Thread(target=httpd.serve_forever, daemon=True).start()
+            self.addCleanup(httpd.server_close)
+            self.addCleanup(httpd.shutdown)
+            url = f"http://127.0.0.1:{httpd.server_address[1]}"
+
+            def call(path, body, done):
+                try:
+                    urllib.request.urlopen(signed_request(url + path, json.dumps(body).encode()), timeout=20).read()
+                except urllib.error.HTTPError:
+                    pass
+                done.set()
+
+            built, wrote = threading.Event(), threading.Event()
+            threading.Thread(target=call, args=("/build", {"repo_path": tmp.name}, built), daemon=True).start()
+            self.assertTrue(started.wait(5))
+            with urllib.request.urlopen(signed_request(url + "/repos"), timeout=2) as reply:
+                self.assertEqual(json.load(reply)["repos"], [])
+            threading.Thread(target=call, args=("/plan-status", {"id": "x"}, wrote), daemon=True).start()
+            self.assertFalse(wrote.wait(0.5), "a second write ran while the build held the turn")
+            release.set()
+            self.assertTrue(built.wait(5))
+            self.assertTrue(wrote.wait(5))
+
+
 class Bare(Served):
     """A backend over an empty data folder, started with `gateway_env`."""
 
@@ -386,6 +432,40 @@ class Bare(Served):
         cls._tmp = tempfile.TemporaryDirectory()
         cls.data = Path(cls._tmp.name) / "data"
         cls.serve()
+
+
+class Bodies(Bare):
+    """A bad length or a body that isn't a JSON object gets words, not a dropped connection."""
+
+    def send(self, method, path, headers, body=b""):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        self.addCleanup(connection.close)
+        connection.putrequest(method, path)
+        for name, value in headers.items():
+            connection.putheader(name, value)
+        connection.endheaders(body)
+        reply = connection.getresponse()
+        return reply.status, json.loads(reply.read())
+
+    def test_a_length_that_is_not_a_whole_number_is_a_400(self):
+        for given in ("abc", "-1", "1.5", "²"):
+            with self.subTest(given=given):
+                code, reply = self.send("POST", "/build", {"Content-Length": given})
+                self.assertEqual(code, 400)
+                self.assertIn("whole number", reply["error"])
+
+    def test_a_body_over_the_cap_is_a_413_before_it_is_read(self):
+        code, reply = self.send("POST", "/build", {"Content-Length": str(server.MAX_BODY_BYTES + 1)})
+        self.assertEqual(code, 413)
+        self.assertIn(str(server.MAX_BODY_BYTES), reply["error"])
+
+    def test_a_signed_body_that_is_not_an_object_is_a_400(self):
+        for body, wanted in ((b"[1]", "JSON object"), (b"\xff", "bad JSON")):
+            with self.subTest(body=body):
+                headers = {"Content-Length": str(len(body)), "X-KiroCrew-Proxy": proxy_signature("POST", "/build", body)}
+                code, reply = self.send("POST", "/build", headers, body)
+                self.assertEqual(code, 400)
+                self.assertIn(wanted, reply["error"])
 
 
 class NoSecret(Bare):

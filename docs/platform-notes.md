@@ -97,8 +97,9 @@ backend restarts and upgrades models. A new tool reaches new sessions only.
 
 - A web page can't get a folder's path. `showDirectoryPicker` gives a name and a handle, so the
   backend opens the computer's own window on the machine it runs on.
-- The window can stay open for minutes, and the server answers one request at a time. So the
-  page starts it and polls, which also keeps it clear of any proxy time limit.
+- The window can stay open for minutes. So the page starts it and polls, which keeps it clear of
+  any proxy time limit. The server runs one thread per request, and writes take turns: a build
+  holds up other POSTs, but never a read.
 - On WSL, `powershell.exe` runs through Windows interop, even from the sandbox wrapper. Only the
   newer folder window reaches `\\wsl.localhost`. `wslpath` converts the path each way, and
   killing the process closes the window. A window from a background process can't take focus,

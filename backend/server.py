@@ -18,7 +18,7 @@ import re
 import sys
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -31,6 +31,10 @@ PORT = int(os.environ.get("PORT", 9100))
 WORKTREE_TTL_SECONDS = 5
 _worktree_cache: dict[str, tuple[float, dict]] = {}
 _worktree_lock = threading.Lock()
+#: Every POST, and the rebuild on start, holds this. GETs never wait for it.
+_writes = threading.Lock()
+#: No route needs more than a few kilobytes.
+MAX_BODY_BYTES = 1 << 20
 
 #: The gateway hands the backend its per-app secret in this variable.
 SECRET_ENV = "KIROCREW_PROXY_SECRET"
@@ -124,8 +128,16 @@ def agent_state(target: Path) -> dict:
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _body(self) -> bytes:
-        return self.rfile.read(int(self.headers.get("Content-Length") or 0))
+    def _body(self) -> bytes | None:
+        """The request body, or None after a 400 or 413 for a length that is bad or too big."""
+        given = self.headers.get("Content-Length") or "0"
+        if not (given.isascii() and given.isdigit()):
+            self._json(400, {"error": "Content-Length must be a whole number."})
+            return None
+        if int(given) > MAX_BODY_BYTES:
+            self._json(413, {"error": f"The request is over {MAX_BODY_BYTES} bytes."})
+            return None
+        return self.rfile.read(int(given))
 
     def _allowed(self, body: bytes) -> bool:
         """Answer 401 and return False unless the gateway sent this request."""
@@ -137,7 +149,8 @@ class Handler(BaseHTTPRequestHandler):
         return False
 
     def do_GET(self):
-        if not self._allowed(self._body()):
+        body = self._body()
+        if body is None or not self._allowed(body):
             return
         url = urlparse(self.path)
         path, query = url.path, parse_qs(url.query)
@@ -197,14 +210,21 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         raw = self._body()
-        if not self._allowed(raw):
+        if raw is None or not self._allowed(raw):
             return
         try:
             body = json.loads(raw or b"{}")
-        except json.JSONDecodeError:
+        except ValueError:  # bad JSON, or bytes that aren't UTF-8
             self._json(400, {"error": "bad JSON"})
             return
-        route = urlparse(self.path).path
+        if not isinstance(body, dict):
+            self._json(400, {"error": "The body must be a JSON object."})
+            return
+        # Writes take turns, so two builds can't race. Reads go on meanwhile.
+        with _writes:
+            self._post(urlparse(self.path).path, body)
+
+    def _post(self, route: str, body: dict) -> None:
         if route.endswith("/folder-window"):
             start = body.get("start")
             self._json(200, folder_window.open_window(start if isinstance(start, str) else None))
@@ -293,12 +313,22 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-class Server(HTTPServer):
-    """Let a second copy fail on bind, so the gateway can see a port clash."""
+class Server(ThreadingHTTPServer):
+    """One thread per request, so a long build doesn't hold up reads.
+
+    A second copy still fails on bind, so the gateway can see a port clash.
+    """
 
     allow_reuse_address = not sys.platform.startswith("win")
+    daemon_threads = True
+
+
+def refresh_all() -> None:
+    """Rebuild every model on start, taking the write turn like any build."""
+    with _writes:
+        store.refresh_all()
 
 
 if __name__ == "__main__":
-    threading.Thread(target=store.refresh_all, daemon=True).start()
+    threading.Thread(target=refresh_all, daemon=True).start()
     Server(("127.0.0.1", PORT), Handler).serve_forever()

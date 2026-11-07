@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import sys
+import traceback
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -409,6 +410,61 @@ def call(name: str, args: dict) -> object:
     raise KeyError(f"unknown tool {name!r}")
 
 
+SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
+#: JSON Schema types, and how a refusal names each.
+JSON_TYPES = {
+    "string": (lambda value: isinstance(value, str), "text"),
+    "integer": (lambda value: isinstance(value, int) and not isinstance(value, bool), "a whole number"),
+    "number": (lambda value: isinstance(value, (int, float)) and not isinstance(value, bool), "a number"),
+    "boolean": (lambda value: isinstance(value, bool), "true or false"),
+    "array": (lambda value: isinstance(value, list), "a list"),
+    "object": (lambda value: isinstance(value, dict), "an object"),
+}
+
+
+def _kinds(spec: dict) -> list[str]:
+    kind = spec.get("type")
+    return [kind] if isinstance(kind, str) else list(kind or [])
+
+
+def _fits(value: object, spec: dict) -> bool:
+    kinds = _kinds(spec)
+    return not kinds or any(JSON_TYPES[kind][0](value) for kind in kinds)
+
+
+def _wants(spec: dict) -> str:
+    return " or ".join(JSON_TYPES[kind][1] for kind in _kinds(spec))
+
+
+def check_args(name: str, args: object) -> dict:
+    """The arguments, once they match the tool's inputSchema; a ValueError that names the fix if not.
+
+    A null optional argument counts as left out, as the tools already treat it.
+    """
+    if name not in SCHEMAS:
+        raise KeyError(f"unknown tool {name!r}")
+    if not isinstance(args, dict):
+        raise ValueError("arguments must be an object")
+    schema = SCHEMAS[name]
+    for key in schema.get("required", []):
+        if args.get(key) is None:
+            raise ValueError(f"{name} needs {key}")
+    for key, value in args.items():
+        spec = schema.get("properties", {}).get(key)
+        if spec is None or value is None:
+            continue
+        if not _fits(value, spec):
+            raise ValueError(f"{key} must be {_wants(spec)}")
+        if "enum" in spec and value not in spec["enum"]:
+            raise ValueError(f"{key} must be one of: {', '.join(map(str, spec['enum']))}")
+        items = spec.get("items")
+        if items and isinstance(value, list):
+            for item in value:
+                if not _fits(item, items):
+                    raise ValueError(f"each {key} entry must be {_wants(items)}")
+    return args
+
+
 def respond(request: dict) -> dict | None:
     method, request_id = request.get("method"), request.get("id")
     if request_id is None:
@@ -426,7 +482,10 @@ def respond(request: dict) -> dict | None:
     elif method == "tools/call":
         params = request.get("params") or {}
         try:
-            value = call(params.get("name", ""), params.get("arguments") or {})
+            if not isinstance(params, dict):
+                raise ValueError("params must be an object")
+            name = params.get("name", "")
+            value = call(name, check_args(name, params.get("arguments") or {}))
             text = value if isinstance(value, str) else compact(value)
             result = {"content": [{"type": "text", "text": text}]}
         except (KeyError, ValueError, OSError) as error:
@@ -436,14 +495,28 @@ def respond(request: dict) -> dict | None:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 
+def handle(line: str) -> dict | None:
+    """The reply to one line. A fault the tools didn't expect becomes a JSON-RPC internal error,
+    with its traceback on stderr, so one bad call can't end every session's tools."""
+    try:
+        request = json.loads(line)
+    except json.JSONDecodeError:
+        return {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "bad JSON"}}
+    if not isinstance(request, dict):
+        return {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "a request must be an object"}}
+    try:
+        return respond(request)
+    except Exception as error:  # noqa: BLE001 - reported, not swallowed: see the docstring
+        traceback.print_exc(file=sys.stderr)
+        message = f"internal error: {type(error).__name__}: {error}"
+        return {"jsonrpc": "2.0", "id": request.get("id"), "error": {"code": -32603, "message": message}}
+
+
 def main() -> None:
     for line in sys.stdin:
         if not line.strip():
             continue
-        try:
-            reply = respond(json.loads(line))
-        except json.JSONDecodeError:
-            reply = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "bad JSON"}}
+        reply = handle(line)
         if reply is not None:
             sys.stdout.write(json.dumps(reply) + "\n")
             sys.stdout.flush()
