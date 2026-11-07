@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  draftFinds,
+  draftRows,
+  draftSettings,
   filterAgents,
   filterCounts,
+  FIND_AGENTS_MESSAGE,
   fromForm,
   handsOffTo,
   markModule,
@@ -11,11 +15,12 @@ import {
   nodeLabel,
   regionTone,
   showAgentOnLayer,
+  staleLine,
   startsFrom,
   toForm,
   toggleAgentsLayer,
 } from '../src/agentRows.ts'
-import type { AgentModel, AgentRow } from '../src/model.ts'
+import type { AgentDraft, AgentModel, AgentRow } from '../src/model.ts'
 
 function model(extra: Partial<AgentModel>): AgentModel {
   return { node: 'service:anthropic', name: 'Anthropic', region: null, leaves: false, evidence: 'a.ts:1', ...extra }
@@ -143,4 +148,64 @@ test('marking a module keeps the rest of the settings and adds it once', () => {
   const settings = markModule({ list: 'a.ts', modules: ['module:src/a'] }, 'module:src/a')
   assert.deepEqual(settings, { list: 'a.ts', modules: ['module:src/a'] })
   assert.deepEqual(markModule({}, 'module:src/b').modules, ['module:src/b'])
+})
+
+function draft(extra: Partial<AgentDraft> = {}): AgentDraft {
+  return {
+    settings: { list: 'src/agents/registry.ts', model_calls: ['claude', 'readQuote'] },
+    evidence: { list: ['src/agents/registry.ts:12'], model_calls: ['src/agents/types.ts:30', 'src/quote.ts:4'] },
+    note: 'Read the registry.',
+    commit: 'f1051a351475af9e',
+    ref: 'origin/main',
+    drafted_at: 1,
+    count: 2,
+    agents: [],
+    ...extra,
+  }
+}
+
+test('using a draft keeps the saved home region only when the draft has none', () => {
+  assert.equal(draftSettings(draft(), { home_region: 'Canada' }).home_region, 'Canada')
+  assert.equal(draftSettings(draft({ settings: { list: 'a.ts', home_region: 'EU' } }), { home_region: 'Canada' }).home_region, 'EU')
+  assert.deepEqual(draftSettings(draft(), {}), draft().settings)
+})
+
+test('a draft shows what each setting becomes, what it was, and its evidence', () => {
+  const saved = { list: 'src/agents/registry.ts', model_calls: ['claude'], modules: ['module:src/mail'], home_region: 'Canada' }
+  const rows = draftRows(draft(), ['model_calls', 'modules'], saved)
+  assert.deepEqual(
+    rows.map((row) => [row.label, row.value, row.was, row.changed]),
+    [
+      ['Agent list', 'src/agents/registry.ts', null, false],
+      ['Model calls', 'claude, readQuote', 'claude', true],
+      ['Agent modules', null, 'src/mail', true],
+    ],
+  )
+  assert.deepEqual(rows[1].evidence, ['src/agents/types.ts:30', 'src/quote.ts:4'])
+  assert.deepEqual(rows[2].evidence, [])
+})
+
+test('a new setting has nothing it was, and a home region in the draft shows', () => {
+  const rows = draftRows(draft({ settings: { list: 'a.ts', home_region: 'Canada' }, evidence: { home_region: ['CLAUDE.md:42'] } }), ['list', 'home_region'], {})
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.value, row.was]),
+    [
+      ['list', 'a.ts', null],
+      ['home_region', 'Canada', null],
+    ],
+  )
+  assert.deepEqual(rows[1].evidence, ['CLAUDE.md:42'])
+})
+
+test('the card counts what the draft finds, and says when the code has moved', () => {
+  assert.equal(draftFinds(draft({ count: 9 })), 'With these, System Map finds 9 agents:')
+  assert.equal(draftFinds(draft({ count: 1 })), 'With these, System Map finds 1 agent:')
+  assert.equal(draftFinds(draft({ count: 0 })), 'With these, System Map finds no agents.')
+  assert.equal(staleLine(draft()), 'Drafted at f1051a3. The code has changed since, so check it first.')
+})
+
+test('Find my agents asks the chat to follow the skill and save a draft', () => {
+  assert.match(FIND_AGENTS_MESSAGE, /Find my agents steps/)
+  assert.match(FIND_AGENTS_MESSAGE, /`draft_agents`/)
+  assert.match(FIND_AGENTS_MESSAGE, /save the draft/)
 })

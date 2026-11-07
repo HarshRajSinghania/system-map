@@ -245,6 +245,41 @@ export interface AgentState {
   suggestions: string[]
 }
 
+export type AgentSettingKey = keyof AgentSettings
+
+/** One agent that a draft's settings found, in short. */
+export interface DraftAgent {
+  id: string
+  label: string
+  status: AgentStatus
+  starts: string[]
+  hands_off_to: string[]
+  models: string[]
+  asks_you: boolean
+  leaves_region: string[]
+}
+
+/** Agent settings the Design chat drafted. Only a person uses them. */
+export interface AgentDraft {
+  settings: AgentSettings
+  /** Each setting's `path:line` lines that show it. */
+  evidence: Partial<Record<AgentSettingKey, string[]>>
+  note: string
+  commit: string | null
+  ref: string
+  drafted_at: number
+  count: number
+  agents: DraftAgent[]
+}
+
+export interface AgentDraftState {
+  draft: AgentDraft | null
+  /** The settings that using the draft would change. */
+  changed: AgentSettingKey[]
+  /** The model has moved on since the draft was made. */
+  stale: boolean
+}
+
 export interface RiskRow {
   id?: string
   path: string

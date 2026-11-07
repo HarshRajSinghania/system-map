@@ -1,5 +1,5 @@
 import { shortPath } from './graphView.ts'
-import type { AgentModel, AgentRow, AgentSettings, AgentStatus } from './model'
+import type { AgentDraft, AgentModel, AgentRow, AgentSettingKey, AgentSettings, AgentStatus } from './model'
 
 export type AgentFilter = 'all' | 'model' | 'leaves' | 'asks' | 'planned'
 
@@ -136,4 +136,70 @@ export function fromForm(form: AgentForm): AgentSettings {
 /** The settings with one more module marked as an agent. */
 export function markModule(settings: AgentSettings, moduleId: string): AgentSettings {
   return { ...settings, modules: [...new Set([...(settings.modules ?? []), moduleId])] }
+}
+
+/** Each setting's name on screen, in the form's order. */
+export const SETTING_LABELS: Record<AgentSettingKey, string> = {
+  list: 'Agent list',
+  jobs_key: 'Jobs key',
+  hand_off_keys: 'Hand-off keys',
+  model_calls: 'Model calls',
+  asks_you_calls: 'Asks-you calls',
+  modules: 'Agent modules',
+  home_region: 'Home region',
+}
+
+const SETTING_KEYS = Object.keys(SETTING_LABELS) as AgentSettingKey[]
+
+/** What the Find my agents button sends to the Design chat. */
+export const FIND_AGENTS_MESSAGE =
+  "Use the system-map tools. Find this project's agents, following the Find my agents steps in the system-map skill. Try the settings with `draft_agents` and `dry_run: true`, fix what the result shows, then save the draft."
+
+/** What using a draft saves: its own settings, and the saved home region if it has none. The backend does the same. */
+export function draftSettings(draft: AgentDraft, saved: AgentSettings): AgentSettings {
+  if (draft.settings.home_region || !saved.home_region) return { ...draft.settings }
+  return { ...draft.settings, home_region: saved.home_region }
+}
+
+function settingText(key: AgentSettingKey, value: string | string[] | undefined): string | null {
+  if (value === undefined) return null
+  if (!Array.isArray(value)) return value
+  return (key === 'modules' ? value.map((id) => id.replace(/^module:/, '')) : value).join(', ')
+}
+
+export interface DraftRow {
+  key: AgentSettingKey
+  label: string
+  /** What using the draft leaves it as. Null means it is cleared. */
+  value: string | null
+  /** What it is now, only when it changes. */
+  was: string | null
+  changed: boolean
+  evidence: string[]
+}
+
+/** One row for each setting the draft sets or would clear, in the form's order. */
+export function draftRows(draft: AgentDraft, changed: AgentSettingKey[], saved: AgentSettings): DraftRow[] {
+  const after = draftSettings(draft, saved)
+  return SETTING_KEYS.filter((key) => draft.settings[key] !== undefined || changed.includes(key)).map((key) => {
+    const moves = changed.includes(key)
+    return {
+      key,
+      label: SETTING_LABELS[key],
+      value: settingText(key, after[key]),
+      was: moves ? settingText(key, saved[key]) : null,
+      changed: moves,
+      evidence: draft.evidence[key] ?? [],
+    }
+  })
+}
+
+/** The line above the agents a draft finds. */
+export function draftFinds(draft: AgentDraft): string {
+  if (draft.count === 0) return 'With these, System Map finds no agents.'
+  return `With these, System Map finds ${draft.count} agent${draft.count === 1 ? '' : 's'}:`
+}
+
+export function staleLine(draft: AgentDraft): string {
+  return `Drafted at ${draft.commit ? draft.commit.slice(0, 7) : 'an older commit'}. The code has changed since, so check it first.`
 }
