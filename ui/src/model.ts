@@ -230,6 +230,8 @@ export interface AgentSettings {
   list?: string
   jobs_key?: string
   hand_off_keys?: string[]
+  /** Functions whose first argument names the agent to start. */
+  hand_off_calls?: string[]
   model_calls?: string[]
   asks_you_calls?: string[]
   modules?: string[]
@@ -243,6 +245,43 @@ export interface AgentState {
   home_region: string | null
   /** Modules that call a model: where to look when nothing points at agents yet. */
   suggestions: string[]
+}
+
+export type AgentSettingKey = keyof AgentSettings
+
+/** One agent that a draft's settings found, in short. */
+export interface DraftAgent {
+  id: string
+  label: string
+  status: AgentStatus
+  starts: string[]
+  hands_off_to: string[]
+  models: string[]
+  asks_you: boolean
+  leaves_region: string[]
+}
+
+/** Agent settings the Design chat drafted. Only a person uses them. */
+export interface AgentDraft {
+  /** Using or dropping names this, so a person only acts on the draft they saw. */
+  id: string
+  settings: AgentSettings
+  /** Each setting's `path:line` lines that show it. */
+  evidence: Partial<Record<AgentSettingKey, string[]>>
+  note: string
+  commit: string | null
+  ref: string
+  drafted_at: number
+  count: number
+  agents: DraftAgent[]
+}
+
+export interface AgentDraftState {
+  draft: AgentDraft | null
+  /** The settings that using the draft would change. */
+  changed: AgentSettingKey[]
+  /** The model has moved on since the draft was made. */
+  stale: boolean
 }
 
 export interface RiskRow {
@@ -576,15 +615,18 @@ export function useLive<T>(path: string, repo: string | null, everyMs: number) {
   const latest = useRef<string | null>(repo)
   latest.current = repo
 
-  const refresh = useCallback(async () => {
-    if (!repo) return
+  /** Resolves to what it read, or null when it read nothing for this repo. */
+  const refresh = useCallback(async (): Promise<T | null> => {
+    if (!repo) return null
     try {
       const reply = await api.get<T>(withRepo(path, repo))
-      if (latest.current !== repo) return
+      if (latest.current !== repo) return null
       setHeld({ repo, value: reply, failed: false })
       setCheckedAt(Date.now())
+      return reply
     } catch {
       if (latest.current === repo) setHeld({ repo, value: null, failed: true })
+      return null
     }
   }, [api, path, repo])
 

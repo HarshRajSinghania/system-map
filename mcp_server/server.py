@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from core import agents, explore, risk, store  # noqa: E402
+from core import agent_drafts, agents, explore, risk, store  # noqa: E402
 
 PROTOCOL_VERSION = "2025-06-18"
 #: One version for the whole app, kept in its manifest.
@@ -191,11 +191,40 @@ TOOLS = [
         "description": (
             "List the project's agents: what starts each one, who it hands work to, which models it uses "
             "and where they run, and when it asks a person. Pass an id such as agent:triage for one agent "
-            "with evidence. Read only. A person points System Map at the agents in its Agents tab."
+            "with evidence. Read only. A person points System Map at the agents in its Agents tab, or uses "
+            "settings drafted with `draft_agents`."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {"id": {"type": "string"}, "repo": REPO, "budget_chars": BUDGET},
+        },
+    },
+    {
+        "name": "draft_agents",
+        "description": (
+            "Draft the agent settings for a person to use, or try them with dry_run. Returns the agents they "
+            "find. Settings: list (the file whose exported array lists the agents), modules (module ids to "
+            "treat as one agent each), jobs_key, hand_off_keys, hand_off_calls (functions whose first argument "
+            "names the agent), model_calls, asks_you_calls, home_region. "
+            "Each setting needs evidence as path:line. Suggest home_region only if the repo says where data "
+            "must stay. A new draft replaces the last one. It never changes the saved settings, the map or "
+            "the repo. Only a person uses a draft, in the Agents tab."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "settings": {"type": "object"},
+                "evidence": {
+                    "type": "object",
+                    "description": "Each setting's name, to a list of path:line that shows it.",
+                    "additionalProperties": {"type": "array", "items": {"type": "string"}},
+                },
+                "note": {"type": "string", "description": "What you read and why, for the person."},
+                "dry_run": {"type": "boolean", "description": "Try it and save nothing."},
+                "repo": REPO,
+                "budget_chars": BUDGET,
+            },
+            "required": ["settings", "evidence"],
         },
     },
     {
@@ -382,22 +411,16 @@ def call(name: str, args: dict) -> object:
                 raise KeyError(f"no agent {args['id']!r}")
             return store.fit(target, "agent", compact(row), budget)
         if not found:
-            note = "No agents set. A person points System Map at the agent list in its Agents tab. These modules call a model:"
+            note = (
+                "No agents set. Draft the settings with `draft_agents` for a person to use in the Agents tab, "
+                "or ask them to set them there. These modules call a model:"
+            )
             return {"agents": [], "note": note, "suggestions": agents.suggestions(joined["nodes"], joined["edges"])}
-        short = [
-            {
-                "id": row["id"],
-                "label": row["label"],
-                "status": row["status"],
-                "starts": [link["node"] for link in row["starts"] + row["handed_by"]],
-                "hands_off_to": [link["node"] for link in row["hands_off_to"]],
-                "models": [f"{model['name']} ({model['region']})" if model["region"] else model["name"] for model in row["models"]],
-                "asks_you": bool(row["asks_you"]),
-                "leaves_region": row["leaves_region"],
-            }
-            for row in found
-        ]
+        short = agent_drafts.summary(found)
         return store.fit(target, "agents", compact({"home_region": joined.get("home_region"), "agents": short}), budget)
+    if name == "draft_agents":
+        found = agent_drafts.save(target, args.get("settings"), args.get("evidence"), args.get("note", ""), bool(args.get("dry_run")))
+        return store.fit(target, "agent-draft", compact(found), budget)
     if name == "node":
         return store.fit(target, "node", compact(store.load_node(target, args["id"])), budget)
     if name == "neighbors":
@@ -413,6 +436,8 @@ def call(name: str, args: dict) -> object:
 
 
 SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
+#: A tool's own words for an argument it is missing or got in the wrong shape, where they say more.
+HINTS = {("draft_agents", "settings"): agent_drafts.SETTINGS_SHAPE, ("draft_agents", "evidence"): agent_drafts.EVIDENCE_SHAPE}
 #: JSON Schema types, and how a refusal names each.
 JSON_TYPES = {
     "string": (lambda value: isinstance(value, str), "text"),
@@ -450,13 +475,13 @@ def check_args(name: str, args: object) -> dict:
     schema = SCHEMAS[name]
     for key in schema.get("required", []):
         if args.get(key) is None:
-            raise ValueError(f"{name} needs {key}")
+            raise ValueError(HINTS.get((name, key), f"{name} needs {key}"))
     for key, value in args.items():
         spec = schema.get("properties", {}).get(key)
         if spec is None or value is None:
             continue
         if not _fits(value, spec):
-            raise ValueError(f"{key} must be {_wants(spec)}")
+            raise ValueError(HINTS.get((name, key), f"{key} must be {_wants(spec)}"))
         if "enum" in spec and value not in spec["enum"]:
             raise ValueError(f"{key} must be one of: {', '.join(map(str, spec['enum']))}")
         items = spec.get("items")

@@ -4,8 +4,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { CSSProperties, ReactNode } from 'react'
 import { AddProject } from './AddProject'
 import { AgentsView } from './Agents'
-import { showAgentOnLayer, toggleAgentsLayer } from './agentRows'
-import type { LayerFocus } from './agentRows'
+import { FIND_AGENTS_MESSAGE, showAgentOnLayer, toggleAgentsLayer } from './agentRows'
+import type { DraftError, LayerFocus } from './agentRows'
 import './chrome'
 import { Erd } from './Erd'
 import type { Density } from './Erd'
@@ -39,13 +39,15 @@ import { TAB_PANEL_ID, Tabs } from './Tabs'
 import type { TabItem } from './Tabs'
 import { WorktreesView } from './Worktrees'
 import { BASE, useActiveRepo, useLive, useNode, useOverview, useProposal, useVersioned } from './model'
-import type { AgentRow, AgentSettings, AgentState, ExploreData, Finding, Graph, NodeInfo, Overlap, Plan, PlanStatus, Proposal, ProposalRow, Risk, SavedView, SystemGraph, WorktreeState } from './model'
+import type { AgentDraftState, AgentRow, AgentSettings, AgentState, ExploreData, Finding, Graph, NodeInfo, Overlap, Plan, PlanStatus, Proposal, ProposalRow, Risk, SavedView, SystemGraph, WorktreeState } from './model'
 import { graphOnly, overlapsOn, tablesAtWork, withProposal } from './overlay'
 import { MUTED, SystemTree, TableList } from './parts'
 
 const GAP = 12
 const CHECK_WORKTREES_MS = 20000
 const CHECK_EXPLORE_MS = 8000
+/** A draft the Design chat saves shows up within this long. */
+const CHECK_AGENT_DRAFT_MS = 8000
 const RESULT_MS = 4000
 const DENSITIES: { key: Density; label: string }[] = [
   { key: 'names', label: 'Names' },
@@ -297,6 +299,7 @@ function ProjectPage({
   const live = useLive<WorktreeState>('/worktrees', repo, CHECK_WORKTREES_MS)
   const worktrees = live.value
   const explore = useLive<ExploreData>('/explore', repo, CHECK_EXPLORE_MS)
+  const agentDraft = useLive<AgentDraftState>('/agents/draft', repo, CHECK_AGENT_DRAFT_MS)
   const [tab, setTab] = useState<Tab>('whatif')
   const [openProposal, setOpenProposal] = useState<string | null>(null)
   const [proposalTick, setProposalTick] = useState(0)
@@ -314,6 +317,7 @@ function ProjectPage({
   const beforeAgents = useRef<string | null>(null)
   const [savingAgents, setSavingAgents] = useState(false)
   const [agentError, setAgentError] = useState<string | null>(null)
+  const [draftError, setDraftError] = useState<DraftError | null>(null)
   const [coverageError, setCoverageError] = useState<string | null>(null)
   const [failure, setFailure] = useState<string | null>(null)
   const [density, setDensity] = useState<Density>('names')
@@ -487,12 +491,36 @@ function ProjectPage({
       await api.post(`${BASE}/agents/settings`, { repo, settings })
       await refresh()
       setTick((value) => value + 1)
+      // A draft's changed marks compare it with the saved settings, so read it again now.
+      await agentDraft.refresh()
       return true
     } catch (caught) {
       setAgentError(plainError(caught, 'save the agent settings'))
       return false
     } finally {
       setSavingAgents(false)
+    }
+  }
+  /** Use the Design chat's draft, which saves and rebuilds as the form does, or drop it. */
+  const actOnDraft = async (action: 'use' | 'drop', id: string): Promise<boolean> => {
+    setSavingAgents(true)
+    setDraftError(null)
+    let failed: string | null = null
+    try {
+      await api.post(`${BASE}/agents/draft`, { repo, action, id })
+      if (action === 'use') {
+        await refresh()
+        setTick((value) => value + 1)
+      }
+      return true
+    } catch (caught) {
+      failed = plainError(caught, action === 'use' ? 'use the draft' : 'drop the draft')
+      return false
+    } finally {
+      setSavingAgents(false)
+      const now = await agentDraft.refresh()
+      // The error belongs to the draft now on screen: the same one, or the newer one it was refused for.
+      if (failed) setDraftError({ id: now?.draft?.id ?? null, text: failed })
     }
   }
   /** A region changes no version, so the tick reloads the map, the agents, the findings and the inspector. */
@@ -785,7 +813,19 @@ function ProjectPage({
                   />
                 )}
                 {view === 'agents' && agentState && (
-                  <AgentsView state={agentState} canAsk={chat.canAsk} saving={savingAgents} error={agentError} onShow={showAgent} onAsk={askAgent} onSave={saveAgentSettings} />
+                  <AgentsView
+                    state={agentState}
+                    draft={agentDraft.value}
+                    canAsk={chat.canAsk}
+                    saving={savingAgents}
+                    error={agentError}
+                    draftError={draftError}
+                    onShow={showAgent}
+                    onAsk={askAgent}
+                    onSave={saveAgentSettings}
+                    onFind={() => chat.send(FIND_AGENTS_MESSAGE)}
+                    onDraft={actOnDraft}
+                  />
                 )}
                 {node && inspected && (
                   <Inspector

@@ -7,6 +7,25 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Hand-off calls**, a new agent setting. It names the functions whose first argument names the
+  agent to start, as in `queueAgent("mail", id)`. Such a call starts the agent from plain code, or
+  is a hand-off from an agent's own code. Find my agents can draft it.
+
+### Fixed
+- The review round on Find my agents:
+  - **Mark as agent** on a form opened from a draft saves the draft as edited. It used to save the
+    old settings and drop the draft.
+  - A draft the chat saves while you use another is kept.
+  - A draft goes stale on a project with no git when its code changes and the model is rebuilt.
+  - An open settings form shows the new values after **Use these**.
+  - A failed use or drop shows its error only on the draft it came back with.
+  - Using or dropping a draft needs its id.
+  - The draft's changed marks update as soon as you save settings.
+  - Why **Find my agents** is off shows beside it, not only on hover.
+
+## [0.10.0] - 2026-11-07
+
 ### Security
 - The backend refuses every call the gateway didn't sign, except `/health`. It checks the
   gateway's `X-KiroCrew-Proxy` signature, and the replay-proof v2 signature whenever one is sent.
@@ -30,6 +49,11 @@ commit that set the version in `app.json`. The format follows
   saved view turns the layer off.
 
 ### Added
+- Find my agents. The Design chat reads your code and drafts the agent settings, with the lines it
+  read them from. You see what they find, then use them, edit them first, or drop them. Only a
+  person uses or drops a draft.
+- The `draft_agents` MCP tool. It keeps a draft for a person, or tries one with `dry_run`, and never
+  changes the saved settings.
 - Contract tests for the store listing and the host: the manifest against the host's own parser,
   and each built bundle against what the host page provides.
 - This changelog, and tags for every release.

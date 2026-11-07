@@ -60,7 +60,8 @@ what Postgres will refuse, and what breaks. Nothing touches your repo.
 
 ### 3. See what your agents do, and where their models run
 
-Point the **Agents** tab at the list of your agents. It shows what starts each one, who it hands
+Point the **Agents** tab at the list of your agents, or press **Find my agents** and the Design
+chat drafts that for you to check. It shows what starts each one, who it hands
 work to, which models it calls, and where it waits for a person. Set where each service runs and a
 home region, and any agent whose model runs elsewhere becomes a finding, with the line that calls it.
 
@@ -133,6 +134,8 @@ Each tab reads the same model.
   treat as agents, and the names your code uses for model calls, hand-offs and asks-you calls. The
   app never guesses: an agent comes from the list you name or a module you mark. **Show on map**
   finds an agent on the Agents layer.
+  - **Find my agents:** the Design chat reads your code and drafts the settings, with the lines it
+    read them from. You see what they find, then use them, edit them first, or drop them.
 - **Explore.**
   - **What if:** describe a change, and the Design chat drafts a proposal. You get a diff against
     today, what Postgres will refuse, what breaks, draft SQL, and which use case gaps it closes.
@@ -153,7 +156,7 @@ Each tab reads the same model.
 | Code | TypeScript and JavaScript, with `paths` and `baseUrl` from `tsconfig.json` or `jsconfig.json` |
 | Jobs | `cron.schedule` calls in SQL |
 | Plans | `docs/specs`, `docs/plans`, `specs`, and a `BRIEF`, `PLAN`, `ROADMAP`, `PRD`, `SPEC` or `TODO` file at the top of the repo |
-| Agents | The exported list you name in the Agents tab, or modules you mark. Hand-offs, model calls and calls that ask a person are found by the names you give there. Jobs start an agent when their `cron.schedule` command, or the SQL function it calls, names it |
+| Agents | The exported list you name in the Agents tab, or modules you mark, or a draft from the Design chat that you use. Hand-offs, model calls and calls that ask a person are found by the names you give there. A hand-off is a property, as in `{ agent: "mail" }`, or a call whose first argument names the agent, as in `queueAgent("mail", id)`. Jobs start an agent when their `cron.schedule` command, or the SQL function it calls, names it |
 | History | Git history and worktrees. Coverage reports from Vitest, Jest or anything that writes lcov |
 
 A project needs no git history, though Risk has no churn without it, and there are no worktrees.

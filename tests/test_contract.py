@@ -147,7 +147,8 @@ class StoreListing(unittest.TestCase):
                 self.assertIn(f"'{prefix}", source)
 
     def test_auto_approved_tools_only_read(self):
-        writers = {"coverage", "propose", "use_case", "save_view", "note", "build"}
+        # draft_agents only keeps a draft, but like propose it asks first, as its spec says.
+        writers = {"coverage", "propose", "use_case", "save_view", "note", "build", "draft_agents"}
         approved = set(MANIFEST["mcpServers"]["system-map"]["autoApprove"])
         self.assertEqual(approved & writers, set())
 

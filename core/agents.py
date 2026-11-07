@@ -19,7 +19,7 @@ AI_HOSTS = re.compile(
     r"|generativelanguage\.googleapis\.com|api\.mistral\.ai|api\.cohere\.(ai|com)|bedrock-runtime\.[\w-]+\.amazonaws\.com)$"
 )
 
-DEFAULTS: dict = {"list": "", "jobs_key": "handlers", "hand_off_keys": ["agent"], "model_calls": [], "asks_you_calls": [], "modules": []}
+DEFAULTS: dict = {"list": "", "jobs_key": "handlers", "hand_off_keys": ["agent"], "hand_off_calls": [], "model_calls": [], "asks_you_calls": [], "modules": []}
 
 IDENT = r"[A-Za-z_$][\w$]*"
 #: `export const AGENTS: readonly Agent[] =` or `export default`, before the `[`.
@@ -483,13 +483,12 @@ def _regions(files: _Files, agents: list[dict], imports: dict[str, set[str]], li
 
 
 def _hand_offs(files: _Files, settings: dict, names: set[str], path: str, start: int, end: int) -> list[tuple[str, int]]:
-    """Agents this stretch of code hands work to, with the line of each."""
+    """Agents this stretch of code hands work to, with the line of each: a hand-off key's value,
+    or the first argument of a hand-off call."""
     text, masked, code = files.cache[path]
-    keys = "|".join(re.escape(key) for key in settings["hand_off_keys"])
-    if not keys:
-        return []
     found = []
-    for match in re.finditer(rf"(?<![\w$])(?:{keys})\s*:\s*", masked[:end]):
+    keys = "|".join(re.escape(key) for key in settings["hand_off_keys"])
+    for match in re.finditer(rf"(?<![\w$])(?:{keys})\s*:\s*", masked[:end]) if keys else ():
         if match.start() < start or code[match.start()] != masked[match.start()]:
             continue  # Inside a string.
         rest = code[match.end() : end]
@@ -497,16 +496,26 @@ def _hand_offs(files: _Files, settings: dict, names: set[str], path: str, start:
         value = files.value(path, match.end(), stop)
         if value in names:
             found.append((value, _line(text, match.start())))
+    for open_at, line in _call_sites(files, settings["hand_off_calls"], path, start, end):
+        arguments = _items(code, open_at, _close(code, open_at))
+        value = files.value(path, *arguments[0]) if arguments else None
+        if value in names:
+            found.append((value, line))
     return found
 
 
 def _calls(files: _Files, call_names: list[str], path: str, start: int, end: int) -> list[int]:
     """Lines that call one of these names. A definition of the name is not a call."""
+    return [line for _, line in _call_sites(files, call_names, path, start, end)]
+
+
+def _call_sites(files: _Files, call_names: list[str], path: str, start: int, end: int) -> list[tuple[int, int]]:
+    """Each call to one of these names: where its `(` is, and its line."""
     names = "|".join(re.escape(name) for name in call_names)
     if not names:
         return []
     text, _, code = files.cache[path]
-    lines = []
+    sites = []
     for match in re.finditer(rf"(?<![\w$])(?:{names})\s*(?:<[^()]*?>)?\s*\(", code[:end]):
         if match.start() < start:
             continue
@@ -531,8 +540,8 @@ def _calls(files: _Files, call_names: list[str], path: str, start: int, end: int
         member = not lead or lead[-1] in "{;," or (lead[-1] == "\n" and not lead.rstrip().endswith(("?", ":")))
         if member and SIGNATURE.match(after):
             continue
-        lines.append(_line(text, match.start()))
-    return lines
+        sites.append((match.end() - 1, _line(text, match.start())))
+    return sites
 
 
 def _ai_uses(files: _Files, path: str, services: dict[str, str]) -> list[tuple[str, int]]:
@@ -651,9 +660,9 @@ def find(source, project, settings: dict, nodes: list[dict], job_calls: dict[str
                 edges.add(job_id, f"agent:{name}", "starts", by_id[job_id]["evidence"][0])
 
     owned = {path for spans in regions.values() for path, _, _ in spans} | {settings["list"]}
-    keys = settings["hand_off_keys"]
+    keys = settings["hand_off_keys"] + settings["hand_off_calls"]
     others = [path for path in paths if path not in owned and not ts.TEST_FILE.search(path)]
-    # Read the rest in one go, and only mask a file that names a hand-off key at all.
+    # Read the rest in one go, and only mask a file that names a hand-off key or call at all.
     for path, text in source.read_many([path for path in others if path not in files.cache]).items():
         if any(key in text for key in keys):
             files.put(path, text)

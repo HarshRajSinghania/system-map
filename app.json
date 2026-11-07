@@ -1,6 +1,6 @@
 {
   "name": "system-map",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "displayName": "System Map",
   "description": "A live map of your system. Every view reads one model built from your repo, and agents read it through small slices instead of loading it all.",
   "author": "System Map contributors",

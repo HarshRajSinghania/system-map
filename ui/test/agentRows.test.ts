@@ -1,21 +1,30 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  draftErrorFor,
+  draftFinds,
+  draftRows,
+  draftSettings,
   filterAgents,
   filterCounts,
+  FIND_AGENTS_MESSAGE,
   fromForm,
   handsOffTo,
+  markedSettings,
   markModule,
   modelLabel,
   modelsOf,
   nodeLabel,
   regionTone,
+  SETTING_LABELS,
+  setupKey,
   showAgentOnLayer,
+  staleLine,
   startsFrom,
   toForm,
   toggleAgentsLayer,
 } from '../src/agentRows.ts'
-import type { AgentModel, AgentRow } from '../src/model.ts'
+import type { AgentDraft, AgentModel, AgentRow } from '../src/model.ts'
 
 function model(extra: Partial<AgentModel>): AgentModel {
   return { node: 'service:anthropic', name: 'Anthropic', region: null, leaves: false, evidence: 'a.ts:1', ...extra }
@@ -91,11 +100,12 @@ test('a model is outside, inside or not yet placed', () => {
 })
 
 test('the form starts from what is saved, then the defaults', () => {
-  const form = toForm({ list: 'src/agents/registry.ts', model_calls: ['claude', 'readQuote'], modules: ['module:src/mail'] }, { jobs_key: 'handlers', hand_off_keys: ['agent'] })
+  const form = toForm({ list: 'src/agents/registry.ts', hand_off_calls: ['queueAgent'], model_calls: ['claude', 'readQuote'], modules: ['module:src/mail'] }, { jobs_key: 'handlers', hand_off_keys: ['agent'] })
   assert.deepEqual(form, {
     list: 'src/agents/registry.ts',
     jobs_key: 'handlers',
     hand_off_keys: 'agent',
+    hand_off_calls: 'queueAgent',
     model_calls: 'claude, readQuote',
     asks_you_calls: '',
     modules: 'src/mail',
@@ -108,6 +118,7 @@ test('the form saves lists, module ids and leaves empty fields out', () => {
     list: ' src/agents/registry.ts ',
     jobs_key: '',
     hand_off_keys: 'agent, p_agent agent',
+    hand_off_calls: ' queueAgent, startAgent ',
     model_calls: 'claude,readQuote',
     asks_you_calls: ' ',
     modules: 'src/mail, module:src/desk',
@@ -116,10 +127,19 @@ test('the form saves lists, module ids and leaves empty fields out', () => {
   assert.deepEqual(settings, {
     list: 'src/agents/registry.ts',
     hand_off_keys: ['agent', 'p_agent'],
+    hand_off_calls: ['queueAgent', 'startAgent'],
     model_calls: ['claude', 'readQuote'],
     modules: ['module:src/mail', 'module:src/desk'],
     home_region: 'Canada',
   })
+})
+
+test('an empty hand-off calls field is left out, and the field sits after hand-off keys', () => {
+  const form = toForm({ list: 'a.ts' }, {})
+  assert.equal(form.hand_off_calls, '')
+  assert.equal(fromForm(form).hand_off_calls, undefined)
+  const order = Object.keys(SETTING_LABELS)
+  assert.equal(order.indexOf('hand_off_calls'), order.indexOf('hand_off_keys') + 1)
 })
 
 test('turning the Agents layer off goes back to where the map was', () => {
@@ -143,4 +163,94 @@ test('marking a module keeps the rest of the settings and adds it once', () => {
   const settings = markModule({ list: 'a.ts', modules: ['module:src/a'] }, 'module:src/a')
   assert.deepEqual(settings, { list: 'a.ts', modules: ['module:src/a'] })
   assert.deepEqual(markModule({}, 'module:src/b').modules, ['module:src/b'])
+})
+
+function draft(extra: Partial<AgentDraft> = {}): AgentDraft {
+  return {
+    id: '1a2b',
+    settings: { list: 'src/agents/registry.ts', model_calls: ['claude', 'readQuote'] },
+    evidence: { list: ['src/agents/registry.ts:12'], model_calls: ['src/agents/types.ts:30', 'src/quote.ts:4'] },
+    note: 'Read the registry.',
+    commit: 'f1051a351475af9e',
+    ref: 'origin/main',
+    drafted_at: 1,
+    count: 2,
+    agents: [],
+    ...extra,
+  }
+}
+
+test('using a draft keeps the saved home region only when the draft has none', () => {
+  assert.equal(draftSettings(draft(), { home_region: 'Canada' }).home_region, 'Canada')
+  assert.equal(draftSettings(draft({ settings: { list: 'a.ts', home_region: 'EU' } }), { home_region: 'Canada' }).home_region, 'EU')
+  assert.deepEqual(draftSettings(draft(), {}), draft().settings)
+})
+
+test('a draft shows what each setting becomes, what it was, and its evidence', () => {
+  const saved = { list: 'src/agents/registry.ts', model_calls: ['claude'], modules: ['module:src/mail'], home_region: 'Canada' }
+  const rows = draftRows(draft(), ['model_calls', 'modules'], saved)
+  assert.deepEqual(
+    rows.map((row) => [row.label, row.value, row.was, row.changed]),
+    [
+      ['Agent list', 'src/agents/registry.ts', null, false],
+      ['Model calls', 'claude, readQuote', 'claude', true],
+      ['Agent modules', null, 'src/mail', true],
+    ],
+  )
+  assert.deepEqual(rows[1].evidence, ['src/agents/types.ts:30', 'src/quote.ts:4'])
+  assert.deepEqual(rows[2].evidence, [])
+})
+
+test('a new setting has nothing it was, and a home region in the draft shows', () => {
+  const rows = draftRows(draft({ settings: { list: 'a.ts', home_region: 'Canada' }, evidence: { home_region: ['CLAUDE.md:42'] } }), ['list', 'home_region'], {})
+  assert.deepEqual(
+    rows.map((row) => [row.key, row.value, row.was]),
+    [
+      ['list', 'a.ts', null],
+      ['home_region', 'Canada', null],
+    ],
+  )
+  assert.deepEqual(rows[1].evidence, ['CLAUDE.md:42'])
+})
+
+test('the card counts what the draft finds, and says when the code has moved', () => {
+  assert.equal(draftFinds(draft({ count: 9 })), 'With these, System Map finds 9 agents:')
+  assert.equal(draftFinds(draft({ count: 1 })), 'With these, System Map finds 1 agent:')
+  assert.equal(draftFinds(draft({ count: 0 })), 'With these, System Map finds no agents.')
+  assert.equal(staleLine(draft()), 'Drafted at f1051a3. The code has changed since, so check it first.')
+  assert.equal(staleLine(draft({ commit: null })), 'Drafted before the last build. The code has changed since, so check it first.')
+})
+
+test('Mark as agent on a form opened from a draft keeps the draft as edited', () => {
+  const saved = { list: 'old.ts', home_region: 'Canada' }
+  const form = { ...toForm(draftSettings(draft(), saved), {}), asks_you_calls: 'addTask' }
+  assert.deepEqual(markedSettings(saved, 'module:src/mail', form), {
+    list: 'src/agents/registry.ts',
+    model_calls: ['claude', 'readQuote'],
+    asks_you_calls: ['addTask'],
+    modules: ['module:src/mail'],
+    home_region: 'Canada',
+  })
+  assert.deepEqual(markedSettings(saved, 'module:src/mail', null), { ...saved, modules: ['module:src/mail'] })
+})
+
+test('the settings form starts again when the saved settings change, and per draft', () => {
+  assert.notEqual(setupKey(null, { list: 'a.ts' }), setupKey(null, { list: 'b.ts' }))
+  assert.equal(setupKey(null, { list: 'a.ts' }), setupKey(null, { list: 'a.ts' }))
+  assert.equal(setupKey('1a2b', { list: 'a.ts' }), setupKey('1a2b', { list: 'b.ts' }))
+  assert.notEqual(setupKey('1a2b', {}), setupKey('3c4d', {}))
+})
+
+test('an error shows only on the draft it came back with', () => {
+  const error = { id: '1a2b', text: 'Could not use the draft.' }
+  assert.equal(draftErrorFor(error, '1a2b'), 'Could not use the draft.')
+  assert.equal(draftErrorFor(error, '3c4d'), null)
+  assert.equal(draftErrorFor({ id: null, text: 'x' }, '1a2b'), null)
+  assert.equal(draftErrorFor(null, '1a2b'), null)
+})
+
+test('Find my agents asks the chat to follow the skill and save a draft', () => {
+  assert.match(FIND_AGENTS_MESSAGE, /Find my agents steps/)
+  assert.match(FIND_AGENTS_MESSAGE, /`draft_agents`/)
+  assert.match(FIND_AGENTS_MESSAGE, /save the draft/)
 })

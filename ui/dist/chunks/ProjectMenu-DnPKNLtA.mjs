@@ -176,14 +176,13 @@ function $t(e, t, r) {
   const i = S(), [s, n] = g({ repo: t, value: null, failed: !1 }), [c, a] = g(null), o = L(t);
   o.current = t;
   const d = N(async () => {
-    if (t)
-      try {
-        const u = await i.get(P(e, t));
-        if (o.current !== t) return;
-        n({ repo: t, value: u, failed: !1 }), a(Date.now());
-      } catch {
-        o.current === t && n({ repo: t, value: null, failed: !0 });
-      }
+    if (!t) return null;
+    try {
+      const u = await i.get(P(e, t));
+      return o.current !== t ? null : (n({ repo: t, value: u, failed: !1 }), a(Date.now()), u);
+    } catch {
+      return o.current === t && n({ repo: t, value: null, failed: !0 }), null;
+    }
   }, [i, e, t]);
   k(() => {
     d();
