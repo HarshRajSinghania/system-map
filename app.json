@@ -6,6 +6,16 @@
   "author": "System Map contributors",
   "license": "Apache-2.0",
   "iconPath": "assets/icon.png",
+  "highlights": [
+    "One model of your repo: modules, routes, tables, plans, risk, worktrees and agents",
+    "Every number held to the tool that owns it: the compiler, real Postgres, real SQLite, git",
+    "Agents read the model in small slices through MCP tools, so a chat doesn't fill up",
+    "Risk ranks code that changes often, has many paths and few tests",
+    "Worktrees shows where two branches conflict, from a real trial merge",
+    "What-ifs show what Postgres will refuse before you write the migration",
+    "The Agents tab shows what starts each agent, who it hands work to, and where its models run",
+    "Read only: it never writes to your repo or runs your code"
+  ],
   "skills": [
     "skills/system-map"
   ],

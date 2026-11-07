@@ -85,6 +85,14 @@ class StoreListing(unittest.TestCase):
     def test_the_description_is_plain_text(self):
         self.assertNotRegex(MANIFEST["description"], r"[`*_#<>\[\]]")
 
+    def test_the_highlights_are_a_short_plain_list(self):
+        highlights = MANIFEST.get("highlights", [])
+        self.assertTrue(5 <= len(highlights) <= 8, len(highlights))
+        for line in highlights:
+            with self.subTest(line=line):
+                self.assertNotRegex(line, r"[`*_#<>\[\]]")
+                self.assertLessEqual(len(line), 100)
+
     def test_the_tags_are_lowercase_and_land_in_developer_tools(self):
         tags = MANIFEST["tags"]
         self.assertEqual(tags, [tag.lower() for tag in tags])
