@@ -74,8 +74,10 @@ When someone asks you to find the agents, read the code and draft the settings w
 4. **`hand_off_keys`**: every property that names the agent to hand work to. Look where work
    is queued, in code and in SQL, such as `{ agent: "mail" }` or a function argument
    `p_agent`.
-   **`hand_off_calls`**: every function whose first argument is the agent's name, such as
-   `queueAgent("mail", id)`. Give the name alone, `queueAgent`, and cite a call.
+   **`hand_off_calls`**: every function in TypeScript or JavaScript whose first argument is the
+   agent's name, such as `queueAgent("mail", id)`. Give the name alone, `queueAgent`. SQL isn't
+   read for these, so leave out SQL functions. Cite a line that calls it with an agent's name,
+   not where it is defined.
 5. **`model_calls`**: the names agents call to reach a model, such as `ctx.claude(...)`.
    Give the name alone, `claude`. Add each wrapper an agent calls that calls a model in turn.
 6. **`asks_you_calls`**: the names that leave work for a person: a task, a question or an
