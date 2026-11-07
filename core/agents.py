@@ -30,6 +30,10 @@ NAME = re.compile(rf"(?<![\w$])({IDENT})(?![\w$])")
 #: After a member's `)`: a return type, then the end of the member or the start of its body.
 SIGNATURE = re.compile(r"\s*:\s*[A-Za-z_$][\w$.]*\s*(?:<[^;{()]*>)?\s*(?:\[\])*\s*[;{},\n]")
 DATED = re.compile(r"^\d{4}-\d{2}-\d{2}-")
+#: How far back a call looks for the word or mark before it.
+LOOK_BACK = 400
+#: A method's body, right after its `)`.
+BLOCK = re.compile(r"\s*\{")
 SQL_CALL = re.compile(r"\b(?:SELECT|PERFORM)\s+(?:\"?\w+\"?\.)?\"?(\w+)\"?\s*\(", re.I)
 SQL_FUNCTION = re.compile(r"\bCREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:\"?\w+\"?\.)?\"?(\w+)\"?\s*\(", re.I)
 SQL_BODY = re.compile(r"\bAS\s+(\$\w*\$)", re.I)
@@ -199,6 +203,10 @@ class _Files:
     def __init__(self, source, every: set[str], aliases: list[tuple[str, str]]):
         self.source, self.every, self.aliases = source, every, aliases
         self.cache: dict[str, tuple[str, str, str]] = {}
+        # Lookups a file with many calls would repeat: imports, declarations and their blocks.
+        self.origins: dict[tuple[str, str], list[tuple[str, str]]] = {}
+        self.declared: dict[tuple[str, str], list[tuple[int, int]]] = {}
+        self.blocks: dict[tuple[str, int], tuple[int, int] | None] = {}
 
     def load(self, paths) -> None:
         """Read many files in one go, which costs one git process."""
@@ -216,6 +224,11 @@ class _Files:
 
     def origin(self, name: str, path: str) -> list[tuple[str, str]]:
         """Where a file gets `name` from: (file, the name there), through imports and re-exports."""
+        if (name, path) not in self.origins:
+            self.origins[(name, path)] = self._origin(name, path)
+        return self.origins[(name, path)]
+
+    def _origin(self, name: str, path: str) -> list[tuple[str, str]]:
         entry = self.get(path)
         if not entry:
             return []
@@ -258,16 +271,47 @@ class _Files:
                     found[name] = target
         return found
 
-    def const(self, name: str, path: str, hops: int = 3) -> str | None:
-        """The string a constant holds, here or where it is imported from."""
+    def _block(self, path: str, at: int) -> tuple[int, int] | None:
+        """The innermost `{ … }` around `at`, or None at the top of the file."""
+        if (path, at) not in self.blocks:
+            code, depth, found = self.cache[path][2], 0, None
+            for index in range(at - 1, -1, -1):
+                if code[index] == "}":
+                    depth += 1
+                elif code[index] == "{":
+                    if depth == 0:
+                        found = (index, _close(code, index))
+                        break
+                    depth -= 1
+            self.blocks[(path, at)] = found
+        return self.blocks[(path, at)]
+
+    def const(self, name: str, path: str, hops: int = 3, at: int | None = None) -> str | None:
+        """The string a constant holds, here or where it is imported from.
+
+        `at` is where the name is used. Only a declaration in scope there counts: one at the top
+        of the file, or one in a block that holds `at`, the innermost first. So a parameter never
+        takes the value of a constant in another function. Without `at`, as for a name another
+        file imports, only the top of the file counts.
+        """
         entry = self.get(path)
         if not entry:
             return None
         text, _, code = entry
-        match = re.search(rf"\b(?:const|let|var)\s+{re.escape(name)}\s*(?::[^=;]*)?=", code)
-        if match:
-            line_end = min(i for i in (code.find("\n", match.end()), code.find(";", match.end()), len(code)) if i >= 0)
-            return _literal(text, code, match.end(), line_end)
+        if (name, path) not in self.declared:
+            pattern = re.compile(rf"\b(?:const|let|var)\s+{re.escape(name)}\s*(?::[^=;]*)?=")
+            self.declared[(name, path)] = [(match.start(), match.end()) for match in pattern.finditer(code)]
+        seen = []
+        for start, value_at in self.declared[(name, path)]:
+            block = self._block(path, start)
+            if block is None:
+                seen.append((len(code) + 1, value_at))
+            elif at is not None and block[0] < at <= block[1]:
+                seen.append((block[1] - block[0], value_at))
+        if seen:
+            value_at = min(seen)[1]
+            line_end = min(i for i in (code.find("\n", value_at), code.find(";", value_at), len(code)) if i >= 0)
+            return _literal(text, code, value_at, line_end)
         if hops:
             for target, real in self.origin(name, path):
                 value = self.const(real, target, hops - 1)
@@ -298,7 +342,7 @@ class _Files:
         if literal is not None:
             return literal
         name = _ident(code, start, end)
-        return self.const(name, path) if name else None
+        return self.const(name, path, at=start) if name else None
 
 
 class _Edges:
@@ -378,7 +422,7 @@ def _jobs(files: _Files, settings: dict, path: str, where: tuple[int, int] | Non
     for key in _props(text, code, start):
         if key.startswith("["):
             inner = key[1:-1]
-            value = inner[1:-1] if inner[:1] in "\"'`" and inner[-1:] == inner[:1] else files.const(inner, path)
+            value = inner[1:-1] if inner[:1] in "\"'`" and inner[-1:] == inner[:1] else files.const(inner, path, at=start)
             # A key that can't be read, such as `[Kind.Read]`, is still a job: keep it as written.
             jobs.append(value or inner)
         else:
@@ -509,17 +553,26 @@ def _calls(files: _Files, call_names: list[str], path: str, start: int, end: int
     return [line for _, line in _call_sites(files, call_names, path, start, end)]
 
 
+def _before(code: str, at: int) -> str:
+    """The code just before `at`. Only its end matters, so a short window does, unless that is all space."""
+    window = code[max(0, at - LOOK_BACK) : at]
+    return code[:at] if at > LOOK_BACK and not window.strip() else window
+
+
 def _call_sites(files: _Files, call_names: list[str], path: str, start: int, end: int) -> list[tuple[int, int]]:
-    """Each call to one of these names: where its `(` is, and its line."""
+    """Each call to one of these names, plain or as `name?.()`: where its `(` is, and its line.
+
+    Each call reads only a little way around it, so a file with many calls stays quick.
+    """
     names = "|".join(re.escape(name) for name in call_names)
     if not names:
         return []
     text, _, code = files.cache[path]
     sites = []
-    for match in re.finditer(rf"(?<![\w$])(?:{names})\s*(?:<[^()]*?>)?\s*\(", code[:end]):
-        if match.start() < start:
-            continue
-        before = code[: match.start()].rstrip()
+    line, counted = _line(text, start), start
+    for match in re.compile(rf"(?<![\w$])(?:{names})\s*(?:<[^()]*?>)?\s*(?:\?\.\s*)?\(").finditer(code, start, end):
+        at = match.start()
+        before = _before(code, at).rstrip()
         # A generator's `*` sits between the word and the name, as in `async *name()`.
         if before.endswith("*"):
             before = before[:-1].rstrip()
@@ -527,20 +580,21 @@ def _call_sites(files: _Files, call_names: list[str], path: str, start: int, end
             word = re.search(r"([\w$]+)\s*$", before)
             if word and word.group(1) in NOT_CALLS:
                 continue
-        after = code[_close(code, match.end() - 1) + 1 :]
-        if re.match(r"\s*\{", after):
+        close = _close(code, match.end() - 1)
+        if BLOCK.match(code, close + 1):
             continue  # A method's body follows.
         # Only a name where a member starts can be a typed signature, as in an interface:
         # `name(x): Type;`. After `.`, `await`, `?` or `=` it is a call, whatever follows.
         # A generator member, `*name()`, starts there too. A new line starts a member unless
         # the line before ends a choice's `?` or `:`.
-        lead = code[: match.start()].rstrip(" \t")
+        lead = _before(code, at).rstrip(" \t")
         if lead.endswith("*"):
             lead = lead[:-1].rstrip(" \t")
         member = not lead or lead[-1] in "{;," or (lead[-1] == "\n" and not lead.rstrip().endswith(("?", ":")))
-        if member and SIGNATURE.match(after):
+        if member and SIGNATURE.match(code, close + 1):
             continue
-        sites.append((match.end() - 1, _line(text, match.start())))
+        line, counted = line + text.count("\n", counted, at), at
+        sites.append((match.end() - 1, line))
     return sites
 
 

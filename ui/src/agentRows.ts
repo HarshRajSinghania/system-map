@@ -177,7 +177,20 @@ export const SETTING_LABELS: Record<AgentSettingKey, string> = {
   home_region: 'Home region',
 }
 
-const SETTING_KEYS = Object.keys(SETTING_LABELS) as AgentSettingKey[]
+/** Each setting's help under its field. */
+export const SETTING_HELP: Record<AgentSettingKey, string> = {
+  list: 'The file whose exported array lists your agents, such as src/agents/registry.ts',
+  jobs_key: "The property that holds each agent's jobs",
+  hand_off_keys: 'Properties that name the agent to hand work to, such as agent',
+  hand_off_calls: 'Functions whose first argument names the agent to start, such as queueAgent',
+  model_calls: 'Functions that call a model, such as claude',
+  asks_you_calls: 'Functions that leave work for a person, such as addTask',
+  modules: 'Folders to treat as one agent each, such as src/mail',
+  home_region: 'Where your data should stay, such as Canada',
+}
+
+/** The settings in the form's order, which the draft card follows too. */
+export const SETTING_KEYS = Object.keys(SETTING_LABELS) as AgentSettingKey[]
 
 /** What the Find my agents button sends to the Design chat. */
 export const FIND_AGENTS_MESSAGE =
