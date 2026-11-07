@@ -99,8 +99,14 @@ def signed(headers, method: str, target: str, body: bytes, secret: str, now: flo
 
 
 def unsigned_allowed() -> bool:
-    """Only `ui/dev` runs unsigned, and only when asked. A backend the gateway starts never does."""
-    return os.environ.get("SYSTEM_MAP_UNSIGNED") == "1" and os.environ.get("KIROCREW_SPAWNED") != "1"
+    """Only `ui/dev` runs unsigned, and only when asked. A backend the gateway starts never does.
+
+    The gateway gives every app backend `KIROCREW_APP_NAME` and `KIROCREW_SPAWN_INSTANCE`, so
+    either one turns the flag off. `KIROCREW_SPAWNED` can't decide it: every shell under Kiro Crew
+    inherits it, an agent's included, and those must still be able to run `ui/dev`.
+    """
+    gateway = os.environ.get("KIROCREW_APP_NAME") or os.environ.get("KIROCREW_SPAWN_INSTANCE")
+    return os.environ.get("SYSTEM_MAP_UNSIGNED") == "1" and not gateway
 
 
 def worktree_state(target: Path) -> dict:

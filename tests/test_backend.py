@@ -27,15 +27,22 @@ from test_agents import FILES, SETTINGS  # noqa: E402
 class Served(unittest.TestCase):
     """Run the real backend process on `cls.data` and call it over HTTP, signed as the gateway does."""
 
-    #: What the gateway puts in the backend's environment. A class can change it.
-    gateway_env = {"KIROCREW_PROXY_SECRET": PROXY_SECRET, "KIROCREW_SPAWNED": "1"}
+    #: What the gateway puts in an app backend's environment. A class can change it.
+    gateway_env = {
+        "KIROCREW_PROXY_SECRET": PROXY_SECRET,
+        "KIROCREW_SPAWNED": "1",
+        "KIROCREW_APP_NAME": "system-map",
+        "KIROCREW_SPAWN_INSTANCE": "test",
+    }
+    #: Variables a test sets itself, never inherited from the shell running the tests.
+    OWNED = ("KIROCREW_PROXY_SECRET", "KIROCREW_SPAWNED", "KIROCREW_APP_NAME", "KIROCREW_SPAWN_INSTANCE", "SYSTEM_MAP_UNSIGNED")
 
     @classmethod
     def serve(cls):
         with socket.socket() as probe:
             probe.bind(("127.0.0.1", 0))
             cls.port = probe.getsockname()[1]
-        env = {k: v for k, v in os.environ.items() if k not in ("KIROCREW_PROXY_SECRET", "KIROCREW_SPAWNED", "SYSTEM_MAP_UNSIGNED")}
+        env = {k: v for k, v in os.environ.items() if k not in cls.OWNED}
         cls.server = subprocess.Popen(
             [sys.executable, str(ROOT / "backend" / "server.py")],
             env={**env, **cls.gateway_env, "PORT": str(cls.port), "SYSTEM_MAP_DATA": str(cls.data), "PYTHONDONTWRITEBYTECODE": "1"},
@@ -471,7 +478,7 @@ class Bodies(Bare):
 class NoSecret(Bare):
     """A gateway with no secret for the app: fail closed, but stay healthy."""
 
-    gateway_env = {"KIROCREW_SPAWNED": "1"}
+    gateway_env = {"KIROCREW_SPAWNED": "1", "KIROCREW_APP_NAME": "system-map", "KIROCREW_SPAWN_INSTANCE": "test"}
 
     def test_even_a_signed_call_is_refused(self):
         self.assertEqual(self.status("/repos", headers={"X-KiroCrew-Proxy": proxy_signature("GET", "/repos", b"")}), 401)
@@ -487,13 +494,25 @@ class DevUnsigned(Bare):
         self.assertEqual(self.raw("/repos")["repos"], [])
 
 
-class DevFlagUnderTheGateway(Bare):
-    """A backend the gateway starts ignores the dev flag."""
+class DevUnsignedFromAnAgentShell(DevUnsigned):
+    """An agent's shell inherits `KIROCREW_SPAWNED`, and can still run `ui/dev`."""
 
-    gateway_env = {"SYSTEM_MAP_UNSIGNED": "1", "KIROCREW_SPAWNED": "1", "KIROCREW_PROXY_SECRET": PROXY_SECRET}
+    gateway_env = {"SYSTEM_MAP_UNSIGNED": "1", "KIROCREW_SPAWNED": "1"}
+
+
+class DevFlagUnderTheGateway(Bare):
+    """A backend the gateway starts for the app ignores the dev flag."""
+
+    gateway_env = {**Served.gateway_env, "SYSTEM_MAP_UNSIGNED": "1"}
 
     def test_an_unsigned_call_is_still_refused(self):
         self.assertEqual(self.status("/repos"), 401)
+
+
+class DevFlagWithOnlyTheSpawnInstance(DevFlagUnderTheGateway):
+    """Either gateway variable is enough to turn the flag off."""
+
+    gateway_env = {"SYSTEM_MAP_UNSIGNED": "1", "KIROCREW_SPAWN_INSTANCE": "test", "KIROCREW_PROXY_SECRET": PROXY_SECRET}
 
 
 if __name__ == "__main__":
