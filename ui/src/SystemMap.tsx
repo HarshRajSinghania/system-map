@@ -3,12 +3,12 @@ import { Background, Controls, Handle, MarkerType, MiniMap, Panel, Position, Rea
 import type { Edge, Node, NodeProps } from '@xyflow/react'
 import { memo, useMemo } from 'react'
 import type { ReactNode } from 'react'
-import { INSPECTOR_ROOM, MINIMAP_WIDTH, MIN_ZOOM, useCanvasWidth, useFrame } from './flow'
+import { INSPECTOR_ROOM, MINIMAP_WIDTH, MIN_ZOOM, frameBox, useCanvasHeight, useCanvasWidth, useFrame } from './flow'
 import { CanvasTools } from './Layers'
 import type { Rect } from './flow'
 import { CARD_HEIGHT, CARD_WIDTH, GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, buildView, savedView, trailFor } from './graphView'
 import type { Card, Line } from './graphView'
-import { layoutView } from './layout'
+import { layoutView, readableLayout } from './layout'
 import type { BandBox } from './layout'
 import type { Risk, SystemGraph, WorktreeState } from './model'
 import { bandOf, riskIndex, worktreesOn } from './overlay'
@@ -70,12 +70,14 @@ interface CardData extends Record<string, unknown> {
   focused: boolean
   work: string[]
   band: RiskBand | null
+  /** The picture runs top down, so lines meet a card at its top and bottom. */
+  down: boolean
 }
 
 type CardNode = Node<CardData, 'card'>
 
 const SystemCard = memo(function SystemCard({ data }: NodeProps<CardNode>) {
-  const { card, focused, work, band } = data
+  const { card, focused, work, band, down } = data
   const proposed = card.status === 'proposed'
   const planned = card.kind === 'plan' || proposed || (card.kind === 'agent' && card.status !== undefined)
   const outside = card.kind === 'service'
@@ -102,8 +104,8 @@ const SystemCard = memo(function SystemCard({ data }: NodeProps<CardNode>) {
         boxShadow: [band ? `inset 5px 0 0 ${BAND[band].color}` : '', focused ? '0 0 0 3px var(--accent-subtle, rgba(37,99,235,.2))' : ''].filter(Boolean).join(', ') || undefined,
       }}
     >
-      <Handle type="target" position={Position.Left} isConnectable={false} />
-      <Handle type="source" position={Position.Right} isConnectable={false} />
+      <Handle type="target" position={down ? Position.Top : Position.Left} isConnectable={false} />
+      <Handle type="source" position={down ? Position.Bottom : Position.Right} isConnectable={false} />
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 6, alignItems: 'baseline' }}>
         <span style={{ fontWeight: 600, fontSize: 15, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{card.title}</span>
         {planned && <span style={{ fontSize: 11, color: accent, flexShrink: 0 }}>{STATUS_TEXT[card.status ?? ''] ?? card.status}</span>}
@@ -277,14 +279,27 @@ function Diagram({
   onOpenTables: () => void
 }) {
   const { mode } = useTheme()
-  const canvasWide = useCanvasWidth() >= MINIMAP_WIDTH
+  const canvasWidth = useCanvasWidth()
+  const canvasHeight = useCanvasHeight()
+  const canvasWide = canvasWidth >= MINIMAP_WIDTH
   // The agents picture is the same whatever is focused, so a click there only moves the highlight.
   const viewFocus = agents ? null : focus
   const view = useMemo(
     () => (only ? savedView(system, only, tables) : buildView(system, viewFocus, tables, showPlans, agents)),
     [system, only, viewFocus, tables, showPlans, agents],
   )
-  const placed = useMemo(() => layoutView(view, layout === 'top-down' ? 'TB' : 'LR'), [view, layout])
+  // The agents picture picks the direction the canvas shows larger. Other views keep theirs, and
+  // don't lay out again on every resize.
+  const fitting = agents && !only
+  const box = frameBox(canvasWidth, canvasHeight, inspecting ? INSPECTOR_ROOM : 0)
+  const boxWidth = fitting ? box.width : 0
+  const boxHeight = fitting ? box.height : 0
+  const placed = useMemo(() => {
+    if (fitting) return readableLayout(view, boxWidth, boxHeight)
+    const direction = layout === 'top-down' ? 'TB' : 'LR'
+    return { ...layoutView(view, direction), direction }
+  }, [view, layout, fitting, boxWidth, boxHeight])
+  const down = placed.direction === 'TB'
   const places = placed.places
   const rows = useMemo(() => riskIndex(risk), [risk])
   const byNode = worktrees?.by_node
@@ -309,10 +324,10 @@ function Diagram({
         position: places.get(card.id) ?? { x: 0, y: 0 },
         width: WIDTH,
         height: HEIGHT,
-        data: { card, focused: card.id === focus, work: byNode ? worktreesOn(card.id, byNode) : [], band: bandOf(rows.get(card.id)) },
+        data: { card, focused: card.id === focus, work: byNode ? worktreesOn(card.id, byNode) : [], band: bandOf(rows.get(card.id)), down },
       })),
     ],
-    [view, placed, places, focus, rows, byNode],
+    [view, placed, places, focus, rows, byNode, down],
   )
   const edges = useMemo(() => view.lines.map(toEdge), [view])
   const rects = useMemo<Rect[]>(

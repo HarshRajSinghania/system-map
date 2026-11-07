@@ -51,3 +51,37 @@ export function layoutView(view: MapView, direction: 'LR' | 'TB'): { places: Map
   })
   return { places, bands: boxes }
 }
+
+/** The width and height a laid-out picture takes, bands included. */
+export function extent(placed: { places: Map<string, Placed>; bands: BandBox[] }): { width: number; height: number } {
+  const rects = [
+    ...[...placed.places.values()].map((spot) => ({ x: spot.x, y: spot.y, width: CARD_WIDTH, height: CARD_HEIGHT })),
+    ...placed.bands,
+  ]
+  if (rects.length === 0) return { width: 0, height: 0 }
+  const left = Math.min(...rects.map((rect) => rect.x))
+  const top = Math.min(...rects.map((rect) => rect.y))
+  const right = Math.max(...rects.map((rect) => rect.x + rect.width))
+  const bottom = Math.max(...rects.map((rect) => rect.y + rect.height))
+  return { width: right - left, height: bottom - top }
+}
+
+/** Top down must read this much bigger to win, so a near tie doesn't flip the picture on a resize. */
+const TOP_DOWN_GAIN = 1.15
+
+function fitIn(placed: { places: Map<string, Placed>; bands: BandBox[] }, width: number, height: number): number {
+  const size = extent(placed)
+  return Math.min(1, width / Math.max(size.width, 1), height / Math.max(size.height, 1))
+}
+
+/**
+ * Lay the picture out both ways, and keep the one this box shows larger. A long chain left to
+ * right shrinks to nothing on a squarer canvas, so top down wins there. Left to right stays
+ * otherwise, and whenever both fit at full size.
+ */
+export function readableLayout(view: MapView, width: number, height: number): ReturnType<typeof layoutView> & { direction: 'LR' | 'TB' } {
+  const across = layoutView(view, 'LR')
+  if (width <= 0 || height <= 0) return { ...across, direction: 'LR' }
+  const down = layoutView(view, 'TB')
+  return fitIn(down, width, height) > fitIn(across, width, height) * TOP_DOWN_GAIN ? { ...down, direction: 'TB' } : { ...across, direction: 'LR' }
+}

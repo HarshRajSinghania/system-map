@@ -51,6 +51,15 @@ export function useCanvasWidth(): number {
   return useStore((state) => state.width)
 }
 
+export function useCanvasHeight(): number {
+  return useStore((state) => state.height)
+}
+
+/** The box a picture is framed in: the canvas less the tools, the legend and the inspector's room. */
+export function frameBox(width: number, height: number, room: number): { width: number; height: number } {
+  return { width: width - Math.min(room, width * 0.5), height: Math.max(120, height - TOP_ROOM - BOTTOM_ROOM) }
+}
+
 /** Room above a picture pinned to the top, below the tools. */
 const TOP_GAP = 16
 
@@ -67,11 +76,11 @@ export function useFrame(rects: Rect[], room: number, align: 'center' | 'top' = 
     const top = Math.min(...rects.map((rect) => rect.y))
     const right = Math.max(...rects.map((rect) => rect.x + rect.width))
     const bottom = Math.max(...rects.map((rect) => rect.y + rect.height))
-    const free = Math.min(room, width * 0.5)
+    const box = frameBox(width, height, room)
     const view = getViewportForBounds(
       { x: left, y: top, width: right - left, height: bottom - top },
-      width - free,
-      Math.max(120, height - TOP_ROOM - BOTTOM_ROOM),
+      box.width,
+      box.height,
       MIN_ZOOM,
       1,
       0.05,

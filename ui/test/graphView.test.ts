@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { CARD_HEIGHT, CARD_WIDTH, GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, agentsView, buildView, savedView, shortPath, trailFor } from '../src/graphView.ts'
-import { layoutView } from '../src/layout.ts'
+import { extent, layoutView, readableLayout } from '../src/layout.ts'
 import type { SystemEdge, SystemGraph, SystemNode } from '../src/model.ts'
 
 function node(id: string, kind: string, extra: Partial<SystemNode> = {}): SystemNode {
@@ -285,6 +285,36 @@ test('a band holds its members, and nothing else lands inside it', () => {
     const apart = one.x + one.width <= two.x || two.x + two.width <= one.x || one.y + one.height <= two.y || two.y + two.height <= one.y
     assert.ok(apart, `bands apart, ${direction}`)
   }
+})
+
+/** How large a laid-out picture can be drawn in a box, never above full size. */
+function fitIn(placed: ReturnType<typeof layoutView>, width: number, height: number): number {
+  const size = extent(placed)
+  return Math.min(1, width / size.width, height / size.height)
+}
+
+test('the agents picture goes top down when that reads clearly bigger, and stays left to right otherwise', () => {
+  const view = agentsView(withAgents)
+  const across = layoutView(view, 'LR')
+  const down = layoutView(view, 'TB')
+  for (const [width, height] of [
+    [300, 1400],
+    [1600, 300],
+    [700, 600],
+    [5000, 5000],
+  ]) {
+    const chosen = readableLayout(view, width, height)
+    const wanted = fitIn(down, width, height) > fitIn(across, width, height) * 1.15 ? 'TB' : 'LR'
+    assert.equal(chosen.direction, wanted, `${width}x${height}`)
+    assert.ok(fitIn(chosen, width, height) >= fitIn(across, width, height), `${width}x${height} never smaller than left to right`)
+  }
+  assert.equal(readableLayout(view, 300, 1400).direction, 'TB')
+  assert.equal(readableLayout(view, 1600, 300).direction, 'LR')
+  assert.equal(readableLayout(view, 5000, 5000).direction, 'LR', 'both fit at full size, so left to right stays')
+})
+
+test('with no canvas size yet, the picture stays left to right', () => {
+  assert.equal(readableLayout(agentsView(withAgents), 0, 0).direction, 'LR')
 })
 
 test('today’s map lays out with no bands', () => {
