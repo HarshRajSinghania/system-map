@@ -103,6 +103,16 @@ class StoreListing(unittest.TestCase):
         self.assertEqual((width, height), (512, 512))
         self.assertIn(colour, (0, 2), "colour types 0 and 2 have no alpha channel")
 
+    def test_the_hero_art_is_png_at_the_store_shapes(self):
+        shapes = {"heroImage": (16, 9), "heroImageDark": (16, 9), "heroImageDetail": (25, 6), "heroImageDetailDark": (25, 6)}
+        for field, (wide, high) in shapes.items():
+            with self.subTest(field=field):
+                path = ROOT / MANIFEST[field]
+                width, height, _colour = png_header(path)
+                self.assertEqual(width * high, height * wide, f"{width}x{height} is not {wide}:{high}")
+                self.assertGreaterEqual(width, 1200)
+                self.assertLess(path.stat().st_size, 8 * 1024 * 1024, "the store never serves art over 8 MiB")
+
     def test_resource_paths_stay_inside_the_app_and_exist(self):
         for path in resource_paths():
             with self.subTest(path=str(path)):

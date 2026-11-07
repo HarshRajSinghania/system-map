@@ -139,6 +139,17 @@ focus leaves must be focusable itself, or it closes before the click lands.
 - A `ui.pages[].icon` name only works for built-in apps. `iconPathDark` gives the dark theme
   its own image.
 
+## Store art
+
+- `assets/hero-*.svg` are the sources. Each PNG beside it is that file drawn at its exact store
+  size: 1200x675 (16:9) for `heroImage` and `heroImageDark`, 1200x288 (25:6) for the two
+  `heroImageDetail` fields. Any Playwright install draws one:
+  `<node_modules>/.bin/playwright screenshot --viewport-size "1200, 675" file://$PWD/assets/hero-light.svg assets/hero-light.png`.
+- The store needs raster art from a third-party app, and a raster can't follow the theme, so each
+  image has a light and a dark copy. Commit them as plain files, not Git LFS.
+- Chromium draws `system-ui` wider than it looks in a browser preview. Look at each PNG for text
+  near an edge.
+
 ## App Store
 
 - Kiro Crew accepts no new built-in apps. An app lives in its own public GitHub repo.

@@ -1,5 +1,10 @@
 # System Map
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.png">
+  <img src="assets/hero-light.png" alt="System Map: a system's layers drawn as blocks on a blueprint grid, beside the name and the line Your system, read from your repo">
+</picture>
+
 **A live map of your system: its parts, its data, its plans and its agents, read from your repo.**
 
 System Map is an app for [Kiro Crew](https://github.com/kirodotdev/KiroCrew), the open-source

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 288" width="1200" height="288">
+  <title>System Map</title>
+  <!-- The store's detail banner for the dark theme: hero-detail-light.svg on blueprint blue. -->
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M40 0H0V40" fill="none" stroke="#ffffff" stroke-opacity=".09" stroke-width="2"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="288" fill="#0f2f63"/>
+  <rect width="1200" height="288" fill="url(#grid)"/>
+  <g transform="translate(72 36) scale(.6) translate(-100 -170)">
+    <path d="M330 270V285H207V300M330 285H452V300M207 400V415H178V430M207 415H330V430M452 400V415H482V430" fill="none" stroke="#ffffff" stroke-opacity=".35" stroke-width="4"/>
+    <g fill="#ffffff">
+      <rect x="120" y="170" width="420" height="100" rx="18"/>
+      <rect x="100" y="300" width="215" height="100" rx="18"/>
+      <rect x="345" y="300" width="215" height="100" rx="18"/>
+      <rect x="120" y="430" width="116" height="100" rx="18"/>
+      <rect x="272" y="430" width="116" height="100" rx="18"/>
+    </g>
+    <rect x="424" y="430" width="116" height="100" rx="18" fill="#ffc53d"/>
+  </g>
+  <g font-family="system-ui, 'Segoe UI', Helvetica, Arial, sans-serif">
+    <text x="440" y="140" font-size="64" font-weight="700" fill="#ffffff">System Map</text>
+    <text x="442" y="190" font-size="26" fill="#c9d8f0">Your system, read from your repo.</text>
+    <text x="442" y="232" font-size="20" fill="#9fb6dc">Map · Data model · Risk · Worktrees · Agents</text>
+  </g>
+</svg>

@@ -6,6 +6,10 @@
   "author": "System Map contributors",
   "license": "Apache-2.0",
   "iconPath": "assets/icon.png",
+  "heroImage": "assets/hero-light.png",
+  "heroImageDark": "assets/hero-dark.png",
+  "heroImageDetail": "assets/hero-detail-light.png",
+  "heroImageDetailDark": "assets/hero-detail-dark.png",
   "highlights": [
     "One model of your repo: modules, routes, tables, plans, risk, worktrees and agents",
     "Every number held to the tool that owns it: the compiler, real Postgres, real SQLite, git",
