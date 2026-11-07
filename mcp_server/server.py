@@ -204,7 +204,8 @@ TOOLS = [
         "description": (
             "Draft the agent settings for a person to use, or try them with dry_run. Returns the agents they "
             "find. Settings: list (the file whose exported array lists the agents), modules (module ids to "
-            "treat as one agent each), jobs_key, hand_off_keys, model_calls, asks_you_calls, home_region. "
+            "treat as one agent each), jobs_key, hand_off_keys, hand_off_calls (functions whose first argument "
+            "names the agent), model_calls, asks_you_calls, home_region. "
             "Each setting needs evidence as path:line. Suggest home_region only if the repo says where data "
             "must stay. A new draft replaces the last one. It never changes the saved settings, the map or "
             "the repo. Only a person uses a draft, in the Agents tab."

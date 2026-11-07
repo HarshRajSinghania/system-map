@@ -323,8 +323,9 @@ class McpServerTests(unittest.TestCase):
     def test_no_tool_can_use_or_drop_a_draft(self):
         tools = self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]["result"]["tools"]
         self.assertEqual([tool["name"] for tool in tools if "draft" in tool["name"]], ["draft_agents"])
-        schema = next(tool for tool in tools if tool["name"] == "draft_agents")["inputSchema"]
-        self.assertEqual(set(schema["properties"]), {"settings", "evidence", "note", "dry_run", "repo", "budget_chars"})
+        draft = next(tool for tool in tools if tool["name"] == "draft_agents")
+        self.assertEqual(set(draft["inputSchema"]["properties"]), {"settings", "evidence", "note", "dry_run", "repo", "budget_chars"})
+        self.assertIn("hand_off_calls", draft["description"])
 
 
 class Faults(unittest.TestCase):

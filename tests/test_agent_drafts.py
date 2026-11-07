@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from core import agent_drafts, store  # noqa: E402
 from helpers import commit_all, git  # noqa: E402
-from test_agents import FILES, SETTINGS, line_of  # noqa: E402
+from test_agents import CALL_FILES, FILES, SETTINGS, line_of  # noqa: E402
 
 ANTHROPIC = "service:anthropic"
 SORTER = "src/agents/handlers/sorter.ts"
@@ -259,6 +259,23 @@ class Using(Fixture):
         for action in (agent_drafts.use, agent_drafts.drop):
             with self.assertRaises(KeyError):
                 action(self.target, "1")
+
+
+class HandOffCalls(Fixture):
+    def test_a_draft_with_hand_off_calls_finds_what_they_start(self):
+        for name, text in CALL_FILES.items():
+            (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / name).write_text(text)
+        commit_all(self.repo)
+        store.build(self.repo, self.data)
+        route = CALL_FILES["src/web/route.ts"]
+        line = route[: route.index('queueAgent("sorter"')].count("\n") + 1
+        call = f"src/web/route.ts:{line}"
+        settings, evidence = {**SETTINGS, "hand_off_calls": ["queueAgent"]}, {**EVIDENCE, "hand_off_calls": [call]}
+        found = {row["id"]: row for row in self.save(settings, evidence, dry_run=True)["agents"]}
+        self.assertIn("module:src/web", found["agent:sorter"]["starts"])
+        self.save(settings, evidence)
+        self.assertIn("hand_off_calls", agent_drafts.load(self.target)["changed"])
 
 
 class Repo(Fixture):

@@ -74,6 +74,8 @@ When someone asks you to find the agents, read the code and draft the settings w
 4. **`hand_off_keys`**: every property that names the agent to hand work to. Look where work
    is queued, in code and in SQL, such as `{ agent: "mail" }` or a function argument
    `p_agent`.
+   **`hand_off_calls`**: every function whose first argument is the agent's name, such as
+   `queueAgent("mail", id)`. Give the name alone, `queueAgent`, and cite a call.
 5. **`model_calls`**: the names agents call to reach a model, such as `ctx.claude(...)`.
    Give the name alone, `claude`. Add each wrapper an agent calls that calls a model in turn.
 6. **`asks_you_calls`**: the names that leave work for a person: a task, a question or an
@@ -94,7 +96,8 @@ When someone asks you to find the agents, read the code and draft the settings w
    Check the result, fix what is wrong, and try again:
    - Every agent in the list is there.
    - An `empty` agent has no jobs, so check `jobs_key`.
-   - An agent that is started from somewhere has `starts`, or check `hand_off_keys`.
+   - An agent that is started from somewhere has `starts`, or check `hand_off_keys` and
+     `hand_off_calls`.
    - An agent whose code calls a model has `models`, or check `model_calls`.
 9. Save it without `dry_run`. Put what you read in `note`, in a few sentences, for the person.
 10. Say what the draft finds, and that it waits for them in the Agents tab. Never say the
