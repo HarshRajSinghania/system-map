@@ -7,6 +7,11 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Hand-off calls**, a new agent setting. It names the functions whose first argument names the
+  agent to start, as in `queueAgent("mail", id)`. Such a call starts the agent from plain code, or
+  is a hand-off from an agent's own code. Find my agents can draft it.
+
 ### Fixed
 - The review round on Find my agents:
   - **Mark as agent** on a form opened from a draft saves the draft as edited. It used to save the

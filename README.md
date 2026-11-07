@@ -156,7 +156,7 @@ Each tab reads the same model.
 | Code | TypeScript and JavaScript, with `paths` and `baseUrl` from `tsconfig.json` or `jsconfig.json` |
 | Jobs | `cron.schedule` calls in SQL |
 | Plans | `docs/specs`, `docs/plans`, `specs`, and a `BRIEF`, `PLAN`, `ROADMAP`, `PRD`, `SPEC` or `TODO` file at the top of the repo |
-| Agents | The exported list you name in the Agents tab, or modules you mark, or a draft from the Design chat that you use. Hand-offs, model calls and calls that ask a person are found by the names you give there. Jobs start an agent when their `cron.schedule` command, or the SQL function it calls, names it |
+| Agents | The exported list you name in the Agents tab, or modules you mark, or a draft from the Design chat that you use. Hand-offs, model calls and calls that ask a person are found by the names you give there. A hand-off is a property, as in `{ agent: "mail" }`, or a call whose first argument names the agent, as in `queueAgent("mail", id)`. Jobs start an agent when their `cron.schedule` command, or the SQL function it calls, names it |
 | History | Git history and worktrees. Coverage reports from Vitest, Jest or anything that writes lcov |
 
 A project needs no git history, though Risk has no churn without it, and there are no worktrees.

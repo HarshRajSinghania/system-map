@@ -1,7 +1,7 @@
 ---
 title: Hand-off calls (an agent started by name as a plain argument)
 estimate: 170m
-status: approved
+status: done
 ---
 # Hand-off calls
 
@@ -75,3 +75,11 @@ Real project:
 | 5 | Docs and build | `README.md`, `CHANGELOG.md`, `docs/backlog.md`, `ui/dist` | 15m |
 
 **Estimate:** 170m. The five tasks add up to 145m, plus 25m for review and fixes.
+
+## As built
+- Task 1 also added two cases to `tests/test_regions.py`, where the settings checks are tested.
+- Criterion 10, on the real project: the two agents with no start now show one, two others gain starts from
+  real calls, and every earlier link stays. A rebuild took about 3 seconds before and after.
+- One fresh run of the skill suggested the setting with evidence, found all 9 agents and made no failed call.
+  It also put SQL functions in `hand_off_calls`, which only reads code, and cited a definition as evidence.
+  The skill now says both.
