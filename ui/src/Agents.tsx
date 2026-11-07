@@ -4,7 +4,7 @@ import type { CSSProperties, ReactNode } from 'react'
 import { AgentDraftCard } from './AgentDraft'
 import { AGENT_FILTERS, draftSettings, filterAgents, filterCounts, fromForm, handsOffTo, markModule, modelLabel, modelsOf, nodeLabel, regionTone, SETTING_LABELS, startsFrom, STATUS_LABEL, toForm } from './agentRows'
 import type { AgentFilter, AgentForm, RegionTone } from './agentRows'
-import type { AgentDraftState, AgentModel, AgentRow, AgentSettings, AgentState, AgentStatus } from './model'
+import type { AgentDraft, AgentDraftState, AgentModel, AgentRow, AgentSettings, AgentState, AgentStatus } from './model'
 import { MONO, MUTED } from './parts'
 
 const CELL: CSSProperties = { padding: '6px 8px', textAlign: 'left', verticalAlign: 'top' }
@@ -229,29 +229,29 @@ export function AgentsView({
   onAsk: (row: AgentRow) => void
   onSave: (settings: AgentSettings) => Promise<boolean>
   onFind: () => void
-  /** Use or drop the draft. Resolves to whether it worked. */
-  onDraft: (action: 'use' | 'drop') => Promise<boolean>
+  /** Use or drop the draft with this id. Resolves to whether it worked. */
+  onDraft: (action: 'use' | 'drop', id: string) => Promise<boolean>
 }) {
   const [filter, setFilter] = useState<AgentFilter>('all')
   const [picked, setPicked] = useState<string | null>(null)
-  /** Which settings the form is open on: the saved ones, or the draft's. */
-  const [editing, setEditing] = useState<'settings' | 'draft' | null>(null)
+  /** Which settings the form is open on: the saved ones, or a draft as it was when opened. */
+  const [editing, setEditing] = useState<{ from: 'settings' } | { from: 'draft'; draft: AgentDraft } | null>(null)
   const rows = state.agents
   const counts = useMemo(() => filterCounts(rows), [rows])
   const shown = useMemo(() => filterAgents(rows, filter), [rows, filter])
   const chosen = shown.find((row) => row.id === picked) ?? shown[0] ?? null
   const home = state.home_region
   const drafted = draft?.draft ?? null
-  const fromDraft = editing === 'draft' && drafted !== null
+  const opened = editing?.from === 'draft' ? editing.draft : null
 
-  // Saving the form opened from a draft saves those settings, then the draft is done with.
+  // Saving the form opened from a draft saves those settings, then that draft is done with.
   const saveDraftEdit = async (settings: AgentSettings) => {
     const saved = await onSave(settings)
-    if (saved) await onDraft('drop')
+    if (saved && opened) await onDraft('drop', opened.id)
     return saved
   }
   const card =
-    draft && drafted && !fromDraft ? (
+    draft && drafted && !opened ? (
       <div style={{ flexShrink: 0, maxHeight: '50%', overflowY: 'auto', marginBottom: rows.length === 0 || editing ? 16 : 0 }}>
         <AgentDraftCard
           draft={drafted}
@@ -260,27 +260,27 @@ export function AgentsView({
           saved={state.settings}
           busy={saving}
           error={draftError}
-          onUse={() => void onDraft('use')}
-          onEdit={() => setEditing('draft')}
-          onDrop={() => void onDraft('drop')}
+          onUse={() => void onDraft('use', drafted.id)}
+          onEdit={() => setEditing({ from: 'draft', draft: drafted })}
+          onDrop={() => void onDraft('drop', drafted.id)}
         />
       </div>
     ) : null
 
   if (rows.length === 0 || editing) {
-    const close = rows.length || fromDraft ? () => setEditing(null) : undefined
+    const close = rows.length || opened ? () => setEditing(null) : undefined
     return (
       <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', padding: 16, color: 'var(--text, inherit)' }}>
         {card}
         <Setup
-          key={fromDraft ? `draft:${drafted.drafted_at}` : 'saved'}
+          key={opened ? `draft:${opened.id}` : 'saved'}
           state={state}
-          start={fromDraft ? draftSettings(drafted, state.settings) : undefined}
+          start={opened ? draftSettings(opened, state.settings) : undefined}
           saving={saving}
           error={error}
           canAsk={canAsk}
           onFind={onFind}
-          onSave={fromDraft ? saveDraftEdit : onSave}
+          onSave={opened ? saveDraftEdit : onSave}
           onCancel={close}
         />
       </div>
@@ -306,7 +306,7 @@ export function AgentsView({
         ))}
         <span style={{ flex: 1 }} />
         <FindButton canAsk={canAsk} onFind={onFind} />
-        <Btn onClick={() => setEditing('settings')}>Agent settings</Btn>
+        <Btn onClick={() => setEditing({ from: 'settings' })}>Agent settings</Btn>
       </div>
       <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 16 }}>
         <div style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>

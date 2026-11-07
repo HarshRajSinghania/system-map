@@ -152,6 +152,7 @@ test('marking a module keeps the rest of the settings and adds it once', () => {
 
 function draft(extra: Partial<AgentDraft> = {}): AgentDraft {
   return {
+    id: '1a2b',
     settings: { list: 'src/agents/registry.ts', model_calls: ['claude', 'readQuote'] },
     evidence: { list: ['src/agents/registry.ts:12'], model_calls: ['src/agents/types.ts:30', 'src/quote.ts:4'] },
     note: 'Read the registry.',

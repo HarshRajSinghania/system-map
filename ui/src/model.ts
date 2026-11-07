@@ -261,6 +261,8 @@ export interface DraftAgent {
 
 /** Agent settings the Design chat drafted. Only a person uses them. */
 export interface AgentDraft {
+  /** Using or dropping names this, so a person only acts on the draft they saw. */
+  id: string
   settings: AgentSettings
   /** Each setting's `path:line` lines that show it. */
   evidence: Partial<Record<AgentSettingKey, string[]>>

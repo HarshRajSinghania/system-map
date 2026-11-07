@@ -186,6 +186,19 @@ class Using(Fixture):
         self.assertFalse(self.draft_file.exists())
         self.assertEqual(store.load_agent_settings(self.target), CANADA)
 
+    def test_using_or_dropping_needs_the_draft_the_person_saw(self):
+        self.save(note="first")
+        seen = agent_drafts.load(self.target)["draft"]["id"]
+        self.save(note="second")
+        for action in (agent_drafts.use, agent_drafts.drop):
+            with self.assertRaisesRegex(ValueError, "saved a new draft since"):
+                action(self.target, seen)
+        self.assertEqual(store.load_agent_settings(self.target), {})
+        newest = agent_drafts.load(self.target)["draft"]
+        self.assertEqual(newest["note"], "second")
+        agent_drafts.use(self.target, newest["id"])
+        self.assertEqual(store.load_agent_settings(self.target), SETTINGS)
+
     def test_no_draft_to_use_or_drop(self):
         for action in (agent_drafts.use, agent_drafts.drop):
             with self.assertRaises(KeyError):

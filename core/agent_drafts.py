@@ -84,6 +84,7 @@ def save(target: Path, settings: object, evidence: object, note: object = "", dr
         return {**result, "saved": False}
     draft = {
         **result,
+        "id": f"{time.time_ns():x}",
         "evidence": {key: list(dict.fromkeys(evidence[key])) for key in kept},
         "note": note.strip(),
         "commit": manifest["commit"],
@@ -106,22 +107,26 @@ def load(target: Path) -> dict:
     return {"draft": draft, "changed": changed, "stale": draft["commit"] != store.read_manifest(target)["commit"]}
 
 
-def _read(target: Path) -> dict:
+def _read(target: Path, draft_id: str | None) -> dict:
+    """The draft, if it is still the one the person saw. The chat may have saved a new one since."""
     path = _path(target)
     if not path.is_file():
         raise KeyError("no agent draft")
-    return json.loads(path.read_text(encoding="utf-8"))
+    draft = json.loads(path.read_text(encoding="utf-8"))
+    if draft_id is not None and draft.get("id") != draft_id:
+        raise ValueError("The Design chat saved a new draft since. Look at it first.")
+    return draft
 
 
-def use(target: Path) -> dict:
+def use(target: Path, draft_id: str | None = None) -> dict:
     """Save the draft's settings with today's checks, rebuild, then drop the draft."""
-    draft = _read(target)
+    draft = _read(target, draft_id)
     result = store.set_agent_settings(target, _merged(draft["settings"], store.load_agent_settings(target)))
     _path(target).unlink(missing_ok=True)
     return result
 
 
-def drop(target: Path) -> dict:
-    _read(target)
+def drop(target: Path, draft_id: str | None = None) -> dict:
+    _read(target, draft_id)
     _path(target).unlink()
     return {"dropped": True}

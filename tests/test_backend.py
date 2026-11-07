@@ -272,6 +272,15 @@ class AgentRoutes(Served):
         self.assertEqual(self.refused("/agents/draft", {"action": "accept"}), (400, "action must be use or drop"))
         self.assertIsNotNone(self.get("/agents/draft")["draft"])
 
+    def test_a_draft_the_person_did_not_see_is_refused(self):
+        self.draft()
+        seen = self.get("/agents/draft")["draft"]["id"]
+        self.draft()
+        self.assertEqual(self.refused("/agents/draft", {"action": "use", "id": seen}), (400, "The Design chat saved a new draft since. Look at it first."))
+        self.assertEqual(self.refused("/agents/draft", {"action": "use", "id": 3}), (400, "id must be the draft's id"))
+        newest = self.get("/agents/draft")["draft"]["id"]
+        self.assertEqual(json.load(self.post("/agents/draft", {"action": "drop", "id": newest})), {"dropped": True})
+
     def test_no_route_touches_the_repo(self):
         self.post("/agents/settings", {"settings": {**SETTINGS, "home_region": "Canada"}})
         self.post("/regions", {"id": "service:anthropic", "region": "US"})

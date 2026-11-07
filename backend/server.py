@@ -283,10 +283,12 @@ class Handler(BaseHTTPRequestHandler):
             # Only a person, through this page, uses or drops a draft. No agent tool can.
             try:
                 target = store.resolve_repo(body.get("repo"))
-                action = body.get("action")
+                action, draft_id = body.get("action"), body.get("id")
                 if action not in ("use", "drop"):
                     raise ValueError("action must be use or drop")
-                self._json(200, (agent_drafts.use if action == "use" else agent_drafts.drop)(target))
+                if draft_id is not None and not isinstance(draft_id, str):
+                    raise ValueError("id must be the draft's id")
+                self._json(200, (agent_drafts.use if action == "use" else agent_drafts.drop)(target, draft_id))
             except KeyError as error:
                 self._json(404, {"error": str(error).strip("'\"")})
             except (ValueError, OSError) as error:

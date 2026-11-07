@@ -500,11 +500,11 @@ function ProjectPage({
     }
   }
   /** Use the Design chat's draft, which saves and rebuilds as the form does, or drop it. */
-  const actOnDraft = async (action: 'use' | 'drop'): Promise<boolean> => {
+  const actOnDraft = async (action: 'use' | 'drop', id: string): Promise<boolean> => {
     setSavingAgents(true)
     setDraftError(null)
     try {
-      await api.post(`${BASE}/agents/draft`, { repo, action })
+      await api.post(`${BASE}/agents/draft`, { repo, action, id })
       if (action === 'use') {
         await refresh()
         setTick((value) => value + 1)
