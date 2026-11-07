@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -44,6 +45,16 @@ class Fixture(unittest.TestCase):
 
     def save(self, settings=SETTINGS, evidence=EVIDENCE, **options):
         return agent_drafts.save(self.target, settings, evidence, **options)
+
+    def shown(self):
+        """The id of the draft on screen now."""
+        return agent_drafts.load(self.target)["draft"]["id"]
+
+    def use(self):
+        return agent_drafts.use(self.target, self.shown())
+
+    def drop(self):
+        return agent_drafts.drop(self.target, self.shown())
 
     def model_agents(self):
         return [node["id"] for node in store.load_system(self.target)["nodes"] if node["kind"] == "agent"]
@@ -149,10 +160,40 @@ class Loading(Fixture):
         self.assertTrue(agent_drafts.load(self.target)["stale"])
 
 
+class NoGit(unittest.TestCase):
+    """With no git there is no commit, so a draft goes stale when the code it was tried on changes."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.repo, self.data = Path(tmp.name) / "repo", Path(tmp.name) / "data"
+        for name, text in FILES.items():
+            (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / name).write_text(text)
+        store.build(self.repo, self.data)
+        self.target = store.repo_dir(self.repo, self.data)
+        agent_drafts.save(self.target, SETTINGS, EVIDENCE)
+
+    def test_a_draft_goes_stale_when_the_code_changes(self):
+        self.assertIsNone(store.read_manifest(self.target)["commit"])
+        store.build(self.repo, self.data)
+        self.assertFalse(agent_drafts.load(self.target)["stale"])
+        (self.repo / "src" / "agents" / "more.ts").write_text("export const more = 1\n")
+        store.build(self.repo, self.data)
+        self.assertTrue(agent_drafts.load(self.target)["stale"])
+
+    def test_a_draft_from_before_the_code_stamp_still_reads(self):
+        path = self.target / "intent" / "agents-draft.json"
+        older = json.loads(path.read_text())
+        del older["code"]
+        path.write_text(json.dumps(older))
+        self.assertFalse(agent_drafts.load(self.target)["stale"])
+
+
 class Using(Fixture):
     def test_using_saves_its_settings_rebuilds_and_deletes_it(self):
         self.save()
-        agent_drafts.use(self.target)
+        self.use()
         self.assertEqual(store.load_agent_settings(self.target), SETTINGS)
         self.assertEqual(sorted(self.model_agents()), ["agent:digest", "agent:mail", "agent:reader", "agent:sorter"])
         self.assertFalse(self.draft_file.exists())
@@ -160,13 +201,13 @@ class Using(Fixture):
     def test_a_draft_with_no_home_region_keeps_the_saved_one(self):
         store.set_agent_settings(self.target, CANADA)
         self.save()
-        agent_drafts.use(self.target)
+        self.use()
         self.assertEqual(store.load_agent_settings(self.target)["home_region"], "Canada")
 
     def test_a_drafts_home_region_wins(self):
         store.set_agent_settings(self.target, {"home_region": "EU"})
         self.save({**SETTINGS, **CANADA}, {**EVIDENCE, **CANADA_EVIDENCE})
-        agent_drafts.use(self.target)
+        self.use()
         self.assertEqual(store.load_agent_settings(self.target)["home_region"], "Canada")
 
     def test_an_old_draft_is_checked_against_todays_model(self):
@@ -175,14 +216,14 @@ class Using(Fixture):
         commit_all(self.repo)
         store.build(self.repo, self.data)
         with self.assertRaisesRegex(ValueError, "no file 'src/agents/registry.ts'"):
-            agent_drafts.use(self.target)
+            self.use()
         self.assertTrue(self.draft_file.exists())
         self.assertEqual(store.load_agent_settings(self.target), {})
 
     def test_dropping_deletes_only_the_draft(self):
         store.set_agent_settings(self.target, CANADA)
         self.save()
-        self.assertEqual(agent_drafts.drop(self.target), {"dropped": True})
+        self.assertEqual(self.drop(), {"dropped": True})
         self.assertFalse(self.draft_file.exists())
         self.assertEqual(store.load_agent_settings(self.target), CANADA)
 
@@ -199,19 +240,34 @@ class Using(Fixture):
         agent_drafts.use(self.target, newest["id"])
         self.assertEqual(store.load_agent_settings(self.target), SETTINGS)
 
+    def test_a_draft_saved_while_one_is_used_is_kept(self):
+        self.save(note="first")
+        seen = self.shown()
+        rebuild = store.set_agent_settings
+
+        def meanwhile(target, settings):
+            result = rebuild(target, settings)
+            self.save(note="second")
+            return result
+
+        with mock.patch.object(store, "set_agent_settings", side_effect=meanwhile):
+            agent_drafts.use(self.target, seen)
+        self.assertEqual(store.load_agent_settings(self.target), SETTINGS)
+        self.assertEqual(agent_drafts.load(self.target)["draft"]["note"], "second")
+
     def test_no_draft_to_use_or_drop(self):
         for action in (agent_drafts.use, agent_drafts.drop):
             with self.assertRaises(KeyError):
-                action(self.target)
+                action(self.target, "1")
 
 
 class Repo(Fixture):
     def test_drafts_never_touch_the_repo(self):
         self.save(dry_run=True)
         self.save()
-        agent_drafts.use(self.target)
+        self.use()
         self.save()
-        agent_drafts.drop(self.target)
+        self.drop()
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
 
 

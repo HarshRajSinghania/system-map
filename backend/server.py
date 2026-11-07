@@ -286,7 +286,7 @@ class Handler(BaseHTTPRequestHandler):
                 action, draft_id = body.get("action"), body.get("id")
                 if action not in ("use", "drop"):
                     raise ValueError("action must be use or drop")
-                if draft_id is not None and not isinstance(draft_id, str):
+                if not isinstance(draft_id, str) or not draft_id:
                     raise ValueError("id must be the draft's id")
                 self._json(200, (agent_drafts.use if action == "use" else agent_drafts.drop)(target, draft_id))
             except KeyError as error:

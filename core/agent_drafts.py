@@ -25,6 +25,11 @@ def _path(target: Path) -> Path:
     return target / "intent" / "agents-draft.json"
 
 
+def _code(manifest: dict) -> str:
+    """What the model's code was, as one stamp. A project with no git has no commit to compare."""
+    return store._hash([manifest.get("inputs"), manifest.get("map_inputs")])
+
+
 def _merged(settings: dict, saved: dict) -> dict:
     """What using a draft saves: its own settings, and the saved home region if it has none."""
     if "home_region" in settings or not saved.get("home_region"):
@@ -95,6 +100,7 @@ def save(target: Path, settings: object, evidence: object, note: object = "", dr
         "evidence": {key: list(dict.fromkeys(evidence[key])) for key in kept},
         "note": note.strip(),
         "commit": manifest["commit"],
+        "code": _code(manifest),
         "ref": manifest["ref"],
         "drafted_at": int(time.time()),
     }
@@ -111,29 +117,41 @@ def load(target: Path) -> dict:
     saved = store.load_agent_settings(target)
     after = _merged(draft["settings"], saved)
     changed = [key for key in store.AGENT_SETTINGS if after.get(key) != saved.get(key)]
-    return {"draft": draft, "changed": changed, "stale": draft["commit"] != store.read_manifest(target)["commit"]}
+    manifest = store.read_manifest(target)
+    # A draft from before the code stamp has only its commit to go on.
+    stale = draft["commit"] != manifest["commit"] or draft.get("code", _code(manifest)) != _code(manifest)
+    return {"draft": draft, "changed": changed, "stale": stale}
 
 
-def _read(target: Path, draft_id: str | None) -> dict:
+def _read(target: Path, draft_id: str) -> dict:
     """The draft, if it is still the one the person saw. The chat may have saved a new one since."""
     path = _path(target)
     if not path.is_file():
         raise KeyError("no agent draft")
     draft = json.loads(path.read_text(encoding="utf-8"))
-    if draft_id is not None and draft.get("id") != draft_id:
+    if draft.get("id") != draft_id:
         raise ValueError("The Design chat saved a new draft since. Look at it first.")
     return draft
 
 
-def use(target: Path, draft_id: str | None = None) -> dict:
+def _remove(target: Path, draft_id: str) -> None:
+    """Delete the draft, unless the chat saved a new one meanwhile. That one waits for the person."""
+    try:
+        _read(target, draft_id)
+    except (KeyError, ValueError):
+        return
+    _path(target).unlink(missing_ok=True)
+
+
+def use(target: Path, draft_id: str) -> dict:
     """Save the draft's settings with today's checks, rebuild, then drop the draft."""
     draft = _read(target, draft_id)
     result = store.set_agent_settings(target, _merged(draft["settings"], store.load_agent_settings(target)))
-    _path(target).unlink(missing_ok=True)
+    _remove(target, draft_id)
     return result
 
 
-def drop(target: Path, draft_id: str | None = None) -> dict:
+def drop(target: Path, draft_id: str) -> dict:
     _read(target, draft_id)
-    _path(target).unlink()
+    _remove(target, draft_id)
     return {"dropped": True}

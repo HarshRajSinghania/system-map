@@ -251,9 +251,14 @@ class AgentRoutes(Served):
         self.assertEqual((value["draft"]["settings"], value["draft"]["note"], value["stale"]), (SETTINGS, "Read the registry.", False))
         self.assertEqual(value["changed"], ["list", "hand_off_keys", "model_calls", "asks_you_calls"])
 
+    def act(self, action):
+        """Use or drop the draft on screen now, as the page does."""
+        shown = self.get("/agents/draft")["draft"]["id"]
+        return json.load(self.post("/agents/draft", {"action": action, "id": shown}))
+
     def test_using_a_draft_saves_it_and_shows_the_agents(self):
         self.draft()
-        reply = json.load(self.post("/agents/draft", {"action": "use"}))
+        reply = self.act("use")
         self.assertEqual(reply["settings"], SETTINGS)
         self.assertEqual([row["name"] for row in self.get("/agents")["agents"]], ["sorter", "reader", "mail", "digest"])
         self.assertIsNone(self.get("/agents/draft")["draft"])
@@ -261,16 +266,24 @@ class AgentRoutes(Served):
     def test_dropping_a_draft_keeps_the_settings(self):
         self.post("/agents/settings", {"settings": {"home_region": "Canada"}})
         self.draft()
-        self.assertEqual(json.load(self.post("/agents/draft", {"action": "drop"})), {"dropped": True})
+        self.assertEqual(self.act("drop"), {"dropped": True})
         self.assertIsNone(self.get("/agents/draft")["draft"])
         self.assertEqual(self.get("/agents")["settings"], {"home_region": "Canada"})
 
     def test_a_draft_action_must_be_use_or_drop_and_need_a_draft(self):
-        self.assertEqual(self.refused("/agents/draft", {"action": "use"}), (404, "no agent draft"))
-        self.assertEqual(self.refused("/agents/draft", {"action": "drop"}), (404, "no agent draft"))
+        self.assertEqual(self.refused("/agents/draft", {"action": "use", "id": "1"}), (404, "no agent draft"))
+        self.assertEqual(self.refused("/agents/draft", {"action": "drop", "id": "1"}), (404, "no agent draft"))
         self.draft()
         self.assertEqual(self.refused("/agents/draft", {"action": "accept"}), (400, "action must be use or drop"))
         self.assertIsNotNone(self.get("/agents/draft")["draft"])
+
+    def test_a_use_or_drop_must_name_the_draft(self):
+        self.draft()
+        for body in ({"action": "use"}, {"action": "drop"}, {"action": "use", "id": ""}, {"action": "drop", "id": None}):
+            with self.subTest(body=body):
+                self.assertEqual(self.refused("/agents/draft", body), (400, "id must be the draft's id"))
+        self.assertIsNotNone(self.get("/agents/draft")["draft"])
+        self.assertEqual(self.get("/agents")["settings"], {})
 
     def test_a_draft_the_person_did_not_see_is_refused(self):
         self.draft()
@@ -285,9 +298,9 @@ class AgentRoutes(Served):
         self.post("/agents/settings", {"settings": {**SETTINGS, "home_region": "Canada"}})
         self.post("/regions", {"id": "service:anthropic", "region": "US"})
         self.draft()
-        self.post("/agents/draft", {"action": "use"})
+        self.act("use")
         self.draft()
-        self.post("/agents/draft", {"action": "drop"})
+        self.act("drop")
         self.assertEqual(git(self.repo, "status", "--porcelain"), "")
 
 

@@ -309,6 +309,17 @@ class McpServerTests(unittest.TestCase):
         reply = self.tool("draft_agents", repo=str(repo), settings=SETTINGS)
         self.assertIn("evidence must be an object beside settings", reply["content"][0]["text"])
 
+    def test_extra_arguments_cannot_use_or_drop_a_draft(self):
+        repo, target = self.agent_repo()
+        self.read("draft_agents", repo=str(repo), settings=SETTINGS, evidence=EVIDENCE, note="first")
+        seen = agent_drafts.load(target)["draft"]["id"]
+        for extra in ({"action": "use", "id": seen}, {"action": "drop", "id": seen}, {"use": True}, {"apply": True}):
+            with self.subTest(extra=extra):
+                self.tool("draft_agents", repo=str(repo), **extra)
+                self.tool("agents", repo=str(repo), **extra)
+                self.assertEqual(agent_drafts.load(target)["draft"]["id"], seen)
+                self.assertEqual(store.load_agent_settings(target), {})
+
     def test_no_tool_can_use_or_drop_a_draft(self):
         tools = self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]["result"]["tools"]
         self.assertEqual([tool["name"] for tool in tools if "draft" in tool["name"]], ["draft_agents"])
