@@ -299,6 +299,8 @@ export interface NodeRisk extends RiskRow {
 
 export interface Worktree {
   path: string
+  /** The path to show a person, with the home folder as `~`. */
+  display_path?: string
   branch: string
   name: string
   head: string

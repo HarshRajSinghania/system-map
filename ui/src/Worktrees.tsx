@@ -125,7 +125,7 @@ function WorktreeCard({ tree, onShow }: { tree: Worktree; onShow: (id: string) =
   return (
     <div style={CARD} data-testid="worktree">
       <p style={{ margin: 0, fontWeight: 600, overflowWrap: 'anywhere' }}>{tree.name}</p>
-      <p style={{ ...MUTED, ...MONO, margin: '2px 0 4px', fontSize: 11, overflowWrap: 'anywhere' }}>{tree.path}</p>
+      <p style={{ ...MUTED, ...MONO, margin: '2px 0 4px', fontSize: 11, overflowWrap: 'anywhere' }}>{tree.display_path ?? tree.path}</p>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         <Badge variant="muted">{tree.ahead} ahead</Badge>
         {tree.behind > 0 && <Badge variant="muted">{tree.behind} behind</Badge>}

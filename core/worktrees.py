@@ -23,8 +23,23 @@ QUERY_REACH_LINES = 12
 HUNK = re.compile(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", re.M)
 
 
+def shown(path: str) -> str:
+    """A path for a person to read, with the home folder as `~`, so a screen doesn't name the user."""
+    try:
+        home = Path.home().resolve()
+    except (OSError, RuntimeError):  # no home folder can be found
+        return path
+    place = Path(path)
+    if place == home:
+        return "~"
+    return f"~/{place.relative_to(home).as_posix()}" if place.is_relative_to(home) else path
+
+
 def listing(repo_root: Path) -> list[dict]:
-    """Each worktree git knows about. A folder that has gone is left out."""
+    """Each worktree git knows about. A folder that has gone is left out.
+
+    `path` is the real folder, for tools. `display_path` is the one to show a person.
+    """
     found = []
     for block in (git(repo_root, "worktree", "list", "--porcelain") or "").split("\n\n"):
         fields = dict(line.split(" ", 1) for line in block.splitlines() if " " in line)
@@ -32,7 +47,15 @@ def listing(repo_root: Path) -> list[dict]:
         if not path or "bare" in block.splitlines() or not Path(path).is_dir():
             continue
         branch = fields.get("branch", "").replace("refs/heads/", "")
-        found.append({"path": path, "branch": branch, "head": fields.get("HEAD", ""), "name": branch or Path(path).name})
+        found.append(
+            {
+                "path": path,
+                "display_path": shown(path),
+                "branch": branch,
+                "head": fields.get("HEAD", ""),
+                "name": branch or Path(path).name,
+            }
+        )
     return found
 
 

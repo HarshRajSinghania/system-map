@@ -3,6 +3,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -104,6 +105,26 @@ class Reading(Repo):
         self.assertEqual(rows["feat-a"]["path"], str(path.resolve()))
         self.assertEqual(rows["feat-a"]["files"], [])
         self.assertEqual(self.state()["overlaps"], [])
+
+    def rows_with_home(self, home: Path) -> dict:
+        with mock.patch.object(Path, "home", return_value=home):
+            return {row["name"]: row for row in self.state()["worktrees"]}
+
+    def test_a_worktree_under_home_is_shown_from_home_and_keeps_its_real_path(self):
+        path = self.worktree("feat-a")
+        rows = self.rows_with_home(self.folder.resolve())
+        self.assertEqual(rows["feat-a"]["display_path"], "~/feat-a")
+        self.assertEqual(rows["feat-a"]["path"], str(path.resolve()))
+
+    def test_a_worktree_outside_home_is_shown_whole(self):
+        path = self.worktree("feat-a")
+        rows = self.rows_with_home(Path("/nowhere/home"))
+        self.assertEqual(rows["feat-a"]["display_path"], str(path.resolve()))
+
+    def test_a_home_that_only_shares_a_prefix_is_not_home(self):
+        path = self.worktree("feat-a")
+        rows = self.rows_with_home(Path(str(self.folder.resolve()) + "-other"))
+        self.assertEqual(rows["feat-a"]["display_path"], str(path.resolve()))
 
     def test_a_detached_worktree_goes_by_its_folder(self):
         path = self.folder / "loose"

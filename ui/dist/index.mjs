@@ -10229,7 +10229,7 @@ function C_({ tree: e, onShow: t }) {
   const n = e.other_nodes.filter((r) => !r.startsWith("job:"));
   return /* @__PURE__ */ k("div", { style: Cd, "data-testid": "worktree", children: [
     /* @__PURE__ */ u("p", { style: { margin: 0, fontWeight: 600, overflowWrap: "anywhere" }, children: e.name }),
-    /* @__PURE__ */ u("p", { style: { ...X, ...xe, margin: "2px 0 4px", fontSize: 11, overflowWrap: "anywhere" }, children: e.path }),
+    /* @__PURE__ */ u("p", { style: { ...X, ...xe, margin: "2px 0 4px", fontSize: 11, overflowWrap: "anywhere" }, children: e.display_path ?? e.path }),
     /* @__PURE__ */ k("div", { style: { display: "flex", gap: 6, flexWrap: "wrap" }, children: [
       /* @__PURE__ */ k(ve, { variant: "muted", children: [
         e.ahead,
