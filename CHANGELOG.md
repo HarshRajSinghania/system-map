@@ -20,6 +20,11 @@ commit that set the version in `app.json`. The format follows
 - The backend refuses a bad `Content-Length`, a body over 1 MiB, and a body that isn't a JSON
   object, with words instead of a dropped connection.
 - A build no longer holds up the page's reads. Writes still take turns.
+- A folder of only tests says how many test files it holds, on its Map card and in the side list,
+  instead of "0 files, 0 lines". One file or line reads as one.
+- Worktree cards show each path from `~`, so a screen doesn't name the user.
+- The Agents layer is laid out top down when that reads bigger, so its cards stay readable on a
+  squarer canvas. Lines meet cards at their top and bottom in any top-down picture.
 - The review rounds on the Agents tab and layer after 0.9.0: agent reader faults, the Agents view's
   should-fix findings, turning the Agents layer off goes back to where you were, and opening a
   saved view turns the layer off.

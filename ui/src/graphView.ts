@@ -54,6 +54,14 @@ export const GROUP_JOBS = 'group:jobs'
 
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
+/** The number a list shows beside a folder, and what it counts: code files, or test files if it has only tests. */
+export function fileCount(node: SystemNode): { count: number; title: string } {
+  const files = node.files ?? 0
+  const tests = node.test_files ?? 0
+  if (files === 0 && tests > 0) return { count: tests, title: count(tests, 'test file', 'test files') }
+  return { count: files, title: count(files, 'file', 'files') }
+}
+
 /** Code files and lines. A folder of only tests has neither, so it counts its test files. */
 function sizeOf(node: SystemNode): string {
   const files = node.files ?? 0

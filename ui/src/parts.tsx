@@ -1,6 +1,7 @@
 import { Badge, SearchInput } from '@kirocrew/app-sdk/ui'
 import { useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
+import { fileCount } from './graphView'
 import type { Finding, Severity, SystemNode, TableNode, TableRow } from './model'
 
 export const MONO: CSSProperties = { fontFamily: 'var(--mono, ui-monospace, monospace)' }
@@ -136,8 +137,8 @@ export function SystemTree({
       }}
     >
       <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-      <span style={{ ...MUTED, fontWeight: 400, flexShrink: 0 }} title={`${node.files} files`}>
-        {node.files}
+      <span style={{ ...MUTED, fontWeight: 400, flexShrink: 0 }} title={fileCount(node).title}>
+        {fileCount(node).count}
       </span>
     </button>
   )

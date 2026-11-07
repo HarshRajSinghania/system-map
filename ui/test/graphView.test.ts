@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { CARD_HEIGHT, CARD_WIDTH, GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, agentsView, buildView, savedView, shortPath, trailFor } from '../src/graphView.ts'
+import { CARD_HEIGHT, CARD_WIDTH, GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, agentsView, buildView, fileCount, savedView, shortPath, trailFor } from '../src/graphView.ts'
 import { extent, layoutView, readableLayout } from '../src/layout.ts'
 import type { SystemEdge, SystemGraph, SystemNode } from '../src/model.ts'
 
@@ -73,6 +73,13 @@ test('a folder of only tests says how many test files it holds, and one reads as
   assert.equal(subtitles.get('area:e2e'), '3 test files')
   assert.equal(subtitles.get('area:src/lib'), '1 file, 1 line')
   assert.equal(subtitles.get('area:src/app'), '2 files, 40 lines')
+})
+
+test('the side list counts test files for a folder of only tests, and says what it counts', () => {
+  assert.deepEqual(fileCount(node('area:tests', 'area', { files: 0, test_files: 1 })), { count: 1, title: '1 test file' })
+  assert.deepEqual(fileCount(node('area:e2e', 'area', { files: 0, test_files: 4 })), { count: 4, title: '4 test files' })
+  assert.deepEqual(fileCount(node('area:src', 'area', { files: 1, test_files: 9 })), { count: 1, title: '1 file' })
+  assert.deepEqual(fileCount(node('area:app', 'area', { files: 8 })), { count: 8, title: '8 files' })
 })
 
 test('the routes folder folds into the Routes group', () => {
