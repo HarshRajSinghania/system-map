@@ -95,6 +95,7 @@ export interface AgentForm {
   list: string
   jobs_key: string
   hand_off_keys: string
+  hand_off_calls: string
   model_calls: string
   asks_you_calls: string
   modules: string
@@ -107,6 +108,7 @@ export function toForm(settings: AgentSettings, defaults: AgentSettings): AgentF
     list: settings.list ?? '',
     jobs_key: settings.jobs_key ?? defaults.jobs_key ?? '',
     hand_off_keys: list(settings.hand_off_keys ?? defaults.hand_off_keys),
+    hand_off_calls: list(settings.hand_off_calls),
     model_calls: list(settings.model_calls),
     asks_you_calls: list(settings.asks_you_calls),
     modules: list((settings.modules ?? []).map((id) => id.replace(/^module:/, ''))),
@@ -125,6 +127,7 @@ export function fromForm(form: AgentForm): AgentSettings {
   if (text(form.list)) settings.list = text(form.list)
   if (text(form.jobs_key)) settings.jobs_key = text(form.jobs_key)
   if (names(form.hand_off_keys).length) settings.hand_off_keys = names(form.hand_off_keys)
+  if (names(form.hand_off_calls).length) settings.hand_off_calls = names(form.hand_off_calls)
   if (names(form.model_calls).length) settings.model_calls = names(form.model_calls)
   if (names(form.asks_you_calls).length) settings.asks_you_calls = names(form.asks_you_calls)
   const modules = names(form.modules).map((path) => `module:${path.replace(/^module:/, '')}`)
@@ -167,6 +170,7 @@ export const SETTING_LABELS: Record<AgentSettingKey, string> = {
   list: 'Agent list',
   jobs_key: 'Jobs key',
   hand_off_keys: 'Hand-off keys',
+  hand_off_calls: 'Hand-off calls',
   model_calls: 'Model calls',
   asks_you_calls: 'Asks-you calls',
   modules: 'Agent modules',

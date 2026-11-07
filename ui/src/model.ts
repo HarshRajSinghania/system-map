@@ -230,6 +230,8 @@ export interface AgentSettings {
   list?: string
   jobs_key?: string
   hand_off_keys?: string[]
+  /** Functions whose first argument names the agent to start. */
+  hand_off_calls?: string[]
   model_calls?: string[]
   asks_you_calls?: string[]
   modules?: string[]

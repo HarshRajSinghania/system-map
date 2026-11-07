@@ -16,6 +16,7 @@ import {
   modelsOf,
   nodeLabel,
   regionTone,
+  SETTING_LABELS,
   setupKey,
   showAgentOnLayer,
   staleLine,
@@ -99,11 +100,12 @@ test('a model is outside, inside or not yet placed', () => {
 })
 
 test('the form starts from what is saved, then the defaults', () => {
-  const form = toForm({ list: 'src/agents/registry.ts', model_calls: ['claude', 'readQuote'], modules: ['module:src/mail'] }, { jobs_key: 'handlers', hand_off_keys: ['agent'] })
+  const form = toForm({ list: 'src/agents/registry.ts', hand_off_calls: ['queueAgent'], model_calls: ['claude', 'readQuote'], modules: ['module:src/mail'] }, { jobs_key: 'handlers', hand_off_keys: ['agent'] })
   assert.deepEqual(form, {
     list: 'src/agents/registry.ts',
     jobs_key: 'handlers',
     hand_off_keys: 'agent',
+    hand_off_calls: 'queueAgent',
     model_calls: 'claude, readQuote',
     asks_you_calls: '',
     modules: 'src/mail',
@@ -116,6 +118,7 @@ test('the form saves lists, module ids and leaves empty fields out', () => {
     list: ' src/agents/registry.ts ',
     jobs_key: '',
     hand_off_keys: 'agent, p_agent agent',
+    hand_off_calls: ' queueAgent, startAgent ',
     model_calls: 'claude,readQuote',
     asks_you_calls: ' ',
     modules: 'src/mail, module:src/desk',
@@ -124,10 +127,19 @@ test('the form saves lists, module ids and leaves empty fields out', () => {
   assert.deepEqual(settings, {
     list: 'src/agents/registry.ts',
     hand_off_keys: ['agent', 'p_agent'],
+    hand_off_calls: ['queueAgent', 'startAgent'],
     model_calls: ['claude', 'readQuote'],
     modules: ['module:src/mail', 'module:src/desk'],
     home_region: 'Canada',
   })
+})
+
+test('an empty hand-off calls field is left out, and the field sits after hand-off keys', () => {
+  const form = toForm({ list: 'a.ts' }, {})
+  assert.equal(form.hand_off_calls, '')
+  assert.equal(fromForm(form).hand_off_calls, undefined)
+  const order = Object.keys(SETTING_LABELS)
+  assert.equal(order.indexOf('hand_off_calls'), order.indexOf('hand_off_keys') + 1)
 })
 
 test('turning the Agents layer off goes back to where the map was', () => {

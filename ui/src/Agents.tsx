@@ -110,6 +110,7 @@ const FIELDS: { key: keyof AgentForm; help: string }[] = [
   { key: 'list', help: 'The file whose exported array lists your agents, such as src/agents/registry.ts' },
   { key: 'jobs_key', help: "The property that holds each agent's jobs" },
   { key: 'hand_off_keys', help: 'Properties that name the agent to hand work to, such as agent' },
+  { key: 'hand_off_calls', help: 'Functions whose first argument names the agent to start, such as queueAgent' },
   { key: 'model_calls', help: 'Functions that call a model, such as claude' },
   { key: 'asks_you_calls', help: 'Functions that leave work for a person, such as addTask' },
   { key: 'modules', help: 'Folders to treat as one agent each, such as src/mail' },
