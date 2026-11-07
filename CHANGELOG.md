@@ -7,6 +7,8 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-07
+
 ### Added
 - **Hand-off calls**, a new agent setting. It names the functions whose first argument names the
   agent to start, as in `queueAgent("mail", id)`. Such a call starts the agent from plain code, or
