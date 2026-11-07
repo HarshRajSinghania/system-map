@@ -4,9 +4,10 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 
 ## Before you start
 
-- Everything so far is on stacked branches with no `main`. The remote, `origin`, is a private
-  GitHub repo. Work from the tip, `slice-8/find-agents`, on version 0.10.0.
-- Run the checks in the README's Checks section. All pass at the tip: 875 Python tests and
+- Work from `main`, on version 0.11.0. Each change goes on its own branch, with a PR into
+  `main`. The remote, `origin`, is a private GitHub repo. The older slice branches are kept, and
+  `main` holds all of them.
+- Run the checks in the README's Checks section. All pass on `main`: 875 Python tests and
   109 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
@@ -60,7 +61,7 @@ From the scope document. Each needs a short spec first, kept as an artifact like
 
 | Step | Note |
 |---|---|
-| Public repo with a `main` branch | Decide how the stacked branches land on `main`. Keep `ui/dist` committed |
+| Make the repo public | `main` exists and holds every slice. Do the publish check below first. Keep `ui/dist` committed |
 | Publish check of all git history | Scan every commit and message, not just the tip. The first copy of the slice 7 spec named a private project, in `a0fdf04` and the commits after it until task 7 |
 | Listing request | An issue on the Kiro Crew repo. A maintainer writes the catalog entry |
 
