@@ -5,9 +5,9 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 ## Before you start
 
 - Everything so far is on stacked branches with no `main` and no remote. Work from the tip,
-  `slice-7/agents`, on version 0.9.0.
-- Run the checks in the README's Checks section. All pass at the tip: 775 Python tests and
-  95 UI tests.
+  `slice-8/find-agents`, on version 0.10.0.
+- Run the checks in the README's Checks section. All pass at the tip: 805 Python tests and
+  100 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
 - Look at screenshots before you commit UI. Checks have passed while pictures showed faults.
@@ -29,6 +29,7 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 | Design chat opens on its first message | Sync, open a project with no chat, leave, and look for no New Session. Then send a message | Proven only in `ui/dev`, whose chat is a stand-in |
 | Agents after review | Sync. Turn the Agents layer on and off from an open area. With it on, open a saved view from Explore: the button must go off. Pick a filter whose count is 0, and look at a disabled Agents button on a project with no agents | The tab, layer, Show on map, regions, bands and region findings were seen for real, in the light theme. The review fixes since `3ceff3e` were not. The saved-view rule lives in App wiring, which no test loads |
 | Agents in the side panel and dark theme | Open the panel tab on an agent, and switch the theme | Not looked at yet |
+| Find my agents | Sync. On a project with no agent settings, press Find my agents and approve `draft_agents` in the chat. The card must show within 8 seconds. Try Edit first then Cancel, Edit first then save, Drop, and Use these. Press Find my agents again while a card shows, and check that Use these on the old card is refused. Look in light and dark | Its routes, tool and skill were proven on a real project by 3 runs of a fresh agent through the MCP server. No screen of it has been seen |
 
 ## Small fixes
 
@@ -52,7 +53,6 @@ From the scope document. Each needs a short spec first, kept as an artifact like
 | C6 | Sub-agents get ids and paths, write results to files and return a path | Soon | See `docs/context-management.md` |
 | M6 | Scheduled refresh | Later | Crons and `permissions.spawn` are in the SDK, not tried |
 | E6 | Agents propose Intent edits for you to accept | Later | Drafts work for proposals only. Only a person may accept |
-| G1 | Find my agents: the Design chat reads the code and drafts the agent settings for you to accept | Next | Asked for after slice 7. The backend has no model, so it goes through the chat, as E6 does |
 | G2 | Agents from SDKs: Claude Agent SDK, OpenAI Agents, LangGraph, Mastra | Soon | Found with no settings. Hold each reader to the SDK's own types |
 | G3 | Evals and guardrails beside each agent | Later | No sign in code says what is an eval or a budget yet. Cut from slice 7 |
 
@@ -83,7 +83,9 @@ These are named on screen, not hidden. Each is a choice, not a bug.
 | MySQL and MongoDB | `core/extractors/` | Each needs its own module behind the boundary |
 | Limits on what-ifs are Postgres only | `limits_apply` in `core/explore.py` | They are proven against real Postgres. SQLite needs its own sweep |
 | SQL built from pieces at runtime | `sql_uses` in `core/extractors/typescript.py` | Only SQL seen as one whole string links to its tables |
-| Agents need settings | `settings_of` in `core/agents.py` | With none, there are no agents, only suggestions. G1 and G2 are the way out |
+| Agents need settings | `settings_of` in `core/agents.py` | With none, there are no agents, only suggestions and Find my agents. G2 would find SDK agents with none |
+| An agent named as a plain argument | `_hand_offs` in `core/agents.py` | `startJob("setup", "hello")` starts nothing on the map. Only a property named in the hand-off keys counts. Every Find my agents run on a real project found this gap |
+| Asks you from SQL | `asks_you` in `core/agents.py` | An agent that runs in the database and leaves a person a task through a SQL function is not marked. Only calls in an agent's own code count |
 | A model called through a passed-in object | `_calls` in `core/agents.py` | It links to every model the project uses, since text can't tell which one is passed in |
 | An agent that shares its file with others | `_regions` in `core/agents.py` | It gets its own object and the files its names are imported from. A handler written in that same file, outside the object, is not read |
 | Asks you, or only tells you | `asks_you` in `core/agents.py` | A call to an asks-you name counts either way. Telling the two apart needs the call's arguments |

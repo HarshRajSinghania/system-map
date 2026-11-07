@@ -1,7 +1,7 @@
 ---
 title: Find my agents (the Design chat drafts the agent settings)
 estimate: 270m
-status: in-progress
+status: done
 ---
 # Find my agents
 
@@ -104,3 +104,17 @@ Real project:
 | 6 | Docs, version, build | `README.md`, `docs/backlog.md`, `app.json`, `ui/dist` | 15m |
 
 **Estimate:** 270m. The six tasks add up to 240m, plus 30m for review and fixes.
+
+## As built
+- A draft must name a list or modules. Using one with neither would clear the agents.
+- Each draft has an id. Use these, Drop and Edit first send the id of the draft on screen, and a newer one is
+  refused, so a person never uses a draft they didn't see. The chat can save one between the page's checks.
+- `agent_drafts.summary` shapes the short rows for both a draft and the `agents` tool.
+- Criterion 12 took two rounds. Round one, on the first skill text, found all 9 agents each time, but one run
+  suggested `ca-central-1` as the home region, and every run sent a call with the wrong shape. The skill now
+  says to write the place in its own words and shows the call, and the errors say how to wrap settings and
+  evidence. Round two, 3 fresh runs, found all 9 agents with Canada and no failed call, and each matched the
+  hand-set settings exactly.
+- Every run found the same gap: an agent named as a plain argument, as in `startJob("setup", …)`, is
+  no hand-off. No setting can fix it, so it is a limit in the backlog.
+- Not done here: the screen, since the tool can't open the dashboard. Its check is in the backlog.

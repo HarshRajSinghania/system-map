@@ -7,6 +7,8 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-07
+
 ### Security
 - The backend refuses every call the gateway didn't sign, except `/health`. It checks the
   gateway's `X-KiroCrew-Proxy` signature, and the replay-proof v2 signature whenever one is sent.
@@ -30,6 +32,11 @@ commit that set the version in `app.json`. The format follows
   saved view turns the layer off.
 
 ### Added
+- Find my agents. The Design chat reads your code and drafts the agent settings, with the lines it
+  read them from. You see what they find, then use them, edit them first, or drop them. Only a
+  person uses or drops a draft.
+- The `draft_agents` MCP tool. It keeps a draft for a person, or tries one with `dry_run`, and never
+  changes the saved settings.
 - Contract tests for the store listing and the host: the manifest against the host's own parser,
   and each built bundle against what the host page provides.
 - This changelog, and tags for every release.
