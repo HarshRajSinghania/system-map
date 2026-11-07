@@ -113,6 +113,18 @@ class StoreListing(unittest.TestCase):
                 self.assertGreaterEqual(width, 1200)
                 self.assertLess(path.stat().st_size, 8 * 1024 * 1024, "the store never serves art over 8 MiB")
 
+    def test_the_screenshots_are_landscape_pngs_in_both_themes(self):
+        light, dark = MANIFEST.get("screenshots", []), MANIFEST.get("screenshotsDark", [])
+        self.assertGreaterEqual(len(light), 1, "the store needs at least one screenshot")
+        self.assertEqual(len(dark), len(light), "each screenshot has a dark copy")
+        for name in light + dark:
+            with self.subTest(name=name):
+                path = ROOT / name
+                width, height, _colour = png_header(path)
+                self.assertGreater(width, height)
+                self.assertGreaterEqual(width, 1200)
+                self.assertLess(path.stat().st_size, 8 * 1024 * 1024, "the store never serves art over 8 MiB")
+
     def test_resource_paths_stay_inside_the_app_and_exist(self):
         for path in resource_paths():
             with self.subTest(path=str(path)):

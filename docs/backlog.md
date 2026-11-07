@@ -60,7 +60,6 @@ From the scope document. Each needs a short spec first, kept as an artifact like
 
 | Step | Note |
 |---|---|
-| Hero image and screenshot | `docs/platform-notes.md`, App Store. The 512x512 icon is done |
 | Public repo with a `main` branch | Decide how the stacked branches land on `main`. Keep `ui/dist` committed |
 | Publish check of all git history | Scan every commit and message, not just the tip. The first copy of the slice 7 spec named a private project, in `a0fdf04` and the commits after it until task 7 |
 | Listing request | An issue on the Kiro Crew repo. A maintainer writes the catalog entry |

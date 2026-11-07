@@ -28,7 +28,8 @@ commit that set the version in `app.json`. The format follows
 - Contract tests for the store listing and the host: the manifest against the host's own parser,
   and each built bundle against what the host page provides.
 - This changelog, and tags for every release.
-- Store art and copy: a hero and a detail banner, each in light and dark, and eight highlights.
+- Store art and copy: a hero and a detail banner, three screenshots, each in light and dark, and
+  eight highlights.
 
 ### Changed
 - The MCP server reports the app's version, read from `app.json`.

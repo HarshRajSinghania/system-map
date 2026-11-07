@@ -10,6 +10,16 @@
   "heroImageDark": "assets/hero-dark.png",
   "heroImageDetail": "assets/hero-detail-light.png",
   "heroImageDetailDark": "assets/hero-detail-dark.png",
+  "screenshots": [
+    "assets/screenshots/data-model-light.png",
+    "assets/screenshots/agents-light.png",
+    "assets/screenshots/findings-light.png"
+  ],
+  "screenshotsDark": [
+    "assets/screenshots/data-model-dark.png",
+    "assets/screenshots/agents-dark.png",
+    "assets/screenshots/findings-dark.png"
+  ],
   "highlights": [
     "One model of your repo: modules, routes, tables, plans, risk, worktrees and agents",
     "Every number held to the tool that owns it: the compiler, real Postgres, real SQLite, git",

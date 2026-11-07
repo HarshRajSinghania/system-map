@@ -149,6 +149,10 @@ focus leaves must be focusable itself, or it closes before the click lands.
   image has a light and a dark copy. Commit them as plain files, not Git LFS.
 - Chromium draws `system-ui` wider than it looks in a browser preview. Look at each PNG for text
   near an edge.
+- The screenshots come from `ui/dev` at 1280x800, light and dark, over a made-up project. No real
+  project may appear in them. Leave out the Worktrees tab: it prints each worktree's full folder
+  path, which names the machine's user. The Map with the Agents layer is too small to read at
+  that size.
 
 ## App Store
 

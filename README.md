@@ -41,6 +41,16 @@ three levels: areas, the modules in an area, then one module with what it touche
 draws every table and foreign key. **Findings** lists rule checks, such as a table without row level
 security, each with its file and line.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/data-model-dark.png">
+  <img src="assets/screenshots/data-model-light.png" alt="The Data model tab for a made-up bookshop: seven tables with their columns and foreign keys, a list of tables on the left with their finding counts, and the Design chat on the right">
+</picture>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/findings-dark.png">
+  <img src="assets/screenshots/findings-light.png" alt="The Findings tab: tables with no row level security and foreign keys with no index, each with its migration file and line">
+</picture>
+
 ### 2. Know what a change could hurt before you make it
 
 **Risk** ranks code that changes often, has many paths and few tests, worst first. **Worktrees**
@@ -53,6 +63,14 @@ what Postgres will refuse, and what breaks. Nothing touches your repo.
 Point the **Agents** tab at the list of your agents. It shows what starts each one, who it hands
 work to, which models it calls, and where it waits for a person. Set where each service runs and a
 home region, and any agent whose model runs elsewhere becomes a finding, with the line that calls it.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/screenshots/agents-dark.png">
+  <img src="assets/screenshots/agents-light.png" alt="The Agents tab: four agents with what starts each, their model and whether it asks you first, and the Restock agent's detail, from its nightly job to its hand-off to the Buyer">
+</picture>
+
+<sub>Screenshots show a made-up bookshop, taken from `ui/dev`, the stand-in host described under
+[Development](#development). In Kiro Crew the page sits inside the dashboard.</sub>
 
 ## Install
 
