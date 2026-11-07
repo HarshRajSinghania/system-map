@@ -39,7 +39,7 @@ An installed app's buttons get no default styling, so use the SDK's own controls
 
 - Theme with the host's CSS variables, such as `--card`, `--text`, `--muted`, `--border`,
   `--accent`, `--danger` and `--warn-text`, and give each a fallback.
-- `SegmentedControl` is listed in the SDK docs. This app uses `Btn` with `primary` instead.
+- `SegmentedControl` is in the host's stub, and the view switcher uses it.
 - Library mode leaves `process.env.NODE_ENV` in bundled packages, and a browser has no
   `process`. Set it with Vite's `define`.
 - `style-src` allows inline styles, so a bundled library's CSS can be injected as a `<style>`.

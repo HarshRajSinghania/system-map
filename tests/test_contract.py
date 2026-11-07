@@ -121,6 +121,24 @@ class StoreListing(unittest.TestCase):
         approved = set(MANIFEST["mcpServers"]["system-map"]["autoApprove"])
         self.assertEqual(approved & writers, set())
 
+    def test_the_readme_has_the_sections_a_user_needs(self):
+        text = (ROOT / "README.md").read_text()
+        headings = re.findall(r"^## (.+)$", text, re.M)
+        for wanted in ("What it is", "The problem it solves", "Top 3 use cases", "Install", "First run", "How to use it", "Settings & data", "Troubleshooting / FAQ", "Development", "License"):
+            with self.subTest(heading=wanted):
+                self.assertIn(wanted, headings)
+        self.assertIn("agent.apps_allow_third_party", text)
+        self.assertIn("Settings → Security → Third-party apps", text)
+
+    def test_the_readmes_local_links_and_images_exist(self):
+        text = (ROOT / "README.md").read_text()
+        targets = re.findall(r"\]\(([^)#\s]+)\)", text) + re.findall(r'(?:src|srcset)="([^"]+)"', text)
+        for target in targets:
+            if re.match(r"[a-z]+:", target):
+                continue
+            with self.subTest(target=target):
+                self.assertTrue((ROOT / target).exists())
+
     def test_the_ui_bundle_is_committed(self):
         try:
             subprocess.run(

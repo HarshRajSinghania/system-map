@@ -1,28 +1,126 @@
 # System Map
 
-A live map of your system, as a [Kiro Crew](https://github.com/kirodotdev/KiroCrew) app. Every view reads one model built from your repo's main branch. Agents read that model in small slices, so a design chat does not fill up with the whole system.
+**A live map of your system: its parts, its data, its plans and its agents, read from your repo.**
 
-Status: early. It reads TypeScript projects, TanStack file routes, Postgres migrations, `cron.schedule` jobs, specs in `docs/specs`, agents you point it at, git history and worktrees, and coverage reports from Vitest, Jest or anything that writes lcov. The model format may change, and the app upgrades it when it starts.
+System Map is an app for [Kiro Crew](https://github.com/kirodotdev/KiroCrew), the open-source
+personal AI agent.
 
-## What it does
+Status: early. The model format may change, and the app upgrades it when it starts.
 
-- **Map.** Your system at three levels: areas, the modules in an area, then one module with what it touches. Links come from real imports and table calls.
-- **Plan.** What your specs promise and what does not exist yet. It looks up what each spec names, so a status shows its evidence. You can override any status.
-- **Data model.** A diagram of every table and foreign key. Click a table to see only it and its neighbors.
-- **Risk.** Code that changes often, has many paths and few tests, worst first. It works from imports alone, and a coverage report gives it real numbers.
-- **Worktrees.** What each worktree is changing, live, and where two of them collide. A conflict comes from a real trial merge, and two worktrees on one table raise a warning. The Map, the Data model and the chat side panel show it too.
-- **Findings.** Rule checks such as a table without row level security or a foreign key with no index. Each one cites its file and line.
-- **Agents.** Point it at the list of your agents, and it shows what starts each one, who it hands work to, which models it uses, and where it waits for a person. It never guesses: an agent comes from the list you name or a module you mark.
-  - **Agents layer:** the same picture on the Map, with the models in one dashed band per region.
-  - **Regions:** say where each service runs, and set a home region. An agent whose model runs elsewhere becomes a finding, with the line that calls it.
-- **Explore.** Think about what the system could be, with nothing touching your repo.
-  - **What if:** describe a change, and the Design chat drafts a proposal. You get a diff against today, what Postgres will refuse, what breaks, draft SQL, and which use case gaps it closes. Draw it on the Map or in the Data model, then go back to today.
-  - **Use cases:** map what someone needs to do to its routes, tables and tests. Gaps show what is missing, untested, or more than the schema can hold.
+## What it is
+
+System Map adds a **System Map** page to Kiro Crew, and a tab in the chat side panel. It builds one
+model of a project from its repo's main branch: the modules and how they link, every table and
+foreign key, what your specs promise, where code is risky, what each worktree is changing, and
+which agents you run. Every view reads that model, and so can your agents, through small MCP tool
+calls instead of the whole thing.
+
+It only reads your repo. It never writes to it, never runs your code, and never runs your tests.
+
+## The problem it solves
+
+A design chat goes stale the moment the code moves, and the design itself is spread across chats,
+docs, specs and branches. An agent asked about the system either reads the whole repo, which fills
+its context, or guesses.
+
+System Map keeps one model, rebuilt from the repo, that a person can look at and an agent can query
+in slices. Each number in it is held to the tool that owns it: the TypeScript compiler, real
+Postgres, real SQLite, `next build`, git.
+
+## Top 3 use cases
+
+### 1. Get your bearings in a repo
+
+You open a project you haven't seen in weeks, or one someone handed you. The **Map** shows it at
+three levels: areas, the modules in an area, then one module with what it touches. **Data model**
+draws every table and foreign key. **Findings** lists rule checks, such as a table without row level
+security, each with its file and line.
+
+### 2. Know what a change could hurt before you make it
+
+**Risk** ranks code that changes often, has many paths and few tests, worst first. **Worktrees**
+shows what each worktree is changing, live, and where two of them conflict, from a real trial merge.
+**Explore** lets you describe a change, and the Design chat drafts a proposal: a diff against today,
+what Postgres will refuse, and what breaks. Nothing touches your repo.
+
+### 3. See what your agents do, and where their models run
+
+Point the **Agents** tab at the list of your agents. It shows what starts each one, who it hands
+work to, which models it calls, and where it waits for a person. Set where each service runs and a
+home region, and any agent whose model runs elsewhere becomes a finding, with the line that calls it.
+
+## Install
+
+**From the Kiro Crew App Store**, once it is listed there:
+
+1. Open **Apps → Discover** in the left sidebar.
+2. Search for **System Map** and choose **Install**.
+3. Kiro Crew asks you to trust the app to run its own code. System Map needs that: its backend and
+   its agent tools are small Python programs that read your repos and run git. Trust gives them the
+   same access Kiro Crew has. If you are happy with that, trust it. You can take it back later in
+   **Settings → Security → Third-party apps**. If Kiro Crew refuses with `app_execution_denied`
+   instead of asking, set `agent.apps_allow_third_party` to `true` in its config.
+4. Enable the app, then restart Kiro Crew once (`kirocrew restart`), so new sessions get its agent
+   tools. A restart stops any work running in your sessions.
+
+**From a local clone:**
+
+```bash
+(cd ui && npm install && npm run build)
+kirocrew app install "$PWD"
+kirocrew app enable system-map
+kirocrew restart
+```
+
+What you need:
+
+- Kiro Crew on a Mac or Linux computer. WSL counts as Linux.
+- `python3` on the `PATH`. Everything runs on its standard library. It is tested on Python 3.12.
+- `git` 2.38 or later, for trial merges in **Worktrees**. With an older git, a merge reads as
+  unknown.
+- To pick a folder with **Browse**: macOS, `zenity` or `kdialog` on a Linux desktop, or Windows
+  through WSL.
+- No account, key or network.
+
+## First run
+
+Open **System Map** from **Apps** in the sidebar. With no project yet, it asks you to add one.
+Choose **Add project**, pick a folder from your default folder or **Browse** for one, and the app
+builds its first model. That takes seconds for a small project, longer for a big one.
+
+The project menu in the header adds, switches and removes projects. One is open at a time, and
+each keeps its own view and Design chat.
+
+## How to use it
+
+Each tab reads the same model.
+
+- **Map.** Areas, then modules, then one module with what it touches. Links come from real imports
+  and table calls. The **Risk**, **Worktrees** and **Agents** layers draw those views on the map.
+- **Data model.** Every table and foreign key. Click a table to see only it and its neighbors.
+- **Plan.** What your specs promise and what does not exist yet. Each status shows its evidence,
+  and you can override any status.
+- **Risk.** Code that changes often, has many paths and few tests, worst first. It works from
+  imports alone. **Load report** adds a coverage report for real numbers, and **Run tests in chat**
+  asks the Design chat to make one in a scratch copy. The app never runs your tests itself.
+- **Worktrees.** What each worktree is changing, and where two of them conflict. Two worktrees on
+  one table raise a warning.
+- **Findings.** Rule checks, each with its file and line.
+- **Agents.** Open **Agent settings** and name the file that lists your agents, or the modules to
+  treat as agents, and the names your code uses for model calls, hand-offs and asks-you calls. The
+  app never guesses: an agent comes from the list you name or a module you mark. **Show on map**
+  finds an agent on the Agents layer.
+- **Explore.**
+  - **What if:** describe a change, and the Design chat drafts a proposal. You get a diff against
+    today, what Postgres will refuse, what breaks, draft SQL, and which use case gaps it closes.
+  - **Use cases:** map what someone needs to do to its routes, tables and tests.
   - **Views:** ask for a picture in chat, and the app draws and keeps it.
 - **Design chat.** A chat beside the map, and an Ask button on everything.
-- **Agent tools.** Any session can read the model through MCP tools.
+- **Side panel.** Open **System Map** in a chat's side panel to browse the same model there.
+- **Agent tools.** Any session can read the model through MCP tools, starting with `overview`.
+  Tools that read are approved for you. Tools that write, such as `note` and `propose`, ask first.
 
-## What it reads
+### What it reads
 
 | Part | Read from |
 |---|---|
@@ -30,16 +128,74 @@ Status: early. It reads TypeScript projects, TanStack file routes, Postgres migr
 | SQLite | Any `.sql` file, including what Prisma and Drizzle generate, `CREATE TABLE` inside code, or a Drizzle schema in TypeScript. Real SQLite reads it, in memory |
 | Routes | Next.js App Router and Pages Router, TanStack and Remix file routes |
 | Code | TypeScript and JavaScript, with `paths` and `baseUrl` from `tsconfig.json` or `jsconfig.json` |
+| Jobs | `cron.schedule` calls in SQL |
 | Plans | `docs/specs`, `docs/plans`, `specs`, and a `BRIEF`, `PLAN`, `ROADMAP`, `PRD`, `SPEC` or `TODO` file at the top of the repo |
 | Agents | The exported list you name in the Agents tab, or modules you mark. Hand-offs, model calls and calls that ask a person are found by the names you give there. Jobs start an agent when their `cron.schedule` command, or the SQL function it calls, names it |
+| History | Git history and worktrees. Coverage reports from Vitest, Jest or anything that writes lcov |
 
-A project needs no git history, though Risk has no churn without it, and there are no worktrees. Add project lists git repos and any folder with a `package.json`. Use a full path for anything else.
+A project needs no git history, though Risk has no churn without it, and there are no worktrees.
+Add project lists git repos and any folder with a `package.json`. Use a full path for anything else.
 
-Each build records what it read, and the status menu shows it. If a build finds something it can't read, it names it: a Prisma schema with no SQL migrations, a Drizzle schema for anything but SQLite, any part of a Drizzle schema that only running it could answer, MySQL, MongoDB, or a Next.js app in a subfolder.
+Each build records what it read, and the status menu shows it. If a build finds something it can't
+read, it names it: a Prisma schema with no SQL migrations, a Drizzle schema for anything but
+SQLite, any part of a Drizzle schema that only running it could answer, MySQL, MongoDB, or a
+Next.js app in a subfolder.
 
-A Drizzle schema is read as text and never run. SQL files win where a project has both, since they are what the database ran. Code links to Drizzle tables either way.
+A Drizzle schema is read as text and never run. SQL files win where a project has both, since they
+are what the database ran. Code links to Drizzle tables either way.
 
-## Layout
+### Coverage reports
+
+Run your tests yourself, then press **Load report** on the Risk view, or use the `coverage` tool.
+Without a report, Risk still shows which tests reach each file. With Vitest, list every source file
+in `coverage.include`, or a file no test loads will be missing from the report. System Map counts a
+missing file as 0%.
+
+## Settings & data
+
+- **Where data lives.** In the app's own data folder, `$KIROCREW_HOME/apps/system-map/data`
+  (`~/.kiro/crew/apps/system-map/data` by default). `SYSTEM_MAP_DATA` points it somewhere else.
+- **What it keeps.** Each project's model, with its last 5 versions. Your own input sits beside it
+  and survives rebuilds: plan status overrides, agent settings, service regions, proposals, use
+  cases, saved views and notes, and the coverage report you loaded.
+- **What it never does.** Write to your repo, run your code, or make a network call of its own.
+  The Design chat is an ordinary Kiro Crew chat, so it talks to your model as any chat does.
+- **Removing a project** deletes its app data for good. It never touches the repo.
+- **Uninstalling** keeps the data folder. `kirocrew app uninstall system-map --purge-data` deletes
+  it too, and can't be undone.
+- **Permissions it asks for.** `/apps/system-map/api` for its own backend; `/api/chat` and
+  `/api/chat/slots` to open each project's Design chat; `/api/recent-projects` to suggest a default
+  folder, which it skips if refused; and `storage`, since it keeps that data folder.
+
+## Troubleshooting / FAQ
+
+**Agent sessions don't have the System Map tools.** After a first install, restart Kiro Crew
+(`kirocrew restart`). A new session alone doesn't help: the gateway only adds the tools to the agent
+spec when it boots. Tools appear as `mcp__system-map_system-map__<tool>`.
+
+**The page says a request did not come through Kiro Crew.** The backend only answers calls the
+gateway signs with the app's secret. Something called it directly, or the gateway has no secret for
+the app. Sync or reinstall the app, then restart Kiro Crew.
+
+**The page can't reach the backend.** The backend runs only once you trust the app. Check
+**Settings → Security → Third-party apps**, then reload the page.
+
+**Browse does nothing.** On Linux the folder window needs a desktop and `zenity` or `kdialog`.
+Without one, type the full path instead.
+
+**My latest changes don't show.** A git repo is read at its main branch's last commit, so
+uncommitted work and other branches don't show. **Worktrees** shows what each worktree is
+changing.
+
+**A build says it couldn't read part of the project.** Some stacks aren't read yet, and the build
+names each one rather than guessing. The status menu lists what it read.
+
+**Worktree merges show as unknown.** Trial merges need git 2.38 or later.
+
+**I updated the app, but nothing changed.** In **Apps → Library**, open System Map's details and
+choose **Sync**, then reload the page. A new tool reaches new sessions only.
+
+## Development
 
 | Path | Job |
 |---|---|
@@ -52,116 +208,22 @@ A Drizzle schema is read as text and never run. SQL files win where a project ha
 | `scripts/` | Replay migrations and try proposals on a throwaway Postgres, and hold the readers to the compiler and to `drizzle-kit`. |
 | `docs/` | Context rules, platform notes and the backlog. |
 
-## Install from a local clone
+Host rules learned while building it are in `docs/platform-notes.md`, and what's left is in
+`docs/backlog.md`. Releases are in `CHANGELOG.md`.
 
-```bash
-(cd ui && npm install && npm run build)
-kirocrew app install "$PWD"
-kirocrew app enable system-map
-kirocrew restart
-```
-
-The backend needs you to trust this app when Kiro Crew asks. The restart gives agent sessions the tools, and it stops any work running in your sessions.
-
-Then open System Map from Apps and add a project. Use the project menu in the header to add, switch or remove projects. One is open at a time, and each keeps its own view and design chat.
-
-## Checks
+### Checks
 
 ```bash
 python3 -m unittest discover -s tests
 (cd ui && npm test && npm run typecheck && npm run build)
 ```
 
-The replay test needs Postgres server binaries. Set `PGBIN` if they are not in `/usr/lib/postgresql/16/bin`. The compiler test needs `npm install` in `ui`. Each skips itself when its tool is missing.
+The replay test needs Postgres server binaries. Set `PGBIN` if they are not in
+`/usr/lib/postgresql/16/bin`. The compiler test needs `npm install` in `ui`. The host contract tests
+need an installed Kiro Crew, found through the `kirocrew` launcher or `KIROCREW_PYTHON`. Each skips
+itself when its tool is missing.
 
-## Prove a model against real Postgres
-
-Replay a repo's migrations on a throwaway server, then compare it with the model:
-
-```bash
-scripts/replay_catalog.sh <repo> origin/main supabase/migrations /tmp/replay [bootstrap.sql]
-python3 -m core build <repo>
-python3 -m core verify <repo> /tmp/replay/catalog.json
-```
-
-`bootstrap.sql` is a repo path for anything the migrations expect to exist, such as a stub of Supabase's `auth` schema. The server listens on a socket only, and stops when the script ends.
-
-## Prove a SQLite model
-
-Load the schema into a separate real SQLite, then compare every table with its pragmas:
-
-```bash
-python3 -m core verify-sqlite <repo>
-```
-
-## Prove a Drizzle model
-
-Have the tool write its SQL in a copy of the project, then compare that with the reader. Use `generate`, because `export` ignores `casing`:
-
-```bash
-(cd <copy> && npx drizzle-kit generate --name proof)
-python3 -m core verify-drizzle <repo> <copy>/drizzle/0000_proof.sql
-```
-
-To try every form the reader knows against the real tool, give the sweep any `node_modules` with `drizzle-kit` and `drizzle-orm` installed. The same seed gives the same schemas:
-
-```bash
-scripts/sweep_drizzle.py <node_modules> /tmp/sweep [rounds] [tables] [seed]
-```
-
-## Prove routes against Next.js
-
-Run `next build` in a copy of the app, then compare the routes Next wrote down:
-
-```bash
-python3 -m core verify-routes <repo> <copy>/.next/app-path-routes-manifest.json <copy>/.next/server/pages-manifest.json
-```
-
-## Prove a model against the TypeScript compiler
-
-Ask the real compiler what a checkout imports and which tables it calls, then compare. This also checks routes against TanStack's generated route tree:
-
-```bash
-node scripts/ts_truth.mjs <checkout> /tmp/truth.json
-python3 -m core verify-code <repo> /tmp/truth.json
-```
-
-## Prove risk against real tools
-
-Compare each number with the tool that owns it: paths with the compiler, commits with git's log, and coverage with the test runner's own summary:
-
-```bash
-python3 -m core coverage <repo> <report> [commit]
-python3 -m core verify-risk <repo> /tmp/truth.json <coverage-summary.json>
-```
-
-Paths are counted from text, so screen copy can fool them a little. They must stay within 0.5% of the compiler.
-
-## Prove limits against real Postgres
-
-The rules that say what Postgres will refuse are a floor. When one says refused, Postgres refuses. When they stay silent, Postgres may still refuse for a reason the model does not hold, such as a function that takes a table's row.
-
-Run one proposal on a throwaway server, with one file of changes as JSON:
-
-```bash
-python3 -m core proposal-sql changes.json /tmp/changes
-scripts/try_proposal.sh <repo> origin/main supabase/migrations /tmp/try /tmp/changes [bootstrap.sql]
-python3 -m core verify-proposal <repo> changes.json /tmp/try/results.json
-```
-
-Or hold every rule to a whole schema. This tries a drop, three new types and both null rules on every column, and a drop on every table. It fails only if a rule says refused and Postgres accepts:
-
-```bash
-scripts/sweep_limits.py <repo> origin/main supabase/migrations /tmp/sweep [bootstrap.sql]
-```
-
-## Load a coverage report
-
-The app never runs your tests, since that would run your code in its backend. Run them yourself, then press Load report on the Risk view, or use the `coverage` tool. Without a report, Risk still shows which tests reach each file. Run tests in chat asks the Design chat to do this in a scratch copy.
-
-With Vitest, list every source file in `coverage.include`, or a file no test loads will be missing from the report. System Map counts a missing file as 0%.
-
-## Run the page without Kiro Crew
+### Run the page without Kiro Crew
 
 `ui/dev` stands in for the host, so you can see and screenshot the page on its own:
 
@@ -175,6 +237,96 @@ Open <http://127.0.0.1:5199>. Add `?theme=dark` or `?view=panel`.
 
 The backend refuses any call the gateway didn't sign, except `/health`. `ui/dev` can't sign, so
 `SYSTEM_MAP_UNSIGNED=1` lets it in. A backend that Kiro Crew starts ignores that flag.
+
+### Prove a model against real Postgres
+
+Replay a repo's migrations on a throwaway server, then compare it with the model:
+
+```bash
+scripts/replay_catalog.sh <repo> origin/main supabase/migrations /tmp/replay [bootstrap.sql]
+python3 -m core build <repo>
+python3 -m core verify <repo> /tmp/replay/catalog.json
+```
+
+`bootstrap.sql` is a repo path for anything the migrations expect to exist, such as a stub of
+Supabase's `auth` schema. The server listens on a socket only, and stops when the script ends.
+
+### Prove a SQLite model
+
+Load the schema into a separate real SQLite, then compare every table with its pragmas:
+
+```bash
+python3 -m core verify-sqlite <repo>
+```
+
+### Prove a Drizzle model
+
+Have the tool write its SQL in a copy of the project, then compare that with the reader. Use
+`generate`, because `export` ignores `casing`:
+
+```bash
+(cd <copy> && npx drizzle-kit generate --name proof)
+python3 -m core verify-drizzle <repo> <copy>/drizzle/0000_proof.sql
+```
+
+To try every form the reader knows against the real tool, give the sweep any `node_modules` with
+`drizzle-kit` and `drizzle-orm` installed. The same seed gives the same schemas:
+
+```bash
+scripts/sweep_drizzle.py <node_modules> /tmp/sweep [rounds] [tables] [seed]
+```
+
+### Prove routes against Next.js
+
+Run `next build` in a copy of the app, then compare the routes Next wrote down:
+
+```bash
+python3 -m core verify-routes <repo> <copy>/.next/app-path-routes-manifest.json <copy>/.next/server/pages-manifest.json
+```
+
+### Prove a model against the TypeScript compiler
+
+Ask the real compiler what a checkout imports and which tables it calls, then compare. This also
+checks routes against TanStack's generated route tree:
+
+```bash
+node scripts/ts_truth.mjs <checkout> /tmp/truth.json
+python3 -m core verify-code <repo> /tmp/truth.json
+```
+
+### Prove risk against real tools
+
+Compare each number with the tool that owns it: paths with the compiler, commits with git's log,
+and coverage with the test runner's own summary:
+
+```bash
+python3 -m core coverage <repo> <report> [commit]
+python3 -m core verify-risk <repo> /tmp/truth.json <coverage-summary.json>
+```
+
+Paths are counted from text, so screen copy can fool them a little. They must stay within 0.5% of
+the compiler.
+
+### Prove limits against real Postgres
+
+The rules that say what Postgres will refuse are a floor. When one says refused, Postgres refuses.
+When they stay silent, Postgres may still refuse for a reason the model does not hold, such as a
+function that takes a table's row.
+
+Run one proposal on a throwaway server, with one file of changes as JSON:
+
+```bash
+python3 -m core proposal-sql changes.json /tmp/changes
+scripts/try_proposal.sh <repo> origin/main supabase/migrations /tmp/try /tmp/changes [bootstrap.sql]
+python3 -m core verify-proposal <repo> changes.json /tmp/try/results.json
+```
+
+Or hold every rule to a whole schema. This tries a drop, three new types and both null rules on
+every column, and a drop on every table. It fails only if a rule says refused and Postgres accepts:
+
+```bash
+scripts/sweep_limits.py <repo> origin/main supabase/migrations /tmp/sweep [bootstrap.sql]
+```
 
 ## License
 

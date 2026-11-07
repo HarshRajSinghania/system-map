@@ -31,6 +31,9 @@ commit that set the version in `app.json`. The format follows
 
 ### Changed
 - The MCP server reports the app's version, read from `app.json`.
+- The README now covers installing from the store with the trust step, what you need, the first
+  run, each view, where data lives and what the app asks for, and troubleshooting. The proof
+  recipes moved under Development.
 
 ## [0.9.0] - 2026-11-04
 
