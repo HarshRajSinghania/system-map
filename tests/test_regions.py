@@ -87,6 +87,8 @@ class Settings(Fixture):
             {"list": "../outside.ts"},
             {"model_calls": ["a b"]},
             {"model_calls": "model"},
+            {"hand_off_calls": ["queue agent"]},
+            {"hand_off_calls": "queueAgent"},
             {"modules": ["module:src/nope"]},
             {"home_region": "x" * 41},
         ]

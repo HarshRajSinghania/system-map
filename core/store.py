@@ -56,13 +56,14 @@ AGENT_SETTINGS = {
     "list": str,
     "jobs_key": str,
     "hand_off_keys": list,
+    "hand_off_calls": list,
     "model_calls": list,
     "asks_you_calls": list,
     "modules": list,
     "home_region": str,
 }
 #: The settings a build reads. The home region only matters at load, so it never forces a rebuild.
-AGENT_BUILD_KEYS = ("list", "jobs_key", "hand_off_keys", "model_calls", "asks_you_calls", "modules")
+AGENT_BUILD_KEYS = ("list", "jobs_key", "hand_off_keys", "hand_off_calls", "model_calls", "asks_you_calls", "modules")
 CODE_NAME = re.compile(r"[A-Za-z_$][\w$]*")
 REGION = re.compile(r"[\w][\w .-]{0,39}")
 
@@ -581,7 +582,7 @@ def _check_agent_settings(target: Path, settings: dict) -> dict:
             continue
         if not isinstance(value, kind) or (kind is list and not all(isinstance(item, str) for item in value)):
             raise ValueError(f"{key} must be {'a list of names' if kind is list else 'text'}")
-        if key in ("jobs_key", "hand_off_keys", "model_calls", "asks_you_calls"):
+        if key in ("jobs_key", "hand_off_keys", "hand_off_calls", "model_calls", "asks_you_calls"):
             for name in [value] if kind is str else value:
                 if not CODE_NAME.fullmatch(name):
                     raise ValueError(f"{name!r} in {key} is not a name in code")

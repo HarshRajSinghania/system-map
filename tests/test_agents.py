@@ -437,6 +437,83 @@ class Starts(Fixture):
         self.assertEqual(edges[("module:src/desk", "starts", "agent:sorter")]["evidence"], ["src/desk/start.ts:2"])
 
 
+CALLS = {**SETTINGS, "hand_off_calls": ["queueAgent"]}
+#: Code that starts agents by a call that names one as its first argument.
+CALL_FILES = {
+    "src/web/queue.ts": 'export const READER = "reader";\nexport function queueAgent(name: string, id: string) {}\n',
+    "src/web/route.ts": """import { queueAgent, READER } from "./queue";
+
+const MAIL = "mail";
+
+export async function post(id: string, jobs: any) {
+  await queueAgent("sorter", id);
+  await jobs.queueAgent(READER, id);
+  queueAgent(MAIL, id);
+  queueAgent(`digest-${id}`, id);
+  queueAgent(id, "digest");
+  queueAgent("billing", id);
+  // queueAgent("digest", id)
+  const tip = 'queueAgent("digest", id)';
+  return tip;
+}
+""",
+    "src/web/route.test.ts": 'import { queueAgent } from "./queue";\nqueueAgent("digest", "1");\n',
+}
+
+
+class HandOffCalls(Fixture):
+    """An agent started by a call that names it as the first argument."""
+
+    def setUp(self):
+        super().setUp()
+        for name, text in CALL_FILES.items():
+            (self.repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / name).write_text(text)
+        reader = self.repo / "src/agents/handlers/reader.ts"
+        reader.write_text(FILES["src/agents/handlers/reader.ts"].replace("  return [summarize()", '  queueAgent("digest", "x");\n  return [summarize()'))
+
+    def call_line(self, needle: str) -> str:
+        text = CALL_FILES["src/web/route.ts"]
+        return f"src/web/route.ts:{text[: text.index(needle)].count(chr(10)) + 1}"
+
+    def test_a_call_outside_the_agents_starts_the_agent_it_names(self):
+        _, _, edges = self.build(CALLS)
+        web = {target for source, target in self.links(edges, "starts") if source == "module:src/web"}
+        self.assertEqual(web, {"agent:sorter", "agent:reader", "agent:mail"})
+        self.assertEqual(edges[("module:src/web", "starts", "agent:sorter")]["evidence"], [self.call_line('queueAgent("sorter"')])
+
+    def test_a_call_inside_an_agent_hands_off(self):
+        _, _, edges = self.build(CALLS)
+        self.assertIn(("agent:reader", "hands_off_to", "agent:digest"), edges)
+        line = (FILES["src/agents/handlers/reader.ts"][: FILES["src/agents/handlers/reader.ts"].index("  return [summarize()")]).count("\n") + 1
+        self.assertEqual(edges[("agent:reader", "hands_off_to", "agent:digest")]["evidence"], [f"src/agents/handlers/reader.ts:{line}"])
+
+    def test_a_constant_counts_and_a_template_a_variable_or_another_name_does_not(self):
+        _, _, edges = self.build(CALLS)
+        self.assertEqual(edges[("module:src/web", "starts", "agent:reader")]["evidence"], [self.call_line("jobs.queueAgent(READER")])
+        self.assertEqual(edges[("module:src/web", "starts", "agent:mail")]["evidence"], [self.call_line("queueAgent(MAIL")])
+        self.assertNotIn(("module:src/web", "starts", "agent:digest"), edges)
+        self.assertFalse([key for key in edges if key[2] == "agent:billing"])
+
+    def test_a_definition_a_comment_a_string_and_a_test_add_nothing(self):
+        _, _, edges = self.build(CALLS)
+        self.assertNotIn(("module:src/web", "starts", "agent:digest"), edges)
+        self.assertFalse([key for key in edges if key[0] == "module:src/web" and key[2] == "agent:digest"])
+
+    def test_with_no_hand_off_calls_nothing_changes(self):
+        _, _, before = self.build(SETTINGS)
+        _, _, empty = self.build({**SETTINGS, "hand_off_calls": []})
+        self.assertEqual(before, empty)
+        self.assertFalse([key for key in before if key[0] == "module:src/web"])
+        self.assertNotIn(("agent:reader", "hands_off_to", "agent:digest"), before)
+
+    def test_only_the_first_argument_names_the_agent(self):
+        sites = files_of(self.repo, {"a.ts": 'queueAgent(id, "reader", "mail")\nqueueAgent()\n'})
+        sites.load(["a.ts"])
+        found = agents._hand_offs(sites, {**agents.DEFAULTS, **CALLS}, {"reader", "mail"}, "a.ts", 0, len(sites.cache["a.ts"][0]))
+        self.assertEqual(found, [])
+
+
 class Marked(Fixture):
     def test_a_marked_module_is_an_agent(self):
         _, nodes, _ = self.build({"modules": ["module:src/desk"], "hand_off_keys": ["p_agent"]})
@@ -558,7 +635,7 @@ class Rows(Fixture):
 class Settings(unittest.TestCase):
     def test_defaults_fill_in(self):
         found = agents.settings_of({"list": "a.ts"})
-        self.assertEqual((found["jobs_key"], found["hand_off_keys"], found["model_calls"]), ("handlers", ["agent"], []))
+        self.assertEqual((found["jobs_key"], found["hand_off_keys"], found["hand_off_calls"], found["model_calls"]), ("handlers", ["agent"], [], []))
 
     def test_nothing_to_point_at_is_none(self):
         self.assertIsNone(agents.settings_of({"model_calls": ["x"]}))
