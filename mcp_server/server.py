@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from core import agents, explore, risk, store  # noqa: E402
 
 PROTOCOL_VERSION = "2025-06-18"
+#: One version for the whole app, kept in its manifest.
+APP_VERSION = json.loads((Path(__file__).resolve().parents[1] / "app.json").read_text(encoding="utf-8"))["version"]
 BUDGET = {"type": "integer", "description": f"Most chars to return inline. Default {store.DEFAULT_BUDGET_CHARS}."}
 REPO = {"type": "string", "description": "Project name, path or key. Leave it out to use this session's project."}
 
@@ -473,7 +475,7 @@ def respond(request: dict) -> dict | None:
         result: dict = {
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "system-map", "version": "0.6.0"},
+            "serverInfo": {"name": "system-map", "version": APP_VERSION},
         }
     elif method == "ping":
         result = {}

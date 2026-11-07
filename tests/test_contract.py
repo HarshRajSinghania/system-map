@@ -17,6 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 MANIFEST = json.loads((ROOT / "app.json").read_text())
 
 #: Section 3: Discover scans the categories in this order, and the first with a matching tag wins.
@@ -131,6 +132,44 @@ class StoreListing(unittest.TestCase):
             if not (ROOT / ".git").exists():
                 self.skipTest("not a git checkout")
             self.fail(f"ui/dist is not committed: {error}")
+
+
+def released() -> list[str]:
+    """The released versions in CHANGELOG.md, top first."""
+    text = (ROOT / "CHANGELOG.md").read_text()
+    return re.findall(r"^## \[(\d[^\]]*)\] - \d{4}-\d{2}-\d{2}$", text, re.M)
+
+
+def git(*args: str) -> str:
+    return subprocess.run(["git", "-C", str(ROOT), *args], check=True, capture_output=True, text=True).stdout
+
+
+class Versions(unittest.TestCase):
+    """One version, kept in app.json: the tools server, the changelog and the tags all agree with it."""
+
+    def test_the_tools_server_reports_the_app_version(self):
+        from mcp_server import server
+
+        reply = server.handle(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}))
+        self.assertEqual(reply["result"]["serverInfo"]["version"], MANIFEST["version"])
+
+    def test_the_changelog_puts_this_version_first_and_runs_newest_first(self):
+        versions = released()
+        self.assertEqual(versions[0], MANIFEST["version"])
+        numbers = [tuple(int(part) for part in version.split("-")[0].split(".")) for version in versions]
+        self.assertEqual(numbers, sorted(set(numbers), reverse=True))
+        self.assertIn("## [Unreleased]", (ROOT / "CHANGELOG.md").read_text())
+
+    def test_each_tagged_release_is_in_the_changelog_and_set_in_its_app_json(self):
+        if not (ROOT / ".git").exists():
+            self.skipTest("not a git checkout")
+        tags = git("tag", "--list", "v*").split()
+        if not tags:
+            self.skipTest("this checkout has no release tags")
+        self.assertEqual(sorted(tags), sorted(f"v{version}" for version in released()))
+        for tag in tags:
+            with self.subTest(tag=tag):
+                self.assertEqual(json.loads(git("show", f"{tag}:app.json"))["version"], tag[1:])
 
 
 class NoHostImports(unittest.TestCase):
