@@ -54,12 +54,51 @@ count them, for the routes they open.
 In `worktrees`, `high` means a real trial merge conflicted, or two worktrees change one table.
 A merge is only tried on commits, so `merge: uncommitted` means nobody knows yet.
 
-Agents come only from what a person pointed System Map at, in its Agents tab. An empty
-`agents` list means nobody has, not that there are none: say so, and name its `suggestions`.
-A model called through a name the person gave links to every model the project uses, so
-`uses_model` means it can reach that model, not that it always does. Regions and the home
-region are set by a person too. Say `leaves_region` came from their tags, and never set
-agent settings or regions yourself.
+Agents come only from settings a person saved in the Agents tab, or a draft they used. An
+empty `agents` list means nobody has, not that there are none: say so, name its
+`suggestions`, and offer to find them. A model called through a name in the settings links to
+every model the project uses, so `uses_model` means it can reach that model, not that it
+always does. A person tags each service's region. Say `leaves_region` came from their tags,
+and never tag a service yourself.
+
+## Find my agents
+
+When someone asks you to find the agents, read the code and draft the settings with
+`draft_agents`. Only a person uses a draft, in the Agents tab.
+
+1. Call `agents`. Its `suggestions` are modules that call a model, so start reading there.
+2. **`list`**: find the one file that exports an array of agents, each an object with a
+   `name`, often called a registry. If there is none, set `modules` instead: the module ids
+   from `search`, one module per agent.
+3. **`jobs_key`**: the property on each agent that holds its jobs. The default is `handlers`.
+4. **`hand_off_keys`**: every property that names the agent to hand work to. Look where work
+   is queued, in code and in SQL, such as `{ agent: "mail" }` or a function argument
+   `p_agent`.
+5. **`model_calls`**: the names agents call to reach a model, such as `ctx.claude(...)`.
+   Give the name alone, `claude`. Add each wrapper an agent calls that calls a model in turn.
+6. **`asks_you_calls`**: the names that leave work for a person: a task, a question or an
+   approval.
+7. **`home_region`**: only if the repo says where data must stay, such as a README or rules
+   file. Write the place in its own words, such as `Canada` or `EU`, never a cloud region id
+   such as `ca-central-1`: a person tags services with places, and the two are matched by name.
+   Otherwise leave it out.
+8. Try them with `dry_run: true`. Every setting needs evidence, as `path:line` lines that show
+   it. `evidence` sits beside `settings`, not inside it:
+
+   ```json
+   {"settings": {"list": "src/agents/registry.ts", "model_calls": ["claude"]},
+    "evidence": {"list": ["src/agents/registry.ts:16"], "model_calls": ["src/agents/types.ts:228"]},
+    "dry_run": true}
+   ```
+
+   Check the result, fix what is wrong, and try again:
+   - Every agent in the list is there.
+   - An `empty` agent has no jobs, so check `jobs_key`.
+   - An agent that is started from somewhere has `starts`, or check `hand_off_keys`.
+   - An agent whose code calls a model has `models`, or check `model_calls`.
+9. Save it without `dry_run`. Put what you read in `note`, in a few sentences, for the person.
+10. Say what the draft finds, and that it waits for them in the Agents tab. Never say the
+    agents are set.
 
 ## Exploring
 

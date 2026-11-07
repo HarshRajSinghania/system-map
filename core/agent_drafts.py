@@ -58,9 +58,9 @@ def try_settings(target: Path, settings: dict, source=None) -> list[dict]:
 def save(target: Path, settings: object, evidence: object, note: object = "", dry_run: bool = False) -> dict:
     """Check a draft and try it. Unless it is a dry run, keep it in place of any draft before."""
     if not isinstance(settings, dict):
-        raise ValueError("settings must be an object")
+        raise ValueError('settings must be an object from each setting to its value, such as {"list": "src/agents/registry.ts"}')
     if not isinstance(evidence, dict):
-        raise ValueError("evidence must be an object from each setting to a list of path:line")
+        raise ValueError('evidence must be an object beside settings, from each setting to a list of path:line, such as {"list": ["src/agents/registry.ts:16"]}')
     if not isinstance(note, str):
         raise ValueError("note must be text")
     kept = store._check_agent_settings(target, settings)

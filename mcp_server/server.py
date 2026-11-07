@@ -418,7 +418,7 @@ def call(name: str, args: dict) -> object:
         short = agent_drafts.summary(found)
         return store.fit(target, "agents", compact({"home_region": joined.get("home_region"), "agents": short}), budget)
     if name == "draft_agents":
-        found = agent_drafts.save(target, args["settings"], args["evidence"], args.get("note", ""), bool(args.get("dry_run")))
+        found = agent_drafts.save(target, args.get("settings"), args.get("evidence"), args.get("note", ""), bool(args.get("dry_run")))
         return store.fit(target, "agent-draft", compact(found), budget)
     if name == "node":
         return store.fit(target, "node", compact(store.load_node(target, args["id"])), budget)

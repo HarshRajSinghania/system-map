@@ -299,6 +299,14 @@ class McpServerTests(unittest.TestCase):
         self.assertTrue(reply["isError"])
         self.assertIn("needs evidence", reply["content"][0]["text"])
 
+    def test_settings_left_unwrapped_say_how_to_wrap_them(self):
+        repo, _ = self.agent_repo()
+        reply = self.tool("draft_agents", repo=str(repo), **SETTINGS)
+        self.assertTrue(reply["isError"])
+        self.assertIn('settings must be an object from each setting to its value, such as {"list"', reply["content"][0]["text"])
+        reply = self.tool("draft_agents", repo=str(repo), settings=SETTINGS)
+        self.assertIn("evidence must be an object beside settings", reply["content"][0]["text"])
+
     def test_no_tool_can_use_or_drop_a_draft(self):
         tools = self.talk({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})[0]["result"]["tools"]
         self.assertEqual([tool["name"] for tool in tools if "draft" in tool["name"]], ["draft_agents"])
