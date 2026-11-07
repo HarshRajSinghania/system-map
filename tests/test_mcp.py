@@ -304,6 +304,8 @@ class McpServerTests(unittest.TestCase):
         reply = self.tool("draft_agents", repo=str(repo), **SETTINGS)
         self.assertTrue(reply["isError"])
         self.assertIn('settings must be an object from each setting to its value, such as {"list"', reply["content"][0]["text"])
+        reply = self.tool("draft_agents", repo=str(repo), settings="src/agents/registry.ts", evidence={})
+        self.assertIn('settings must be an object from each setting to its value, such as {"list"', reply["content"][0]["text"])
         reply = self.tool("draft_agents", repo=str(repo), settings=SETTINGS)
         self.assertIn("evidence must be an object beside settings", reply["content"][0]["text"])
 

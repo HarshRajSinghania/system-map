@@ -4,10 +4,10 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 
 ## Before you start
 
-- Everything so far is on stacked branches with no `main` and no remote. Work from the tip,
-  `slice-8/find-agents`, on version 0.10.0.
-- Run the checks in the README's Checks section. All pass at the tip: 805 Python tests and
-  100 UI tests.
+- Everything so far is on stacked branches with no `main`. The remote, `origin`, is a private
+  GitHub repo. Work from the tip, `slice-8/find-agents`, on version 0.10.0.
+- Run the checks in the README's Checks section. All pass at the tip: 860 Python tests and
+  104 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
 - Look at screenshots before you commit UI. Checks have passed while pictures showed faults.

@@ -435,6 +435,8 @@ def call(name: str, args: dict) -> object:
 
 
 SCHEMAS = {tool["name"]: tool["inputSchema"] for tool in TOOLS}
+#: A tool's own words for an argument it is missing or got in the wrong shape, where they say more.
+HINTS = {("draft_agents", "settings"): agent_drafts.SETTINGS_SHAPE, ("draft_agents", "evidence"): agent_drafts.EVIDENCE_SHAPE}
 #: JSON Schema types, and how a refusal names each.
 JSON_TYPES = {
     "string": (lambda value: isinstance(value, str), "text"),
@@ -472,13 +474,13 @@ def check_args(name: str, args: object) -> dict:
     schema = SCHEMAS[name]
     for key in schema.get("required", []):
         if args.get(key) is None:
-            raise ValueError(f"{name} needs {key}")
+            raise ValueError(HINTS.get((name, key), f"{name} needs {key}"))
     for key, value in args.items():
         spec = schema.get("properties", {}).get(key)
         if spec is None or value is None:
             continue
         if not _fits(value, spec):
-            raise ValueError(f"{key} must be {_wants(spec)}")
+            raise ValueError(HINTS.get((name, key), f"{key} must be {_wants(spec)}"))
         if "enum" in spec and value not in spec["enum"]:
             raise ValueError(f"{key} must be one of: {', '.join(map(str, spec['enum']))}")
         items = spec.get("items")
