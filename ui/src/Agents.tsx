@@ -1,9 +1,10 @@
 import { Badge, Btn, Input } from '@kirocrew/app-sdk/ui'
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
-import { AGENT_FILTERS, filterAgents, filterCounts, fromForm, handsOffTo, markModule, modelLabel, modelsOf, nodeLabel, regionTone, startsFrom, STATUS_LABEL, toForm } from './agentRows'
+import { AgentDraftCard } from './AgentDraft'
+import { AGENT_FILTERS, draftSettings, filterAgents, filterCounts, fromForm, handsOffTo, markModule, modelLabel, modelsOf, nodeLabel, regionTone, SETTING_LABELS, startsFrom, STATUS_LABEL, toForm } from './agentRows'
 import type { AgentFilter, AgentForm, RegionTone } from './agentRows'
-import type { AgentModel, AgentRow, AgentSettings, AgentState, AgentStatus } from './model'
+import type { AgentDraftState, AgentModel, AgentRow, AgentSettings, AgentState, AgentStatus } from './model'
 import { MONO, MUTED } from './parts'
 
 const CELL: CSSProperties = { padding: '6px 8px', textAlign: 'left', verticalAlign: 'top' }
@@ -105,18 +106,46 @@ function Detail({ row, rows, home, canAsk, onShow, onAsk }: { row: AgentRow; row
   )
 }
 
-const FIELDS: { key: keyof AgentForm; label: string; help: string }[] = [
-  { key: 'list', label: 'Agent list', help: 'The file whose exported array lists your agents, such as src/agents/registry.ts' },
-  { key: 'jobs_key', label: 'Jobs key', help: "The property that holds each agent's jobs" },
-  { key: 'hand_off_keys', label: 'Hand-off keys', help: 'Properties that name the agent to hand work to, such as agent' },
-  { key: 'model_calls', label: 'Model calls', help: 'Functions that call a model, such as claude' },
-  { key: 'asks_you_calls', label: 'Asks-you calls', help: 'Functions that leave work for a person, such as addTask' },
-  { key: 'modules', label: 'Agent modules', help: 'Folders to treat as one agent each, such as src/mail' },
-  { key: 'home_region', label: 'Home region', help: 'Where your data should stay, such as Canada' },
+const FIELDS: { key: keyof AgentForm; help: string }[] = [
+  { key: 'list', help: 'The file whose exported array lists your agents, such as src/agents/registry.ts' },
+  { key: 'jobs_key', help: "The property that holds each agent's jobs" },
+  { key: 'hand_off_keys', help: 'Properties that name the agent to hand work to, such as agent' },
+  { key: 'model_calls', help: 'Functions that call a model, such as claude' },
+  { key: 'asks_you_calls', help: 'Functions that leave work for a person, such as addTask' },
+  { key: 'modules', help: 'Folders to treat as one agent each, such as src/mail' },
+  { key: 'home_region', help: 'Where your data should stay, such as Canada' },
 ]
 
-function Setup({ state, saving, error, onSave, onCancel }: { state: AgentState; saving: boolean; error: string | null; onSave: (settings: AgentSettings) => Promise<boolean>; onCancel?: () => void }) {
-  const [form, setForm] = useState<AgentForm>(() => toForm(state.settings, state.defaults))
+/** Sends the fixed message to the Design chat, which drafts the settings. */
+function FindButton({ canAsk, onFind }: { canAsk: boolean; onFind: () => void }) {
+  return (
+    <Btn onClick={onFind} disabled={!canAsk} title={canAsk ? 'The Design chat reads your code and drafts these settings for you to check' : "The Design chat needs this project's folder"}>
+      Find my agents
+    </Btn>
+  )
+}
+
+function Setup({
+  state,
+  start,
+  saving,
+  error,
+  canAsk,
+  onFind,
+  onSave,
+  onCancel,
+}: {
+  state: AgentState
+  /** Settings to fill the form with, when not the saved ones. */
+  start?: AgentSettings
+  saving: boolean
+  error: string | null
+  canAsk: boolean
+  onFind: () => void
+  onSave: (settings: AgentSettings) => Promise<boolean>
+  onCancel?: () => void
+}) {
+  const [form, setForm] = useState<AgentForm>(() => toForm(start ?? state.settings, state.defaults))
   const save = async (settings: AgentSettings) => {
     if ((await onSave(settings)) && onCancel) onCancel()
   }
@@ -136,6 +165,12 @@ function Setup({ state, saving, error, onSave, onCancel }: { state: AgentState; 
           <p style={{ ...MUTED, margin: '0 0 12px' }}>It needs an exported list of objects that each have a name. Check the file, or mark a module instead.</p>
         </>
       )}
+      {state.agents.length === 0 && (
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16 }}>
+          <FindButton canAsk={canAsk} onFind={onFind} />
+          <span style={MUTED}>The Design chat reads your code and drafts these settings for you to check.</span>
+        </div>
+      )}
       {state.agents.length === 0 && state.suggestions.length > 0 && (
         <div style={{ marginBottom: 16 }}>
           <p style={{ margin: '0 0 6px', fontWeight: 600 }}>These modules call a model</p>
@@ -152,7 +187,7 @@ function Setup({ state, saving, error, onSave, onCancel }: { state: AgentState; 
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(110px, auto) minmax(0, 1fr)', gap: '8px 12px', alignItems: 'start' }}>
         {FIELDS.map((field) => (
           <label key={field.key} style={{ display: 'contents' }}>
-            <span style={{ paddingTop: 6, fontWeight: 600 }}>{field.label}</span>
+            <span style={{ paddingTop: 6, fontWeight: 600 }}>{SETTING_LABELS[field.key]}</span>
             <span style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Input value={form[field.key]} onChange={(event) => setForm({ ...form, [field.key]: event.target.value })} style={field.key === 'home_region' ? undefined : MONO} />
               <span style={{ ...MUTED, fontSize: 11 }}>{field.help}</span>
@@ -173,40 +208,88 @@ function Setup({ state, saving, error, onSave, onCancel }: { state: AgentState; 
 
 export function AgentsView({
   state,
+  draft,
   canAsk,
   saving,
   error,
+  draftError,
   onShow,
   onAsk,
   onSave,
+  onFind,
+  onDraft,
 }: {
   state: AgentState
+  draft: AgentDraftState | null
   canAsk: boolean
   saving: boolean
   error: string | null
+  draftError: string | null
   onShow: (id: string) => void
   onAsk: (row: AgentRow) => void
   onSave: (settings: AgentSettings) => Promise<boolean>
+  onFind: () => void
+  /** Use or drop the draft. Resolves to whether it worked. */
+  onDraft: (action: 'use' | 'drop') => Promise<boolean>
 }) {
   const [filter, setFilter] = useState<AgentFilter>('all')
   const [picked, setPicked] = useState<string | null>(null)
-  const [editing, setEditing] = useState(false)
+  /** Which settings the form is open on: the saved ones, or the draft's. */
+  const [editing, setEditing] = useState<'settings' | 'draft' | null>(null)
   const rows = state.agents
   const counts = useMemo(() => filterCounts(rows), [rows])
   const shown = useMemo(() => filterAgents(rows, filter), [rows, filter])
   const chosen = shown.find((row) => row.id === picked) ?? shown[0] ?? null
   const home = state.home_region
+  const drafted = draft?.draft ?? null
+  const fromDraft = editing === 'draft' && drafted !== null
+
+  // Saving the form opened from a draft saves those settings, then the draft is done with.
+  const saveDraftEdit = async (settings: AgentSettings) => {
+    const saved = await onSave(settings)
+    if (saved) await onDraft('drop')
+    return saved
+  }
+  const card =
+    draft && drafted && !fromDraft ? (
+      <div style={{ flexShrink: 0, maxHeight: '50%', overflowY: 'auto', marginBottom: rows.length === 0 || editing ? 16 : 0 }}>
+        <AgentDraftCard
+          draft={drafted}
+          changed={draft.changed}
+          stale={draft.stale}
+          saved={state.settings}
+          busy={saving}
+          error={draftError}
+          onUse={() => void onDraft('use')}
+          onEdit={() => setEditing('draft')}
+          onDrop={() => void onDraft('drop')}
+        />
+      </div>
+    ) : null
 
   if (rows.length === 0 || editing) {
+    const close = rows.length || fromDraft ? () => setEditing(null) : undefined
     return (
       <div style={{ position: 'absolute', inset: 0, overflowY: 'auto', padding: 16, color: 'var(--text, inherit)' }}>
-        <Setup state={state} saving={saving} error={error} onSave={onSave} onCancel={rows.length ? () => setEditing(false) : undefined} />
+        {card}
+        <Setup
+          key={fromDraft ? `draft:${drafted.drafted_at}` : 'saved'}
+          state={state}
+          start={fromDraft ? draftSettings(drafted, state.settings) : undefined}
+          saving={saving}
+          error={error}
+          canAsk={canAsk}
+          onFind={onFind}
+          onSave={fromDraft ? saveDraftEdit : onSave}
+          onCancel={close}
+        />
       </div>
     )
   }
 
   return (
     <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', padding: 16, gap: 10, color: 'var(--text, inherit)' }}>
+      {card}
       <p style={{ margin: 0, fontSize: 14 }} data-testid="agents-summary">
         <strong>
           {rows.length} agent{rows.length === 1 ? '' : 's'}. {counts.model} use{counts.model === 1 ? 's' : ''} a model, and {counts.asks} ask{counts.asks === 1 ? 's' : ''} you first.
@@ -222,7 +305,8 @@ export function AgentsView({
           </Btn>
         ))}
         <span style={{ flex: 1 }} />
-        <Btn onClick={() => setEditing(true)}>Agent settings</Btn>
+        <FindButton canAsk={canAsk} onFind={onFind} />
+        <Btn onClick={() => setEditing('settings')}>Agent settings</Btn>
       </div>
       <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 16 }}>
         <div style={{ flex: 1, minWidth: 0, overflow: 'auto' }}>
