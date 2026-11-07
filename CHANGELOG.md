@@ -13,6 +13,10 @@ commit that set the version in `app.json`. The format follows
   is a hand-off from an agent's own code. Find my agents can draft it.
 
 ### Fixed
+- A name passed as a hand-off key's value or a hand-off call's argument uses only a constant in
+  scope there. A parameter no longer takes the value of a constant in another function.
+- A call written `name?.()` counts, for hand-off, model and asks-you calls.
+- A file with many such calls reads quickly. Each call now reads only the code near it.
 - The review round on Find my agents:
   - **Mark as agent** on a form opened from a draft saves the draft as edited. It used to save the
     old settings and drop the draft.

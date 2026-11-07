@@ -2,7 +2,7 @@ import { Badge, Btn, Input } from '@kirocrew/app-sdk/ui'
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { AgentDraftCard } from './AgentDraft'
-import { AGENT_FILTERS, draftErrorFor, draftSettings, filterAgents, filterCounts, FIND_OFF, fromForm, handsOffTo, markedSettings, modelLabel, modelsOf, nodeLabel, regionTone, SETTING_LABELS, setupKey, startsFrom, STATUS_LABEL, toForm } from './agentRows'
+import { AGENT_FILTERS, draftErrorFor, draftSettings, filterAgents, filterCounts, FIND_OFF, fromForm, handsOffTo, markedSettings, modelLabel, modelsOf, nodeLabel, regionTone, SETTING_HELP, SETTING_KEYS, SETTING_LABELS, setupKey, startsFrom, STATUS_LABEL, toForm } from './agentRows'
 import type { AgentFilter, AgentForm, DraftError, RegionTone } from './agentRows'
 import type { AgentDraft, AgentDraftState, AgentModel, AgentRow, AgentSettings, AgentState, AgentStatus } from './model'
 import { MONO, MUTED } from './parts'
@@ -106,16 +106,7 @@ function Detail({ row, rows, home, canAsk, onShow, onAsk }: { row: AgentRow; row
   )
 }
 
-const FIELDS: { key: keyof AgentForm; help: string }[] = [
-  { key: 'list', help: 'The file whose exported array lists your agents, such as src/agents/registry.ts' },
-  { key: 'jobs_key', help: "The property that holds each agent's jobs" },
-  { key: 'hand_off_keys', help: 'Properties that name the agent to hand work to, such as agent' },
-  { key: 'hand_off_calls', help: 'Functions whose first argument names the agent to start, such as queueAgent' },
-  { key: 'model_calls', help: 'Functions that call a model, such as claude' },
-  { key: 'asks_you_calls', help: 'Functions that leave work for a person, such as addTask' },
-  { key: 'modules', help: 'Folders to treat as one agent each, such as src/mail' },
-  { key: 'home_region', help: 'Where your data should stay, such as Canada' },
-]
+const FIELDS: { key: keyof AgentForm; help: string }[] = SETTING_KEYS.map((key) => ({ key, help: SETTING_HELP[key] }))
 
 /** Sends the fixed message to the Design chat, which drafts the settings. */
 function FindButton({ canAsk, onFind }: { canAsk: boolean; onFind: () => void }) {

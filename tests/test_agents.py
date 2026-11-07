@@ -1,5 +1,6 @@
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -440,7 +441,25 @@ class Starts(Fixture):
 CALLS = {**SETTINGS, "hand_off_calls": ["queueAgent"]}
 #: Code that starts agents by a call that names one as its first argument.
 CALL_FILES = {
-    "src/web/queue.ts": 'export const READER = "reader";\nexport function queueAgent(name: string, id: string) {}\n',
+    # Were a definition read as a call, its `agent` would be the constant above it: "digest".
+    "src/web/queue.ts": 'export const READER = "reader";\nconst agent = "digest";\nexport function queueAgent(agent, id) {}\n',
+    "src/jobs/requeue.ts": """import { queueAgent } from "../web/queue";
+
+export function nightly() {
+  const agent = "sorter";
+  return agent;
+}
+
+export async function requeue(agent: string, id: string) {
+  await queueAgent(agent, id);
+}
+
+export function local(id: string) {
+  const NEXT = "reader";
+  queueAgent?.("mail", id);
+  return queueAgent(NEXT, id);
+}
+""",
     "src/web/route.ts": """import { queueAgent, READER } from "./queue";
 
 const MAIL = "mail";
@@ -506,6 +525,27 @@ class HandOffCalls(Fixture):
         self.assertEqual(before, empty)
         self.assertFalse([key for key in before if key[0] == "module:src/web"])
         self.assertNotIn(("agent:reader", "hands_off_to", "agent:digest"), before)
+
+    def test_a_name_counts_only_where_its_constant_is_in_scope(self):
+        # requeue passes its own `agent` on. The `agent` constant in nightly is out of its scope.
+        _, _, edges = self.build(CALLS)
+        jobs = {target for source, target in self.links(edges, "starts") if source == "module:src/jobs"}
+        self.assertEqual(jobs, {"agent:reader", "agent:mail"})
+
+    def test_an_optional_call_counts(self):
+        _, _, edges = self.build(CALLS)
+        text = CALL_FILES["src/jobs/requeue.ts"]
+        line = text[: text.index("queueAgent?.(")].count("\n") + 1
+        self.assertEqual(edges[("module:src/jobs", "starts", "agent:mail")]["evidence"], [f"src/jobs/requeue.ts:{line}"])
+
+    def test_many_calls_in_one_big_file_stay_quick(self):
+        body = "".join(f"export function f{n}(id: string) {{\n  const x = {n};\n  return queueAgent(id, x);\n}}\n" + "// padding\n" * 40 for n in range(400))
+        (self.repo / "src/big/many.ts").parent.mkdir(parents=True, exist_ok=True)
+        (self.repo / "src/big/many.ts").write_text(body)
+        began = time.monotonic()
+        self.build(CALLS)
+        # About 0.1 s here. Before each call read only near itself, this took over 5 s.
+        self.assertLess(time.monotonic() - began, 1)
 
     def test_only_the_first_argument_names_the_agent(self):
         sites = files_of(self.repo, {"a.ts": 'queueAgent(id, "reader", "mail")\nqueueAgent()\n'})

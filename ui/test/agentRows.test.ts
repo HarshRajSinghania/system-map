@@ -16,7 +16,8 @@ import {
   modelsOf,
   nodeLabel,
   regionTone,
-  SETTING_LABELS,
+  SETTING_HELP,
+  SETTING_KEYS,
   setupKey,
   showAgentOnLayer,
   staleLine,
@@ -138,8 +139,13 @@ test('an empty hand-off calls field is left out, and the field sits after hand-o
   const form = toForm({ list: 'a.ts' }, {})
   assert.equal(form.hand_off_calls, '')
   assert.equal(fromForm(form).hand_off_calls, undefined)
-  const order = Object.keys(SETTING_LABELS)
-  assert.equal(order.indexOf('hand_off_calls'), order.indexOf('hand_off_keys') + 1)
+  assert.equal(SETTING_KEYS.indexOf('hand_off_calls'), SETTING_KEYS.indexOf('hand_off_keys') + 1)
+})
+
+test('every setting the form saves has a field, a label and help, in one order', () => {
+  assert.deepEqual(SETTING_KEYS, Object.keys(toForm({}, {})))
+  assert.deepEqual(Object.keys(SETTING_HELP), SETTING_KEYS)
+  assert.match(SETTING_HELP.hand_off_calls, /first argument/)
 })
 
 test('turning the Agents layer off goes back to where the map was', () => {

@@ -6,8 +6,8 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 
 - Everything so far is on stacked branches with no `main`. The remote, `origin`, is a private
   GitHub repo. Work from the tip, `slice-8/find-agents`, on version 0.10.0.
-- Run the checks in the README's Checks section. All pass at the tip: 872 Python tests and
-  108 UI tests.
+- Run the checks in the README's Checks section. All pass at the tip: 875 Python tests and
+  109 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
 - Look at screenshots before you commit UI. Checks have passed while pictures showed faults.
@@ -84,7 +84,8 @@ These are named on screen, not hidden. Each is a choice, not a bug.
 | Limits on what-ifs are Postgres only | `limits_apply` in `core/explore.py` | They are proven against real Postgres. SQLite needs its own sweep |
 | SQL built from pieces at runtime | `sql_uses` in `core/extractors/typescript.py` | Only SQL seen as one whole string links to its tables |
 | Agents need settings | `settings_of` in `core/agents.py` | With none, there are no agents, only suggestions and Find my agents. G2 would find SDK agents with none |
-| An agent named in a later argument | `_hand_offs` in `core/agents.py` | A hand-off call reads only its first argument, so `run(job, "mail")` starts nothing. Nor does a name held in a variable |
+| An agent named in a later argument | `_hand_offs` in `core/agents.py` | A hand-off call reads only its first argument, so `run(job, "mail")` starts nothing. Nor does a name held in a variable, a cast such as `"mail" as Name` or `satisfies Name`, or one in brackets |
+| A call written as page text | `ts.mask_code` | JSX text is not masked, so `<p>Run queueAgent("mail", id).</p>` reads as a call to a hand-off, model or asks-you name |
 | Asks you from SQL | `asks_you` in `core/agents.py` | An agent that runs in the database and leaves a person a task through a SQL function is not marked. Only calls in an agent's own code count |
 | A model called through a passed-in object | `_calls` in `core/agents.py` | It links to every model the project uses, since text can't tell which one is passed in |
 | An agent that shares its file with others | `_regions` in `core/agents.py` | It gets its own object and the files its names are imported from. A handler written in that same file, outside the object, is not read |
