@@ -156,7 +156,8 @@ function writtenType(property) {
 
 /** The name an agent's config gives, or why it can't be read. */
 function nameOf(call, label) {
-  const [config] = call.arguments
+  // `new Agent({ ... } as any)` and `satisfies` wrap the same literal; the wrapper changes no name.
+  const config = plain(call.arguments[0])
   if (!config) return unread(call, `${label} has no config`), null
   const literal = ts.isObjectLiteralExpression(config) ? config : null
   let type = null
@@ -272,7 +273,7 @@ for (const call of calls) {
   const callee = calleeOf(call)
   if (callee?.sdk !== OPENAI || !['Agent', 'Agent.create'].includes(callee.name)) continue
   const from = made.get(call)
-  const [config] = call.arguments
+  const config = plain(call.arguments[0])
   if (!from || !config || !ts.isObjectLiteralExpression(config)) continue
   const property = written(config, 'handoffs')
   if (!property || !ts.isPropertyAssignment(property)) continue

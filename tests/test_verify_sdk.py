@@ -183,6 +183,41 @@ class CompilerTruth(unittest.TestCase):
         names = [(item["name"], item["line"]) for item in self.truth()["agents"]]
         self.assertEqual(names, [("One", 3), ("Two", 4)])
 
+    def test_a_config_wrapped_in_as_or_satisfies_still_gives_its_name(self):
+        self.write(
+            "src/b.ts",
+            "import { Agent } from '@mastra/core'\n"
+            "export const cast = new Agent({ name: 'Cast', id: 'c' } as any)\n"
+            "export const checked = new Agent({ name: 'Checked' } satisfies { name: string })\n"
+            "export const bang = new Agent(({ name: 'Bang' })!)\n",
+        )
+        truth = self.truth()
+        self.assertEqual([(item["name"], item["line"]) for item in truth["agents"]], [("Cast", 2), ("Checked", 3), ("Bang", 4)])
+        self.assertEqual(truth["unreadable"], [])
+
+    def test_a_wrapped_name_must_still_be_a_string_literal(self):
+        self.write(
+            "src/c.ts",
+            "import { Agent } from '@mastra/core'\n"
+            "declare const label: string\n"
+            "export const loose = new Agent({ name: label } as any)\n",
+        )
+        truth = self.truth()
+        self.assertEqual(truth["agents"], [])
+        self.assertEqual([(item["line"], item["why"]) for item in truth["unreadable"]], [(3, "name is not a string literal type (string)")])
+
+    def test_a_config_that_is_not_an_object_literal_is_still_unreadable(self):
+        self.write(
+            "src/d.ts",
+            "import { Agent } from '@mastra/core'\n"
+            "declare const config: { id: string }\n"
+            "export const plain = new Agent(config as any)\n",
+        )
+        truth = self.truth()
+        self.assertEqual(truth["agents"], [])
+        self.assertEqual([item["line"] for item in truth["unreadable"]], [3])
+        self.assertIn("not an object literal", truth["unreadable"][0]["why"])
+
 
 if __name__ == "__main__":
     unittest.main()
