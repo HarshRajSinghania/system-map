@@ -117,8 +117,9 @@ Gap 7, a saved file it can't read:
 - gate: `.github/workflows/ci.yml` (new)
 - package: CI only. The Kiro Crew wheels from GitHub releases, `npm ci`, and Postgres from the runner image.
   Nothing is installed on this machine.
-- setting: branch protection on `main` that requires both jobs. You set it, or I do it with `gh api` once you
-  say so.
+- setting: branch protection on `main` that requires only the `checks` job. It fails unless `python` (every
+  version in its matrix) and `ui` succeeded, so the matrix can have one entry or two without a required name
+  going missing. You set it, or I do it with `gh api` once you say so.
 
 ## Tasks
 Sonnet sub-agents. Tasks 1-4 run at the same time. Task 5 starts after task 4, since both change

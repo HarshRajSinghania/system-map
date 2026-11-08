@@ -84,7 +84,7 @@ function Ee(e) {
 function j(e, t) {
   const { status: r, body: i } = We(e);
   if (r === null) return `Couldn't ${t}. Check the dashboard is still connected, then try again.`;
-  if (r === 400 || r === 404) {
+  if (r === 400 || r === 404 || r === 500) {
     const s = Ee(i);
     if (s) return s;
   }

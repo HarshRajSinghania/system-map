@@ -148,6 +148,32 @@ class WhatItCouldntRead(Build):
             ["1 SQL statement it couldn't read", "1 Python file it doesn't read"],
         )
 
+    def test_installed_packages_and_build_output_are_not_counted_as_the_project_languages(self):
+        self.app()
+        for folder in (".venv/lib/site-packages", "venv/lib", ".tox/py312", "pkg/__pycache__", "env/site-packages", "target/gen", "vendor/gems"):
+            for number in range(3):
+                self.write(f"{folder}/m{number}.py", "x = 1\n")
+        self.write("tools/real.py", "x = 1\n")
+        self.assertEqual(self.build()["read"]["unread"], [{"what": "1 Python file it doesn't read", "where": "tools/"}])
+
+    def test_languages_come_after_every_other_explanation(self):
+        self.app('"next": "16.0.0", "@prisma/client": "6.0.0", "mysql2": "3.0.0", "drizzle-orm": "1.0.0"')
+        self.write("prisma/schema.prisma", 'datasource db {\n  provider = "postgresql"\n}\n')
+        self.write("drizzle.config.ts")
+        self.write("apps/web/next.config.ts")
+        for name in ("tools/a.py", "tools/b.py", "tools/c.py"):
+            self.write(name, "x = 1\n")
+        self.assertEqual(
+            self.unread(),
+            [
+                "A Prisma schema with no SQL migrations",
+                "A Drizzle schema with no SQL migrations",
+                "A Next.js app in a subfolder",
+                "A MySQL database",
+                "3 Python files it doesn't read",
+            ],
+        )
+
     def test_a_typescript_only_repo_has_no_language_items(self):
         self.app()
         self.write("lib/more.js", "export const y = 2\n")

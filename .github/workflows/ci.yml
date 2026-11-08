@@ -19,6 +19,8 @@ jobs:
       matrix: ${{ steps.pick.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Pick the Kiro Crew versions to test
         id: pick
         env:
@@ -27,6 +29,13 @@ jobs:
           floor=$(jq -r .minKiroCrewVersion app.json)
           tag=$(gh release view --repo kirodotdev/KiroCrew --json tagName --jq .tagName)
           latest=${tag#v}
+          # Both go into later scripts and a download URL, so only plain x.y.z gets through.
+          for version in "$floor" "$latest"; do
+            if [[ ! $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Not a plain version number: '$version'"
+              exit 1
+            fi
+          done
           if [ "$floor" = "$latest" ]; then
             matrix=$(jq -cn --arg v "$floor" '[{label: "floor", version: $v}]')
           else
@@ -53,6 +62,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -76,6 +86,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -95,3 +107,21 @@ jobs:
             echo "$changed"
             exit 1
           fi
+
+  # The one name branch protection requires. The python matrix has one entry or two, so its
+  # job names change; this one never does. `always()` makes it report even when a job before
+  # it failed or was skipped, and it fails then.
+  checks:
+    name: checks
+    needs: [python, ui]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail unless python and ui both succeeded
+        env:
+          PYTHON: ${{ needs.python.result }}
+          UI: ${{ needs.ui.result }}
+        run: |
+          echo "python: $PYTHON"
+          echo "ui: $UI"
+          [ "$PYTHON" = success ] && [ "$UI" = success ]
