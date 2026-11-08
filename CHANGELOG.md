@@ -20,6 +20,12 @@ commit that set the version in `app.json`. The format follows
 - A project that uses `@ai-sdk/openai` or `@ai-sdk/anthropic` now shows that service, even with no
   agent SDK. `@openai/agents` and `@anthropic-ai/claude-agent-sdk` map to the same two services.
 
+### Fixed
+- `scripts/sdk_truth.mjs` no longer runs out of memory on a package as large as Mastra's own
+  `packages/core`, and it reads an agent whose config is written `{ … } as any` (or `satisfies`),
+  which it used to list as unreadable. `verify-sdk` says plainly when the truth file is empty or
+  not valid JSON, instead of printing a traceback.
+
 ## [0.11.0] - 2026-11-07
 
 ### Added

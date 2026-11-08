@@ -7,7 +7,7 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 - Work from `main`, on version 0.11.0. Each change goes on its own branch, with a PR into
   `main`. The remote, `origin`, is a private GitHub repo. The older slice branches are kept, and
   `main` holds all of them.
-- Run the checks in the README's Checks section. All pass on `main`: 952 Python tests and
+- Run the checks in the README's Checks section. All pass on `main`: 958 Python tests and
   110 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
@@ -40,7 +40,6 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 | Singular wording: "0 of 1 files", "1 of 1 worktrees have changes" | `ui/src/Risk.tsx:42`, `ui/src/Worktrees.tsx:183` | One thing reads as one, with a test |
 | Table list labels: "at work" is vague, and two numbers have no heading | `TableList` in `ui/src/parts.tsx` | Someone new can read a row without hovering |
 | Scope document is out of date | KiroCrew artifact `system-map-app-scope` | It says slices 0 to 6, and drops the done risk and store items |
-| `sdk_truth.mjs` gaps found on the SDKs' own packages | `scripts/sdk_truth.mjs` | It no longer crashes on a package as large as Mastra's own `packages/core`, and it reads a plain `new Agent({ id, name: "…", … })` in Mastra's `workflows/_test-utils` as an agent, where it now says the config isn't an object literal (12 agents) |
 
 The numbers in a table row are findings, then columns. Hovering shows that, and nothing else does.
 
