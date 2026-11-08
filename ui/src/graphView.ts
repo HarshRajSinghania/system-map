@@ -75,6 +75,20 @@ export function shortPath(path: string): string {
   return path.replace(/^src\//, '')
 }
 
+/** Short names for the agent SDKs, keyed by package. */
+export const SDK_NAMES: Record<string, string> = {
+  '@openai/agents': 'OpenAI Agents',
+  '@mastra/core': 'Mastra',
+  '@anthropic-ai/claude-agent-sdk': 'Claude Agent SDK',
+}
+
+/** An agent card's subtitle: its SDK for an agent made with one (it has no jobs), else its job count. */
+export function agentSubtitle(node: SystemNode): string {
+  if (node.source === 'sdk' && node.sdk) return SDK_NAMES[node.sdk] ?? node.sdk
+  const jobs = node.jobs?.length ?? 0
+  return `${jobs} ${jobs === 1 ? 'job' : 'jobs'}`
+}
+
 function cardFor(node: SystemNode): Card {
   if (node.status === 'proposed') {
     return { id: node.id, kind: node.kind, title: node.kind === 'module' ? node.name : shortPath(node.path ?? node.name), subtitle: 'proposed', status: 'proposed' }
@@ -100,12 +114,11 @@ function cardFor(node: SystemNode): Card {
     case 'service':
       return { id: node.id, kind: 'service', title: node.name, subtitle: 'outside' }
     case 'agent': {
-      const jobs = node.jobs?.length ?? 0
       return {
         id: node.id,
         kind: 'agent',
         title: node.label ?? node.name,
-        subtitle: `${jobs} ${jobs === 1 ? 'job' : 'jobs'}`,
+        subtitle: agentSubtitle(node),
         status: node.status === 'built' ? undefined : node.status,
         badge: node.asks_you?.length ? 'asks you' : undefined,
       }

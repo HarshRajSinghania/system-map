@@ -11,6 +11,8 @@ commit that set the version in `app.json`. The format follows
 
 - The Agents layer wraps a crowded rank into columns or rows, so a module that starts many agents
   on one model no longer shrinks the map until no card reads.
+- An agent found from an agent SDK shows the SDK on its map card (`OpenAI Agents`, `Mastra`,
+  `Claude Agent SDK`) instead of "0 jobs".
 
 ## [0.12.0] - 2026-11-08
 

@@ -147,6 +147,9 @@ export interface SystemNode {
   label?: string
   description?: string
   jobs?: string[]
+  /** `sdk` for an agent found from an agent SDK, and that SDK's package name. */
+  source?: string
+  sdk?: string
   /** Lines where an agent waits for a person. */
   asks_you?: string[]
   leaves_region?: string[]
