@@ -1,4 +1,9 @@
+import contextlib
+import io
+import json
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -6,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core import verify  # noqa: E402
+from core.__main__ import main  # noqa: E402
 
 OPENAI = "@openai/agents"
 CLAUDE = "@anthropic-ai/claude-agent-sdk"
@@ -104,6 +110,78 @@ class CompareSdkAgents(unittest.TestCase):
         found = verify.compare_sdk_agents(self.nodes, self.edges, self.truth)
         self.assertEqual(found["differences"], [])
         self.assertEqual(found["unreadable"], self.truth["unreadable"])
+
+
+class TruthFile(unittest.TestCase):
+    def run_verify(self, text: str) -> tuple[int, str, str]:
+        with tempfile.TemporaryDirectory() as folder:
+            truth = Path(folder) / "truth.json"
+            truth.write_text(text, encoding="utf-8")
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = main(["verify-sdk", folder, str(truth)])
+        return code, out.getvalue(), err.getvalue()
+
+    def test_an_empty_truth_file_is_named_plainly_with_no_traceback(self):
+        code, out, err = self.run_verify("")
+        self.assertEqual(code, 2)
+        self.assertIn("is empty", err)
+        self.assertIn("scripts/sdk_truth.mjs", err)
+        self.assertNotIn("Traceback", err)
+        self.assertEqual(out, "")
+
+    def test_a_truth_file_that_is_not_json_is_named_plainly_with_no_traceback(self):
+        code, _, err = self.run_verify('{"agents": [')
+        self.assertEqual(code, 2)
+        self.assertIn("is not valid JSON", err)
+        self.assertNotIn("Traceback", err)
+
+
+TYPESCRIPT = ROOT / "ui" / "node_modules" / "typescript"
+MASTRA_TYPES = 'export declare class Agent { constructor(config: { name: string; id?: string }); }\n'
+OPENAI_TYPES = (
+    "export declare class Agent {\n"
+    "  constructor(config: { name: string });\n"
+    "  static create<T extends { name: string }>(config: T): Agent;\n"
+    "}\n"
+)
+
+
+@unittest.skipUnless(TYPESCRIPT.exists(), "needs ui/node_modules; run npm install in ui")
+class CompilerTruth(unittest.TestCase):
+    """scripts/sdk_truth.mjs on a folder with stand-ins for the SDK packages."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        self.package("@mastra/core", MASTRA_TYPES)
+        self.package("@openai/agents-core", OPENAI_TYPES)
+        self.package("@openai/agents", "export * from '@openai/agents-core'\n")
+
+    def package(self, name: str, types: str) -> None:
+        self.write(f"node_modules/{name}/package.json", '{"name": "%s", "version": "1.0.0", "types": "index.d.ts"}' % name)
+        self.write(f"node_modules/{name}/index.d.ts", types)
+
+    def write(self, path: str, text: str) -> None:
+        target = self.root / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+
+    def truth(self) -> dict:
+        done = subprocess.run(["node", str(ROOT / "scripts" / "sdk_truth.mjs"), str(self.root)], capture_output=True, text=True, timeout=120)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def test_static_create_is_read_through_an_import_and_a_namespace(self):
+        self.write(
+            "src/a.ts",
+            "import { Agent } from '@openai/agents'\nimport * as sdk from '@openai/agents'\n"
+            "export const one = Agent.create({ name: 'One' })\nexport const two = sdk.Agent.create({ name: 'Two' })\n"
+            "const holder = { make: (config: { name: string }) => config }\nholder.make({ name: 'Three' })\n",
+        )
+        names = [(item["name"], item["line"]) for item in self.truth()["agents"]]
+        self.assertEqual(names, [("One", 3), ("Two", 4)])
 
 
 if __name__ == "__main__":

@@ -97,7 +97,15 @@ def check_code(repo_root: Path, truth_path: Path) -> int:
 
 def check_sdk(repo_root: Path, truth_path: Path) -> int:
     """Compare the SDK agents and hand-offs found in a folder with the compiler's answer."""
-    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    text = truth_path.read_text(encoding="utf-8")
+    if not text.strip():
+        print(f"verify-sdk: {truth_path} is empty, so the compiler run that writes it failed or was cut short; run scripts/sdk_truth.mjs again and read its errors", file=sys.stderr)
+        return 2
+    try:
+        truth = json.loads(text)
+    except json.JSONDecodeError as error:
+        print(f"verify-sdk: {truth_path} is not valid JSON ({error}); it should be the output of scripts/sdk_truth.mjs", file=sys.stderr)
+        return 2
     source = TreeSource(repo_root)
     joined = system.build(source, [], None)
     found = verify.compare_sdk_agents(joined["nodes"], joined["edges"], truth, typescript.code_root_of(source))

@@ -103,6 +103,20 @@ function resolve(node) {
   return symbol
 }
 
+/**
+ * Whether the receiver of `receiver.method(...)` can be a class: a chain of names whose first name
+ * is a class, an import or a namespace. A static call like `Agent.create` is always that. Asking the
+ * checker for the method of every other receiver (`a.b.c()` on a variable) makes it infer that
+ * receiver's type, and on a package with hundreds of thousands of calls that fills the heap.
+ */
+function namesAClass(receiver) {
+  let first = plain(receiver)
+  while (ts.isPropertyAccessExpression(first)) first = plain(first.expression)
+  if (!ts.isIdentifier(first)) return false
+  const symbol = checker.getSymbolAtLocation(first)
+  return !!symbol && (symbol.flags & (ts.SymbolFlags.Alias | ts.SymbolFlags.Class | ts.SymbolFlags.Module)) !== 0
+}
+
 /** What a call or `new` calls: the SDK, and the name the callee has in its own module. */
 function calleeOf(call) {
   const callee = call.expression
@@ -112,6 +126,7 @@ function calleeOf(call) {
     return declaration?.name ? { sdk: homeOf(declaration), name: declaration.name.text, kind: 'new' } : null
   }
   if (ts.isPropertyAccessExpression(callee)) {
+    if (!namesAClass(callee.expression)) return null
     const symbol = resolve(callee.name)
     const declaration = symbol?.declarations?.find((item) => ts.isMethodDeclaration(item) || ts.isMethodSignature(item))
     const owner = declaration?.parent
