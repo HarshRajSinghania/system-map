@@ -6,6 +6,7 @@ the app can't fully read then shows what is missing, by name, with the file that
 from __future__ import annotations
 
 import re
+from pathlib import PurePosixPath
 
 from .extractors import drizzle, typescript
 from .sources import package_dependencies
@@ -20,6 +21,38 @@ OTHER_DATABASES = {
     "mongodb": "MongoDB",
     "mongoose": "MongoDB",
 }
+#: File endings of languages the app doesn't read. It only names them, so a skipped repo isn't silent.
+UNREAD_LANGUAGES = {
+    ".py": "Python",
+    ".java": "Java",
+    ".kt": "Kotlin",
+    ".go": "Go",
+    ".rb": "Ruby",
+    ".rs": "Rust",
+    ".cs": "C#",
+    ".php": "PHP",
+    ".swift": "Swift",
+    ".scala": "Scala",
+    ".ex": "Elixir",
+    ".exs": "Elixir",
+}
+
+
+def _unread_languages(source) -> list[dict]:
+    """One item per language the app doesn't read: most files first, then by name."""
+    folders: dict[str, dict[str, int]] = {}
+    for path in source.blobs:
+        language = UNREAD_LANGUAGES.get(PurePosixPath(path).suffix.lower())
+        if language:
+            top = path.split("/", 1)[0] + "/" if "/" in path else ""
+            counts = folders.setdefault(language, {})
+            counts[top] = counts.get(top, 0) + 1
+    found = []
+    for language in sorted(folders, key=lambda name: (-sum(folders[name].values()), name)):
+        counts = folders[language]
+        where = min(counts, key=lambda top: (-counts[top], top))
+        found.append({"what": f"{_count(sum(counts.values()), language + ' file')} it doesn't read", "where": where})
+    return found
 
 
 def _unread(source, extraction, tables: int) -> list[dict]:
@@ -30,6 +63,7 @@ def _unread(source, extraction, tables: int) -> list[dict]:
     unread = extraction.stats.get("drizzle_unread", [])
     if unread:
         found.append({"what": f"{_count(len(unread), 'part')} of a Drizzle schema it couldn't read", "where": unread[0]})
+    found.extend(_unread_languages(source))
     if tables:
         return found
     if "prisma/schema.prisma" in source.blobs:
