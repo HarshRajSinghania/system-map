@@ -115,15 +115,20 @@ _SET_ASIDE_SUFFIX = re.compile(r"\.\d{8}T\d{6}Z(-\d+)?$")
 
 #: Proposals, use cases and views are found by their id.
 ITEM_KEYS = ("id",)
+#: An agent draft is read for its settings and the commit they were tried on.
+DRAFT_KEYS = ("settings", "commit")
 
 
-def _shaped(raw: bytes, keys: tuple[str, ...]) -> tuple[bool, object]:
-    """Parse saved bytes. Every saved file is a JSON object, and `keys` must all be in it."""
+def _shaped(raw: bytes, keys: tuple[str, ...], each_object: bool = False) -> tuple[bool, object]:
+    """Parse saved bytes. Every saved file is a JSON object, and `keys` must all be in it.
+    With `each_object`, every value in it must be an object too."""
     try:
         value = json.loads(raw.decode("utf-8"))
-    except ValueError:
+    except (ValueError, RecursionError):  # nested too deep to parse counts as bad JSON
         return False, None
     if not isinstance(value, dict) or any(key not in value for key in keys):
+        return False, None
+    if each_object and not all(isinstance(inner, dict) for inner in value.values()):
         return False, None
     return True, value
 
@@ -141,15 +146,24 @@ def _reserve(base: Path) -> Path:
             number += 1
 
 
-def read_saved(target: Path, path: Path, default: object, keys: tuple[str, ...] = ()) -> object:
+def read_saved(target: Path, path: Path, default: object, keys: tuple[str, ...] = (), each_object: bool = False) -> object:
     """Read a saved JSON object. A missing one gives `default`. One that is not valid JSON, not an
-    object, or lacks a key in `keys` is moved to `<target>/unreadable/<its path>.<UTC stamp>`, bytes
-    unchanged, and gives `default`. A copy already there is never overwritten."""
+    object, lacks a key in `keys`, or (with `each_object`) holds a value that is not an object is moved
+    to `<target>/unreadable/<its path>.<UTC stamp>`, bytes unchanged, and gives `default`. A copy already
+    there is never overwritten. A file that can't be opened (no permission, a file where a folder
+    should be) gives `default`, stays where it is, and logs one line.
+
+    Two small windows stay open. A kill between claiming the copy's name and the move leaves an empty
+    copy. A save landing in the two calls between the re-read and the move is kept under `unreadable/`,
+    not lost."""
     try:
         raw = path.read_bytes()
     except (FileNotFoundError, IsADirectoryError):
         return default
-    good, value = _shaped(raw, keys)
+    except OSError as error:
+        print(f"system-map: could not read {path}: {error}", file=sys.stderr)
+        return default
+    good, value = _shaped(raw, keys, each_object)
     if good:
         return value
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
@@ -158,7 +172,7 @@ def read_saved(target: Path, path: Path, default: object, keys: tuple[str, ...] 
         reserved = _reserve(target / "unreadable" / f"{path.relative_to(target).as_posix()}.{stamp}")
         again = path.read_bytes()
         if again != raw:  # a writer replaced it since we read it
-            good, value = _shaped(again, keys)
+            good, value = _shaped(again, keys, each_object)
             if good:
                 reserved.unlink(missing_ok=True)
                 return value
@@ -175,8 +189,11 @@ def read_saved(target: Path, path: Path, default: object, keys: tuple[str, ...] 
 
 def _sweep(target: Path) -> None:
     """Read every saved file, so one that can't be read is set aside before anyone lists them."""
-    for name in ("coverage.json", "intent/plan_status.json", "intent/agents.json", "intent/regions.json", "intent/agents-draft.json"):
+    for name in ("coverage.json", "intent/agents.json"):
         read_saved(target, target / name, None)
+    for name in ("intent/plan_status.json", "intent/regions.json"):
+        read_saved(target, target / name, None, each_object=True)
+    read_saved(target, target / "intent" / "agents-draft.json", None, DRAFT_KEYS)
     for path in sorted((target / "reads").rglob("*.json")):
         read_saved(target, path, None)
     for kind in INTENT_KINDS:
@@ -612,7 +629,7 @@ def graph_of(shards: list[dict], externals: list[dict]) -> dict:
 
 
 def _plan_overrides(target: Path) -> dict[str, dict]:
-    return read_saved(target, target / "intent" / "plan_status.json", {})
+    return read_saved(target, target / "intent" / "plan_status.json", {}, each_object=True)
 
 
 def load_system(target: Path) -> dict:
@@ -713,7 +730,7 @@ def set_agent_settings(target: Path, settings: dict) -> dict:
 
 
 def load_regions(target: Path) -> dict[str, dict]:
-    return read_saved(target, target / "intent" / "regions.json", {})
+    return read_saved(target, target / "intent" / "regions.json", {}, each_object=True)
 
 
 def set_region(target: Path, node_id: str, region: str | None) -> dict:
