@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  versions:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.pick.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick the Kiro Crew versions to test
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          floor=$(jq -r .minKiroCrewVersion app.json)
+          tag=$(gh release view --repo kirodotdev/KiroCrew --json tagName --jq .tagName)
+          latest=${tag#v}
+          if [ "$floor" = "$latest" ]; then
+            matrix=$(jq -cn --arg v "$floor" '[{label: "floor", version: $v}]')
+          else
+            matrix=$(jq -cn --arg f "$floor" --arg l "$latest" '[{label: "floor", version: $f}, {label: "latest", version: $l}]')
+          fi
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "$matrix"
+
+  python:
+    name: python (${{ matrix.label }})
+    needs: versions
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJson(needs.versions.outputs.matrix) }}
+    env:
+      PGBIN: /usr/lib/postgresql/16/bin
+      GIT_AUTHOR_NAME: ci
+      GIT_AUTHOR_EMAIL: ci@example.com
+      GIT_COMMITTER_NAME: ci
+      GIT_COMMITTER_EMAIL: ci@example.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install the TypeScript compiler the tests use
+        run: npm ci
+        working-directory: ui
+      - name: Install Kiro Crew ${{ matrix.version }}
+        run: |
+          python -m venv "$RUNNER_TEMP/kirocrew"
+          "$RUNNER_TEMP/kirocrew/bin/pip" install "https://github.com/kirodotdev/KiroCrew/releases/download/v${{ matrix.version }}/kirocrew-${{ matrix.version }}-py3-none-any.whl"
+          echo "KIROCREW_PYTHON=$RUNNER_TEMP/kirocrew/bin/python" >> "$GITHUB_ENV"
+      - name: Put the runner's PostgreSQL 16 on PATH
+        run: echo "$PGBIN" >> "$GITHUB_PATH"
+      - name: Run every test, and fail on any skip
+        run: python3 tests/strict.py
+
+  ui:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+        working-directory: ui
+      - run: npm test
+        working-directory: ui
+      - run: npm run typecheck
+        working-directory: ui
+      - run: npm run build
+        working-directory: ui
+      - name: Fail if ui/dist is not the committed build
+        run: |
+          changed=$(git status --porcelain ui/dist)
+          if [ -n "$changed" ]; then
+            echo "ui/dist differs from the committed build. Run 'npm run build' in ui and commit ui/dist:"
+            echo "$changed"
+            exit 1
+          fi

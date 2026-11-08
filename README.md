@@ -248,8 +248,12 @@ Host rules learned while building it are in `docs/platform-notes.md`, and what's
 
 ```bash
 python3 -m unittest discover -s tests
+python3 tests/strict.py
 (cd ui && npm test && npm run typecheck && npm run build)
 ```
+
+`tests/strict.py` runs the same tests but fails on any skip, and prints each skipped test with its
+reason. CI runs every PR against the oldest supported and the newest Kiro Crew.
 
 The replay test needs Postgres server binaries. Set `PGBIN` if they are not in
 `/usr/lib/postgresql/16/bin`. The compiler test needs `npm install` in `ui`. The host contract tests
