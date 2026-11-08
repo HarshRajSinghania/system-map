@@ -157,6 +157,40 @@ def compare_table_calls(model: dict[str, list[dict]], truth: dict[str, list[dict
     return diffs
 
 
+def compare_sdk_agents(nodes: list[dict], edges: list[dict], truth: dict) -> dict:
+    """Compare the SDK agents and hand-offs the model found with the compiler's answer.
+
+    Agents are compared by (sdk, name), hand-offs by (from, to). Returns what matched, what
+    differs, and what the compiler could not read (which is not a difference).
+    """
+    ours = {(node["sdk"], node["name"]): node["evidence"][0] for node in nodes if node.get("kind") == "agent" and node.get("source") == "sdk"}
+    theirs: dict[tuple[str, str], str] = {}
+    for agent in truth["agents"]:
+        theirs.setdefault((agent["sdk"], agent["name"]), f"{agent['path']}:{agent['line']}")
+    names = {node["id"]: node["name"] for node in nodes if node.get("kind") == "agent" and node.get("source") == "sdk"}
+    linked = {
+        (names[edge["source"]], names[edge["target"]]): edge["evidence"][0]
+        for edge in edges
+        if edge["kind"] == "hands_off_to" and edge["source"] in names and edge["target"] in names
+    }
+    cited = {(item["from"], item["to"]): f"{item['path']}:{item['line']}" for item in truth.get("hand_offs", [])}
+    diffs = []
+    for what, found, real in (("agent", ours, theirs), ("hand_off", linked, cited)):
+        for key in sorted(found.keys() - real.keys()):
+            diffs.append({"what": what, "only_in": "model", "item": list(key), "at": found[key]})
+        for key in sorted(real.keys() - found.keys()):
+            diffs.append({"what": what, "only_in": "compiler", "item": list(key), "at": real[key]})
+    matched: dict[str, int] = {}
+    for sdk, _ in ours.keys() & theirs.keys():
+        matched[sdk] = matched.get(sdk, 0) + 1
+    return {
+        "agents_matched": dict(sorted(matched.items())),
+        "hand_offs_matched": len(linked.keys() & cited.keys()),
+        "unreadable": truth.get("unreadable", []),
+        "differences": diffs,
+    }
+
+
 def route_tree_paths(text: str) -> set[str]:
     """Read every full path from a TanStack `routeTree.gen.ts`."""
     block = re.search(r"interface FileRoutesByFullPath \{(.*?)\n\}", text, re.S)
