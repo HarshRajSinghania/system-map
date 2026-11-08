@@ -5,7 +5,7 @@ import { jsxs as k, jsx as u, Fragment as me } from "react/jsx-runtime";
 import { useTheme as Qa, useAppApi as Ja, ChatEmbed as ru } from "@kirocrew/app-sdk";
 import { Badge as xe, Btn as ie, Input as jr, PageHeader as Ti, ContentSkeleton as si, EmptyState as el, Card as Po, CardTitle as ys, SegmentedControl as ou } from "@kirocrew/app-sdk/ui";
 import Li, { useState as J, useMemo as le, memo as he, forwardRef as tl, createContext as Yr, useCallback as Ie, useContext as nn, useRef as oe, useEffect as ce, useLayoutEffect as zi } from "react";
-import { s as rn, M as Y, a as we, A as $e, S as Dn, p as Gr, N as iu, D as nl, b as su, r as au, C as rl, c as Gt, d as Xt, e as lu, f as cu, g as du, h as uu, w as fu, t as hu, G as pu, i as gu, j as mu, k as yu, u as wu, l as bu, m as vu, n as Wt, o as Do, q as xu, v as _u, x as ku, y as Eu, z as Su, B as Nu, E as Cu, F as Mu, H as $u, I as Iu, J as Au, K as Tu, T as Lu, L as zu, O as Ou, P as ut, Q as lt, R as Pu, U as Du, V as Ru, W as Hu, X as Wu } from "./chunks/ProjectMenu-DnPKNLtA.mjs";
+import { s as rn, M as Y, a as we, A as $e, S as Dn, p as Gr, N as iu, D as nl, b as su, r as au, C as rl, c as Gt, d as Xt, e as lu, f as cu, g as du, h as uu, w as fu, t as hu, G as pu, i as gu, j as mu, k as yu, u as wu, l as bu, m as vu, n as Wt, o as Do, q as xu, v as _u, x as ku, y as Eu, z as Su, B as Nu, E as Cu, F as Mu, H as $u, I as Iu, J as Au, K as Tu, T as Lu, L as zu, O as Ou, P as ut, Q as lt, R as Pu, U as Du, V as Ru, W as Hu, X as Wu } from "./chunks/ProjectMenu-D_r8rLwY.mjs";
 import "react-dom";
 const ol = [
   { key: "all", label: "All", title: "Every agent" },

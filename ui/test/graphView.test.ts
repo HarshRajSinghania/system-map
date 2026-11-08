@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { CARD_HEIGHT, CARD_WIDTH, GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, agentsView, buildView, fileCount, savedView, shortPath, trailFor } from '../src/graphView.ts'
+import { agentSubtitle, CARD_HEIGHT, CARD_WIDTH, GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, agentsView, buildView, fileCount, savedView, shortPath, trailFor } from '../src/graphView.ts'
 import { extent, layoutView, readableLayout } from '../src/layout.ts'
 import type { MapView } from '../src/graphView.ts'
 import type { SystemEdge, SystemGraph, SystemNode } from '../src/model.ts'
@@ -241,6 +241,17 @@ test('an agent card says its jobs, when it is not built, and when it asks you', 
   assert.equal(cards.get('agent:intake')?.subtitle, '2 jobs')
   assert.equal(cards.get('agent:inbox')?.status, 'planned')
   assert.equal(cards.get('service:anthropic')?.subtitle, 'US')
+})
+
+test('an SDK agent card names its SDK instead of a job count', () => {
+  const sdkAgent = (sdk: string) => node('agent:a', 'agent', { source: 'sdk', sdk, jobs: [] })
+  assert.equal(agentSubtitle(sdkAgent('@openai/agents')), 'OpenAI Agents')
+  assert.equal(agentSubtitle(sdkAgent('@mastra/core')), 'Mastra')
+  assert.equal(agentSubtitle(sdkAgent('@anthropic-ai/claude-agent-sdk')), 'Claude Agent SDK')
+  assert.equal(agentSubtitle(sdkAgent('@acme/agents')), '@acme/agents')
+  assert.equal(agentSubtitle(node('agent:b', 'agent', { source: 'list', jobs: ['job:x', 'job:y'] })), '2 jobs')
+  assert.equal(agentSubtitle(node('agent:c', 'agent', { source: 'list', jobs: ['job:x'] })), '1 job')
+  assert.equal(agentsView({ nodes: [sdkAgent('@mastra/core')], edges: [] }).cards[0]?.subtitle, 'Mastra')
 })
 
 test('models stand out on the Agents layer, and only there', () => {
