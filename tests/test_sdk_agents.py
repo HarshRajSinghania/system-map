@@ -316,6 +316,13 @@ class NoSdk(Fixture):
         self.assertEqual(self.agent_ids(), {"agent:mail"})
         self.assertNotIn("sdk", self.nodes["agent:mail"])
 
+    def test_an_ai_sdk_provider_package_alone_gives_the_service(self):
+        # Criterion 6 holds except for this: `@ai-sdk/openai` is a provider whatever agent SDK is used.
+        code = 'import { openai } from "@ai-sdk/openai";\nexport const model = openai("gpt-4o");\n'
+        self.build({"package.json": package("@ai-sdk/openai"), "src/model.ts": code})
+        self.assertIn("service:openai", self.nodes)
+        self.assertEqual(self.agent_ids(), set())
+
     def test_rows_of_other_agents_have_no_sdk_key(self):
         self.build(self.LISTED, self.SETTINGS)
         row = agents.rows(self.joined)[0]
@@ -352,6 +359,15 @@ class Merge(Fixture):
     def test_links_into_the_listed_agent_stay(self):
         self.build(self.FILES, {"list": "src/registry.ts"})
         self.assertIn(("agent:triage", "hands_off_to", "agent:billing"), self.edges)
+
+    def test_a_start_of_the_listed_agent_stays_and_its_own_outgoing_links_go(self):
+        files = dict(self.FILES, **{"src/main.ts": 'import { run } from "@openai/agents";\nimport { billing } from "./agents";\nexport const go = () => run(billing, "hi");\n'})
+        files["src/agents.ts"] = OPENAI_AGENTS.replace("model: \"gpt-4.1\"", "handoffs: [support], model: \"gpt-4.1\"")
+        self.build(files, {"list": "src/registry.ts"})
+        starts = {(source, target) for source, target in self.links("starts")}
+        self.assertEqual({target for _, target in starts}, {"agent:billing"})
+        self.assertTrue(next(iter(starts))[0].startswith("module:"))
+        self.assertNotIn(("agent:billing", "hands_off_to", "agent:support"), self.edges)
 
     def test_listed_and_sdk_agents_sit_side_by_side(self):
         files = dict(self.FILES, **{"src/registry.ts": 'export const AGENTS = [\n  { name: "mail", handlers: { "mail.read": 1 } },\n];\n'})

@@ -7,7 +7,7 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 - Work from `main`, on version 0.11.0. Each change goes on its own branch, with a PR into
   `main`. The remote, `origin`, is a private GitHub repo. The older slice branches are kept, and
   `main` holds all of them.
-- Run the checks in the README's Checks section. All pass on `main`: 938 Python tests and
+- Run the checks in the README's Checks section. All pass on `main`: 952 Python tests and
   110 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
@@ -100,7 +100,8 @@ These are named on screen, not hidden. Each is a choice, not a bug.
 | An agent exported, then imported | `core/sdk_agents.py` | An `export default` agent is not followed by import |
 | `Runner.run` and `mastra.getAgent("name")` | `core/sdk_agents.py` | Only `run(agent, …)`, `agent.generate` and `agent.stream` start an agent, so other ways in show no start |
 | Imports from `@openai/agents-core` | `core/sdk_agents.py` | Only `@openai/agents` is read. A project that imports `Agent` from the core package gives no agents |
-| A hand-off list or `handoff(...)` held in a variable | `core/sdk_agents.py` | A hand-off list, or a `handoff(...)` call, held in a variable is not followed. In the official examples, 3 of 24 hand-offs were skipped this way |
+| A hand-off list held in a variable | `core/sdk_agents.py` | A `handoffs` list that is a variable, or a `handoff(...)` variable imported from another file, is not followed. A `const x = handoff(agent)` in scope, listed in `handoffs`, is |
+| A local class named `Agent` | `core/sdk_agents.py` | A `const Agent = class {}` inside a function, where `Agent` is also imported from the SDK, still counts as the SDK class. Text can't tell the two apart without scopes for imports |
 | Claude subagents in `.claude/agents/*.md` | `core/sdk_agents.py` | Only the keys of `options.agents` in code are read, not subagents defined as files |
 | Agents in test files, or outside the code root | `core/sdk_agents.py` | Skipped on purpose. `verify-sdk` lists them under `skipped`: 3 in test files and 1 outside `src/` in the official examples |
 

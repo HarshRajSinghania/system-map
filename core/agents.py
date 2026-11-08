@@ -638,8 +638,9 @@ def find(source, project, settings: dict, nodes: list[dict], job_calls: dict[str
     """Agent nodes, and their links: what starts each one, hand-offs and the models it uses.
 
     Listed and marked agents come first. The agents of the SDKs the project lists are added
-    beside them, and one with the name of a listed or marked agent is left out, with the links
-    it would have made, since the listed one is the person's word.
+    beside them. An SDK agent with the name of a listed or marked agent is the same agent, and
+    the listed one is the person's word, so its node is left out. Links into it stay, aimed at
+    the listed agent: a `starts`, or another agent's hand-off. Only its own outgoing links go.
     """
     every = set(source.list_files())
     config = next((name for name in ("tsconfig.json", "jsconfig.json") if name in every), None)
