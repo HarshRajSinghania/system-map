@@ -75,6 +75,30 @@ class CompareSdkAgents(unittest.TestCase):
         self.assertEqual(found["differences"], [])
         self.assertEqual(found["agents_matched"][OPENAI], 2)
 
+    def test_a_compiler_only_agent_in_a_test_file_is_a_skip_not_a_difference(self):
+        self.truth["agents"].append(truth_agent("probe", OPENAI, "src/a.test.ts", 4))
+        found = verify.compare_sdk_agents(self.nodes, self.edges, self.truth)
+        self.assertEqual(found["differences"], [])
+        self.assertEqual(found["skipped"], [{"what": "agent", "only_in": "compiler", "item": [OPENAI, "probe"], "at": "src/a.test.ts:4", "why": "in a test file"}])
+
+    def test_a_compiler_only_agent_outside_the_code_root_is_a_skip(self):
+        self.truth["agents"].append(truth_agent("demo", OPENAI, "scripts/demo.ts", 2))
+        found = verify.compare_sdk_agents(self.nodes, self.edges, self.truth, "src/")
+        self.assertEqual(found["differences"], [])
+        self.assertEqual([(s["item"], s["why"]) for s in found["skipped"]], [([OPENAI, "demo"], "outside the code root (src/)")])
+
+    def test_outside_the_root_is_a_difference_when_there_is_no_code_root(self):
+        self.truth["agents"].append(truth_agent("demo", OPENAI, "scripts/demo.ts", 2))
+        found = verify.compare_sdk_agents(self.nodes, self.edges, self.truth)
+        self.assertEqual(len(found["differences"]), 1)
+        self.assertEqual(found["skipped"], [])
+
+    def test_a_model_only_agent_in_a_test_file_is_still_a_difference(self):
+        self.nodes.append(node("ghost", OPENAI, "src/b.test.ts:3"))
+        found = verify.compare_sdk_agents(self.nodes, self.edges, self.truth)
+        self.assertEqual(len(found["differences"]), 1)
+        self.assertEqual(found["skipped"], [])
+
     def test_unreadable_names_are_passed_on_and_are_not_differences(self):
         self.truth["unreadable"] = [{"path": "d.ts", "line": 6, "why": "name is not a string literal type (string)"}]
         found = verify.compare_sdk_agents(self.nodes, self.edges, self.truth)

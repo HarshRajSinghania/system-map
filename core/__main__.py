@@ -98,11 +98,14 @@ def check_code(repo_root: Path, truth_path: Path) -> int:
 def check_sdk(repo_root: Path, truth_path: Path) -> int:
     """Compare the SDK agents and hand-offs found in a folder with the compiler's answer."""
     truth = json.loads(truth_path.read_text(encoding="utf-8"))
-    joined = system.build(TreeSource(repo_root), [], None)
-    found = verify.compare_sdk_agents(joined["nodes"], joined["edges"], truth)
-    print(json.dumps({key: found[key] for key in ("agents_matched", "hand_offs_matched")} | {"unreadable": len(found["unreadable"]), "differences": len(found["differences"])}))
+    source = TreeSource(repo_root)
+    joined = system.build(source, [], None)
+    found = verify.compare_sdk_agents(joined["nodes"], joined["edges"], truth, typescript.code_root_of(source))
+    print(json.dumps({key: found[key] for key in ("agents_matched", "hand_offs_matched")} | {"unreadable": len(found["unreadable"]), "skipped": len(found["skipped"]), "differences": len(found["differences"])}))
     for item in found["unreadable"]:
         print(f"unreadable: {item['path']}:{item['line']} {item['why']}")
+    for item in found["skipped"]:
+        print(f"skipped: {item['at']} {item['what']} {' -> '.join(item['item'])} ({item['why']})")
     for diff in found["differences"]:
         print(f"{diff['at']} {diff['what']} {' -> '.join(diff['item'])} only in {diff['only_in']}")
     return 1 if found["differences"] else 0
