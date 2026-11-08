@@ -241,7 +241,7 @@ def _hash(value: object) -> str:
 def _fingerprint(source, agent_settings: dict | None = None) -> tuple[str, dict[str, str], str]:
     """Hash the ids of every input, without reading a single file. Agent settings count too."""
     if not extractors.extractor_for(source) and not typescript.detect(source):
-        raise ValueError(f"{source.root} has no code or schema that System Map can read.")
+        raise ValueError(build_read.refusal(source))
     inputs = extractors.inputs(source)
     map_hash = _hash(_map_inputs(source))
     parts = [_builder_id(), inputs, map_hash] + ([agent_settings] if agent_settings else [])

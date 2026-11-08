@@ -107,6 +107,18 @@ def summary(source, extraction, joined: dict) -> dict:
     }
 
 
+def not_read(items: list[dict]) -> str:
+    """The `Not read: ...` sentence, for `tell` and for a build that refuses a repo."""
+    return "Not read: " + "; ".join(item["what"] + (f" ({item['where']})" if item["where"] else "") for item in items) + "."
+
+
+def refusal(source) -> str:
+    """Why a repo with no code or schema is refused, naming the languages it has that the app doesn't read."""
+    message = f"{source.root} has no code or schema that System Map can read."
+    languages = _unread_languages(source)
+    return f"{message} {not_read(languages)}" if languages else message
+
+
 def tell(read: dict) -> str:
     """One line for the overview, so an agent knows the model's reach before relying on it."""
     schema = f"{_count(read['tables'], 'table')} from {read['engine']}" if read["engine"] else "no schema"
@@ -116,5 +128,5 @@ def tell(read: dict) -> str:
         parts.append("no git history, so risk has no churn and there are no worktrees")
     line = "Read: " + "; ".join(parts) + "."
     if read["unread"]:
-        line += " Not read: " + "; ".join(item["what"] + (f" ({item['where']})" if item["where"] else "") for item in read["unread"]) + "."
+        line += " " + not_read(read["unread"])
     return line
