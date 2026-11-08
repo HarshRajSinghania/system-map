@@ -40,6 +40,7 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 | Singular wording: "0 of 1 files", "1 of 1 worktrees have changes" | `ui/src/Risk.tsx:42`, `ui/src/Worktrees.tsx:183` | One thing reads as one, with a test |
 | Table list labels: "at work" is vague, and two numbers have no heading | `TableList` in `ui/src/parts.tsx` | Someone new can read a row without hovering |
 | Scope document is out of date | KiroCrew artifact `system-map-app-scope` | It says slices 0 to 6, and drops the done risk and store items |
+| `sdk_truth.mjs` gaps found on the SDKs' own packages | `scripts/sdk_truth.mjs` | It no longer crashes on a package as large as Mastra's own `packages/core`, and it reads a plain `new Agent({ id, name: "…", … })` in Mastra's `workflows/_test-utils` as an agent, where it now says the config isn't an object literal (12 agents) |
 
 The numbers in a table row are findings, then columns. Hovering shows that, and nothing else does.
 
@@ -97,12 +98,13 @@ These are named on screen, not hidden. Each is a choice, not a bug.
 | SDK listed only in a sub-package | `core/sdk_agents.py` | A reader runs only when the root `package.json` lists the SDK, so a project that lists it only in a workspace package gives no SDK agents. Seen on a whole monorepo of official examples |
 | Asks you from SDK approval hooks | `core/sdk_agents.py` | An SDK agent never shows as asking you, since its approval hooks are not read |
 | Agent subclasses | `core/sdk_agents.py` | `RealtimeAgent`, `SandboxAgent` and other classes that extend an SDK's `Agent` are not read |
-| An agent exported, then imported | `core/sdk_agents.py` | An `export default` agent is not followed by import |
+| An agent exported, then imported | `core/sdk_agents.py` | An `export default` agent is not followed by import. A Mastra agent renamed in a re-export, `export { agent as weather }`, shows no start from `weather.generate(…)` |
 | `Runner.run` and `mastra.getAgent("name")` | `core/sdk_agents.py` | Only `run(agent, …)`, `agent.generate` and `agent.stream` start an agent, so other ways in show no start |
 | Imports from `@openai/agents-core` | `core/sdk_agents.py` | Only `@openai/agents` is read. A project that imports `Agent` from the core package gives no agents |
 | A hand-off list held in a variable | `core/sdk_agents.py` | A `handoffs` list that is a variable, or a `handoff(...)` variable imported from another file, is not followed. A `const x = handoff(agent)` in scope, listed in `handoffs`, is |
 | A local class named `Agent` | `core/sdk_agents.py` | A `const Agent = class {}` inside a function, where `Agent` is also imported from the SDK, still counts as the SDK class. Text can't tell the two apart without scopes for imports |
 | Claude subagents in `.claude/agents/*.md` | `core/sdk_agents.py` | Only the keys of `options.agents` in code are read, not subagents defined as files |
+| SDK imports through CommonJS `require` | `core/sdk_agents.py` | Only `import` statements are read, so an agent in a file that gets `Agent` with `require("@openai/agents")` is missed. Seen in a `.cjs` integration test of the OpenAI SDK |
 | Agents in test files, or outside the code root | `core/sdk_agents.py` | Skipped on purpose. `verify-sdk` lists them under `skipped`: 3 in test files and 1 outside `src/` in the official examples |
 
 ## Screen walks
