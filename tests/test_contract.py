@@ -77,6 +77,11 @@ class StoreListing(unittest.TestCase):
         self.assertNotIn(MANIFEST["name"], RESERVED)
         self.assertTrue(SEMVER.fullmatch(MANIFEST["version"]), MANIFEST["version"])
 
+    def test_the_manifest_names_the_oldest_kiro_crew_it_needs(self):
+        # 0.12.0 added `backend.signedPrincipal`, which the backend's person-only routes rely on.
+        self.assertTrue(MANIFEST["backend"]["signedPrincipal"])
+        self.assertEqual(MANIFEST["minKiroCrewVersion"], "0.12.0")
+
     def test_the_required_fields_are_filled(self):
         for key in ("name", "version", "displayName", "description"):
             with self.subTest(key=key):

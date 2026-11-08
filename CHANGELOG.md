@@ -15,6 +15,11 @@ commit that set the version in `app.json`. The format follows
   folder window, and browsing or listing folders. Anything else answers 403. Reading the built
   models is unchanged, and `ui/dev` still counts as the person.
 
+### Changed
+- The app now says it needs Kiro Crew 0.12.0 or newer (`minKiroCrewVersion`). 0.12.0 is the first
+  release with `backend.signedPrincipal`; 0.11.2 has the v2 proxy signature and panel tabs but not
+  that.
+
 ### Fixed
 - Every git call now runs with `GIT_OPTIONAL_LOCKS=0` and no file-system monitor, so reading a repo
   never refreshes its `.git/index` or takes `index.lock`, and the worktree poll cannot collide with

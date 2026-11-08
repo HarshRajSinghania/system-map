@@ -7,7 +7,7 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 - Work from `main`, on version 0.12.1. Each change goes on its own branch, with a PR into
   `main`. The remote, `origin`, is a private GitHub repo. The older slice branches are kept, and
   `main` holds all of them.
-- Run the checks in the README's Checks section. All pass on `main`: 965 Python tests and
+- Run the checks in the README's Checks section. All pass on `main`: 987 Python tests and
   116 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
