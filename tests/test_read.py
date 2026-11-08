@@ -202,6 +202,34 @@ class WhatItCouldntRead(Build):
         with self.assertRaisesRegex(ValueError, "no code or schema"):
             self.build()
 
+    def refusal(self) -> str:
+        with self.assertRaises(ValueError) as caught:
+            self.build()
+        return str(caught.exception)
+
+    def test_a_refused_python_only_repo_names_the_language_it_does_not_read(self):
+        self.write("core/a.py", "x = 1\n")
+        self.write("core/b.py", "x = 1\n")
+        self.assertEqual(self.refusal(), f"{self.root} has no code or schema that System Map can read. Not read: 2 Python files it doesn't read (core/).")
+
+    def test_a_refused_repo_joins_two_languages_in_the_order_tell_uses(self):
+        self.write("a.py", "x = 1\n")
+        self.write("x.go", "package main\n")
+        self.write("y.go", "package main\n")
+        self.assertEqual(
+            self.refusal(),
+            f"{self.root} has no code or schema that System Map can read. Not read: 2 Go files it doesn't read; 1 Python file it doesn't read.",
+        )
+
+    def test_a_refused_folder_with_nothing_to_name_keeps_the_plain_message(self):
+        self.write("notes.txt", "hello\n")
+        self.assertEqual(self.refusal(), f"{self.root} has no code or schema that System Map can read.")
+
+    def test_a_refused_repo_with_python_only_under_vendor_keeps_the_plain_message(self):
+        self.write("vendor/lib/a.py", "x = 1\n")
+        self.write("vendor/lib/b.py", "x = 1\n")
+        self.assertEqual(self.refusal(), f"{self.root} has no code or schema that System Map can read.")
+
 
 class ProductBriefs(Build):
     def plans(self) -> list[dict]:
