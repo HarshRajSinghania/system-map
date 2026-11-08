@@ -458,6 +458,9 @@ PERSON_ROUTES = (
     ("POST", "/default-folder", {"folder": "/nonexistent-folder-for-test"}),
     ("POST", "/folder-window", {}),
     ("POST", "/folder-window-close", {}),
+    ("POST", "/agents/settings", {"repo": "nope", "settings": {}}),
+    ("POST", "/regions", {"repo": "nope", "id": "x", "region": "US"}),
+    ("POST", "/plan-status", {"repo": "nope", "id": "x", "status": "done"}),
     ("POST", "/proposal-status", {"repo": "nope", "id": "x", "status": "accepted"}),
     ("POST", "/intent-delete", {"repo": "nope", "kind": "proposals", "id": "x"}),
     ("GET", "/browse", None),
@@ -559,8 +562,7 @@ class Person(Served):
     def test_an_agent_can_still_rebuild_a_listed_project(self):
         self.assertEqual(self.code("POST", "/build", {}, kind="agent-tool"), 200)
 
-    def test_an_agent_can_still_write_the_apps_own_data(self):
-        self.assertNotEqual(self.code("POST", "/plan-status", {"repo": "nope"}, kind="agent-tool"), 403)
+    def test_an_agent_can_still_load_coverage(self):
         self.assertNotEqual(self.code("POST", "/coverage", {"repo": "nope"}, kind="agent-tool"), 403)
 
 

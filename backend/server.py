@@ -59,7 +59,7 @@ MAX_PRINCIPAL_BYTES = 4096
 #: Routes only a person in the dashboard may use: they act for the person or touch the file
 #: system beyond the built models. Matched the way the routes are, by the end of the path.
 PERSON_GETS = ("/workspaces", "/folder-window", "/browse")
-PERSON_POSTS = ("/folder-window", "/folder-window-close", "/default-folder", "/repo-remove", "/agents/draft", "/proposal-status", "/intent-delete")
+PERSON_POSTS = ("/folder-window", "/folder-window-close", "/default-folder", "/repo-remove", "/agents/draft", "/proposal-status", "/intent-delete", "/agents/settings", "/regions", "/plan-status")
 NOT_A_PERSON = "Only a person in the dashboard can do this."
 _STAMP = re.compile(r"[0-9]{1,12}")
 _NONCE = re.compile(r"[0-9a-f]{32}")

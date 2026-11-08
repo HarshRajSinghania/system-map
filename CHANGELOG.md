@@ -10,10 +10,11 @@ commit that set the version in `app.json`. The format follows
 ### Security
 - Actions only a person should take now need Kiro Crew's signed principal claim to say a person in
   the dashboard sent them (`backend.signedPrincipal`), not an agent or tool calling through the
-  gateway. This covers using or dropping an agent draft, accepting or dropping a proposal, deleting
-  an intent item, building a folder by path, removing a project, setting the default folder, the
-  folder window, and browsing or listing folders. Anything else answers 403. Reading the built
-  models is unchanged, and `ui/dev` still counts as the person.
+  gateway. This covers the Intent layer (agent settings, service regions, plan status, using or
+  dropping an agent draft, accepting or dropping a proposal, deleting an intent item), building a
+  folder by path, removing a project, setting the default folder, the folder window, and browsing
+  or listing folders. Those answer 403. Reading the built models, rebuilding a listed project and
+  loading coverage are unchanged, and `ui/dev` still counts as the person.
 
 ### Changed
 - The app now says it needs Kiro Crew 0.12.0 or newer (`minKiroCrewVersion`). 0.12.0 is the first
