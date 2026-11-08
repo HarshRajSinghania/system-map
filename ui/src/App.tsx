@@ -684,6 +684,7 @@ function ProjectPage({
               commit={overview.manifest.commit}
               builtAt={overview.manifest.built_at}
               read={overview.manifest.read}
+              setAside={overview.set_aside}
               busy={rebuilding}
               result={rebuilt}
               onRebuild={() => void rebuild()}

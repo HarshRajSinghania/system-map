@@ -33,15 +33,16 @@ def _path(target: Path, kind: str, item_id: str) -> Path:
 
 def list_items(target: Path, kind: str) -> list[dict]:
     folder = _folder(target, kind)
-    rows = [json.loads(path.read_text(encoding="utf-8")) for path in folder.glob("*.json")] if folder.is_dir() else []
+    found = [store.read_saved(target, path, None) for path in folder.glob("*.json")] if folder.is_dir() else []
+    rows = [row for row in found if row is not None]
     return sorted(rows, key=lambda row: (-row.get("updated_at", 0), row["id"]))
 
 
 def get_item(target: Path, kind: str, item_id: str) -> dict:
-    path = _path(target, kind, item_id)
-    if not path.is_file():
+    item = store.read_saved(target, _path(target, kind, item_id), None)
+    if item is None:
         raise KeyError(f"no {kind} {item_id!r}")
-    return json.loads(path.read_text(encoding="utf-8"))
+    return item
 
 
 def _save(target: Path, kind: str, body: dict, item_id: str | None) -> dict:

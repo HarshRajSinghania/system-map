@@ -1,13 +1,15 @@
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from core import findings, store, verify  # noqa: E402
+from core import agent_drafts, explore, findings, store, verify  # noqa: E402
 from core.sources import GitSource, TreeSource, canonical_root, default_ref  # noqa: E402
 from helpers import commit_all, git, write_migration  # noqa: E402
 
@@ -448,6 +450,131 @@ class Compare(unittest.TestCase):
         files = {"m.sql": "create table t (\n  wrong int\n);"}
         bad = verify.source_lines_name_their_facts([shard], files.__getitem__)
         self.assertEqual([b["fact"] for b in bad], ["id"])
+
+
+BROKEN = b'{"half": \xff'
+STAMP = "20261108T120000Z"
+
+
+class SetAside(Fixture):
+    """A saved file that can't be read is moved to unreadable/ and the reader carries on."""
+
+    def setUp(self):
+        super().setUp()
+        patch = mock.patch("core.store.time.strftime", return_value=STAMP)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def broken(self, relative: str) -> Path:
+        path = self.target / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(BROKEN)
+        return path
+
+    def assert_kept(self, relative: str) -> None:
+        kept = self.target / "unreadable" / f"{relative}.{STAMP}"
+        self.assertEqual(kept.read_bytes(), BROKEN)
+        self.assertFalse((self.target / relative).exists())
+
+    def test_each_saved_file_reads_as_its_empty_default_and_is_kept(self):
+        cases = (
+            ("intent/plan_status.json", lambda: store._plan_overrides(self.target), {}),
+            ("intent/agents.json", lambda: store.load_agent_settings(self.target), {}),
+            ("intent/regions.json", lambda: store.load_regions(self.target), {}),
+            ("coverage.json", lambda: store.load_coverage(self.target), None),
+            ("reads/table_public.orgs/a.json", lambda: store.load_notes(self.target, "table:public.orgs"), []),
+            ("intent/proposals/p.json", lambda: explore.list_items(self.target, "proposals"), []),
+            ("intent/use_cases/u.json", lambda: explore.list_items(self.target, "use_cases"), []),
+            ("intent/views/v.json", lambda: explore.list_items(self.target, "views"), []),
+            ("intent/agents-draft.json", lambda: agent_drafts.load(self.target)["draft"], None),
+        )
+        for relative, read, empty in cases:
+            with self.subTest(relative):
+                self.broken(relative)
+                self.assertEqual(read(), empty)
+                self.assert_kept(relative)
+
+    def test_a_bad_proposal_is_a_missing_one_and_a_bad_draft_is_a_missing_draft(self):
+        self.broken("intent/proposals/p.json")
+        with self.assertRaises(KeyError):
+            explore.get_item(self.target, "proposals", "p")
+        self.assert_kept("intent/proposals/p.json")
+        self.broken("intent/agents-draft.json")
+        with self.assertRaises(KeyError):
+            agent_drafts._read(self.target, "any")
+        self.assert_kept("intent/agents-draft.json")
+
+    def test_one_bad_file_in_a_folder_hides_none_of_the_others(self):
+        folder = self.target / "intent" / "proposals"
+        self.broken("intent/proposals/bad.json")
+        (folder / "good.json").write_text(json.dumps({"id": "good", "updated_at": 5}))
+        self.assertEqual([row["id"] for row in explore.list_items(self.target, "proposals")], ["good"])
+        self.assert_kept("intent/proposals/bad.json")
+        self.assertTrue((folder / "good.json").is_file())
+
+    def test_notes_beside_a_bad_one_still_load(self):
+        store.add_note(self.target, "table:public.orgs", "Core table.", ["supabase/migrations/001.sql:3"])
+        self.broken("reads/table_public.orgs/aaa.json")
+        self.assertEqual([n["text"] for n in store.load_notes(self.target, "table:public.orgs")], ["Core table."])
+
+    def test_a_missing_file_gives_the_default_and_keeps_nothing(self):
+        self.assertEqual(store.load_regions(self.target), {})
+        self.assertEqual(store.set_aside(self.target), [])
+
+    def test_a_good_file_is_left_alone(self):
+        path = self.target / "intent" / "regions.json"
+        path.parent.mkdir(parents=True)
+        path.write_text('{"svc": {"region": "eu"}}')
+        self.assertEqual(store.load_regions(self.target), {"svc": {"region": "eu"}})
+        self.assertTrue(path.is_file())
+        self.assertEqual(store.set_aside(self.target), [])
+
+    def test_a_second_bad_file_of_the_same_name_keeps_both(self):
+        for suffix in ("", "-2", "-3"):
+            self.broken("intent/regions.json")
+            store.load_regions(self.target)
+            kept = self.target / "unreadable" / f"intent/regions.json.{STAMP}{suffix}"
+            self.assertEqual(kept.read_bytes(), BROKEN)
+
+    def test_set_aside_lists_what_was_kept_sorted(self):
+        self.broken("intent/regions.json")
+        self.broken("coverage.json")
+        store.load_regions(self.target)
+        store.load_coverage(self.target)
+        self.assertEqual(
+            store.set_aside(self.target),
+            [
+                {"file": "coverage.json", "kept_as": f"unreadable/coverage.json.{STAMP}"},
+                {"file": "intent/regions.json", "kept_as": f"unreadable/intent/regions.json.{STAMP}"},
+            ],
+        )
+
+    def test_the_stamp_is_utc_to_the_second(self):
+        mock.patch.stopall()
+        self.broken("intent/regions.json")
+        store.load_regions(self.target)
+        (kept,) = (self.target / "unreadable" / "intent").iterdir()
+        self.assertRegex(kept.name, r"^regions\.json\.\d{8}T\d{6}Z$")
+
+    def test_a_request_that_loses_the_race_still_succeeds_with_one_copy_kept(self):
+        path = self.broken("intent/regions.json")
+        real = os.replace
+
+        def other_request_moved_it_first(source, destination):
+            real(source, destination)
+            raise FileNotFoundError(source)
+
+        with mock.patch("core.store.os.replace", side_effect=other_request_moved_it_first):
+            self.assertEqual(store.load_regions(self.target), {})
+        self.assertFalse(path.exists())
+        self.assert_kept("intent/regions.json")
+        self.assertEqual(len(store.set_aside(self.target)), 1)
+
+    def test_a_file_gone_before_it_is_read_gives_the_default(self):
+        self.broken("intent/regions.json")
+        with mock.patch.object(Path, "read_text", side_effect=FileNotFoundError):
+            self.assertEqual(store.load_regions(self.target), {})
+        self.assertEqual(store.set_aside(self.target), [])
 
 
 if __name__ == "__main__":

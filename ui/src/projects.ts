@@ -25,6 +25,12 @@ export interface Freshness {
   error?: string
 }
 
+/** A saved file that could not be read, and where it was kept. */
+export interface SetAside {
+  file: string
+  kept_as: string
+}
+
 export interface BuildRead {
   engine: string | null
   schema_files: string[]
@@ -94,6 +100,11 @@ export function readLines(read: BuildRead): string[] {
   ]
   if (!read.git) lines.push('No git history, so no churn or worktrees')
   return lines
+}
+
+/** One line for a saved file System Map could not read and kept aside. */
+export function setAsideLine(item: SetAside): string {
+  return `Couldn't read ${item.file}, so it was set aside as ${item.kept_as}.`
 }
 
 /** The text a row shows beside its status dot. */

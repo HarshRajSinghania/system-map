@@ -1,8 +1,8 @@
 import { Btn } from '@kirocrew/app-sdk/ui'
 import { Chevron, Dropdown } from './Menu'
 import { MUTED } from './parts'
-import { builtAgo, readLines } from './projects'
-import type { BuildRead, StatusView } from './projects'
+import { builtAgo, readLines, setAsideLine } from './projects'
+import type { BuildRead, SetAside, StatusView } from './projects'
 
 /** How current the model is, in one place, with Rebuild beside it. */
 export function StatusChip({
@@ -11,6 +11,7 @@ export function StatusChip({
   commit,
   builtAt,
   read,
+  setAside = [],
   busy,
   result,
   onRebuild,
@@ -21,6 +22,8 @@ export function StatusChip({
   commit: string | null
   builtAt: number
   read?: BuildRead
+  /** Saved files that could not be read and were kept aside. */
+  setAside?: SetAside[]
   busy: boolean
   result: string | null
   onRebuild: () => void
@@ -54,12 +57,10 @@ export function StatusChip({
             <div style={{ ...MUTED, marginBottom: 10 }}>
               {commit ? <span className="sm-mono">{commit.slice(0, 7)}</span> : 'This folder'}, built {builtAgo(builtAt, Date.now() / 1000)}
             </div>
-            {read && (
+            {(read || setAside.length > 0) && (
               <div style={{ marginBottom: 10 }} data-testid="build-read">
-                {readLines(read).map((line) => (
-                  <div key={line}>{line}</div>
-                ))}
-                {read.unread.map((item) => (
+                {read && readLines(read).map((line) => <div key={line}>{line}</div>)}
+                {read?.unread.map((item) => (
                   <div key={item.what} style={{ marginTop: 6 }}>
                     Not read: {item.what}
                     {item.where && (
@@ -67,6 +68,11 @@ export function StatusChip({
                         {item.where}
                       </div>
                     )}
+                  </div>
+                ))}
+                {setAside.map((item) => (
+                  <div key={item.kept_as} style={{ marginTop: 6, overflowWrap: 'anywhere' }}>
+                    {setAsideLine(item)}
                   </div>
                 ))}
               </div>

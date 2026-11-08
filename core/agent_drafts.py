@@ -111,10 +111,9 @@ def save(target: Path, settings: object, evidence: object, note: object = "", dr
 
 def load(target: Path) -> dict:
     """The draft, which settings it would change, and whether the model has moved since."""
-    path = _path(target)
-    if not path.is_file():
+    draft = store.read_saved(target, _path(target), None)
+    if draft is None:
         return {"draft": None, "changed": [], "stale": False}
-    draft = json.loads(path.read_text(encoding="utf-8"))
     saved = store.load_agent_settings(target)
     after = _merged(draft["settings"], saved)
     changed = [key for key in store.AGENT_SETTINGS if after.get(key) != saved.get(key)]
@@ -126,10 +125,9 @@ def load(target: Path) -> dict:
 
 def _read(target: Path, draft_id: str) -> dict:
     """The draft, if it is still the one the person saw. The chat may have saved a new one since."""
-    path = _path(target)
-    if not path.is_file():
+    draft = store.read_saved(target, _path(target), None)
+    if draft is None:
         raise KeyError("no agent draft")
-    draft = json.loads(path.read_text(encoding="utf-8"))
     if draft.get("id") != draft_id:
         raise ValueError("The Design chat saved a new draft since. Look at it first.")
     return draft
