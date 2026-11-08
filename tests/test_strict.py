@@ -44,7 +44,8 @@ class Strict(unittest.TestCase):
             os.chdir(elsewhere)
             self.addCleanup(os.chdir, before)
             with mock.patch.object(unittest.defaultTestLoader, "discover", return_value=unittest.TestSuite()) as discover:
-                self.assertEqual(strict.main(), 1)  # nothing was discovered, so it fails
+                with mock.patch.object(sys, "stderr", io.StringIO()):
+                    self.assertEqual(strict.main(), 1)  # nothing was discovered, so it fails
         here = str(Path(strict.__file__).resolve().parent)
         discover.assert_called_once_with(here, top_level_dir=here)
 
