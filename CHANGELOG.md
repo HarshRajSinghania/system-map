@@ -7,6 +7,11 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+### Fixed
+- Every git call now runs with `GIT_OPTIONAL_LOCKS=0` and no file-system monitor, so reading a repo
+  never refreshes its `.git/index` or takes `index.lock`, and the worktree poll cannot collide with
+  your own git commands.
+
 ## [0.12.1] - 2026-11-08
 
 ### Fixed
