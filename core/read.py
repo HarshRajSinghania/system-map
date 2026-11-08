@@ -38,10 +38,17 @@ UNREAD_LANGUAGES = {
 }
 
 
+#: Folders of other people's code, wherever they sit. Their files aren't the project's languages.
+THIRD_PARTY = {"vendor", "node_modules", "site-packages"}
+
+
 def _unread_languages(source) -> list[dict]:
-    """One item per language the app doesn't read: most files first, then by name."""
+    """One item per language the app doesn't read: most files first, then by name.
+    Files under a vendor, node_modules or site-packages folder at any depth don't count."""
     folders: dict[str, dict[str, int]] = {}
     for path in source.blobs:
+        if THIRD_PARTY & set(path.split("/")[:-1]):
+            continue
         language = UNREAD_LANGUAGES.get(PurePosixPath(path).suffix.lower())
         if language:
             top = path.split("/", 1)[0] + "/" if "/" in path else ""

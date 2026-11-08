@@ -86,7 +86,10 @@ Gap 7, a saved file it can't read:
     `ui/src/projects.ts`, `ui/dist/*`, the matching tests, README "Checks" and CHANGELOG.
 - **Gap 1:** a table of endings goes in `core/read.py`: `.py` Python, `.java` Java, `.kt` Kotlin, `.go` Go,
   `.rb` Ruby, `.rs` Rust, `.cs` C#, `.php` PHP, `.swift` Swift, `.scala` Scala, `.ex`/`.exs` Elixir.
-  - `_unread` counts tracked files per language before its tables early-return.
+  - `_unread` counts tracked files per language, and the items come last, after the other explanations
+    (Prisma, Drizzle config, nested Next.js, other databases), whatever the table count.
+  - Files under a folder named `vendor`, `node_modules` or `site-packages`, at any depth, are not counted,
+    for git repos and plain folders alike.
   - Order: most files first, then by name.
   - `where` is the top folder holding the most of them, with ties by name; `""` for the repo root.
 - **Gap 6:** `_lcov` raises `ValueError` with the line number. `do_GET` and `do_POST` add a last `except
