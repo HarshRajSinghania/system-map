@@ -7,6 +7,14 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+### Security
+- Actions only a person should take now need Kiro Crew's signed principal claim to say a person in
+  the dashboard sent them (`backend.signedPrincipal`), not an agent or tool calling through the
+  gateway. This covers using or dropping an agent draft, accepting or dropping a proposal, deleting
+  an intent item, building a folder by path, removing a project, setting the default folder, the
+  folder window, and browsing or listing folders. Anything else answers 403. Reading the built
+  models is unchanged, and `ui/dev` still counts as the person.
+
 ### Fixed
 - Every git call now runs with `GIT_OPTIONAL_LOCKS=0` and no file-system monitor, so reading a repo
   never refreshes its `.git/index` or takes `index.lock`, and the worktree poll cannot collide with

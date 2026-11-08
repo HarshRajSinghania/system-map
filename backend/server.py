@@ -7,9 +7,14 @@ a repo.
 
 Any local program can reach a loopback port, so every request except `/health` must carry the
 gateway's signature, made with the app's secret (the App Kit's "Reverse Proxy Authentication").
+
+Routes that act for a person or browse the file system also need the gateway's signed principal
+claim (`backend.signedPrincipal`) to say a person in the dashboard sent them, not an agent or tool.
+Read-only model routes accept any signed caller.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
 import json
@@ -45,6 +50,17 @@ OPEN_PATHS = frozenset({"/health"})
 #: Nonces kept for the replay check. When full, new requests are refused rather than letting
 #: an old nonce go while it could still be replayed.
 NONCE_LIMIT = 4096
+#: With `backend.signedPrincipal` the gateway also says who is calling.
+PRINCIPAL_HEADER = "X-KiroCrew-Principal"
+OWNER_SESSION = "owner-session"
+PRINCIPAL_KINDS = frozenset({OWNER_SESSION, "agent-tool", "app-token", "none"})
+PRINCIPAL_KEYS = frozenset({"version", "kind", "ownerId", "issuedAt", "requestId"})
+MAX_PRINCIPAL_BYTES = 4096
+#: Routes only a person in the dashboard may use: they act for the person or touch the file
+#: system beyond the built models. Matched the way the routes are, by the end of the path.
+PERSON_GETS = ("/workspaces", "/folder-window", "/browse")
+PERSON_POSTS = ("/folder-window", "/folder-window-close", "/default-folder", "/repo-remove", "/agents/draft", "/proposal-status", "/intent-delete")
+NOT_A_PERSON = "Only a person in the dashboard can do this."
 _STAMP = re.compile(r"[0-9]{1,12}")
 _NONCE = re.compile(r"[0-9a-f]{32}")
 _nonces: dict[str, int] = {}
@@ -96,6 +112,47 @@ def signed(headers, method: str, target: str, body: bytes, secret: str, now: flo
         return _first_use(nonce, int(stamp) + MAX_SKEW_SECONDS, now)
     stamp, _, mac = (headers.get("X-KiroCrew-Proxy") or "").partition(":")
     return _fresh(stamp, now) and bool(mac) and _matches(_mac(secret, f"{stamp}:{method}:{target}:{digest}"), mac)
+
+
+def principal(headers, method: str, target: str, body: bytes, secret: str, now: float | None = None) -> str | None:
+    """The kind of caller the gateway vouches for, or None when there is no valid claim.
+
+    With `backend.signedPrincipal` the gateway adds `X-KiroCrew-Principal: <claim>.<mac>`. The
+    claim is base64url JSON `{version, kind, ownerId, issuedAt, requestId}` with sorted keys. The
+    mac is HMAC-SHA256 of the lines `kirocrew-proxy-principal-v1`, issuedAt, method, target,
+    sha256(body) and the claim text exactly as sent. `kind` is `owner-session` (a person in the
+    dashboard), `agent-tool`, `app-token` or `none`. Only an owner session carries an `ownerId`.
+    Each `requestId` is good once, and the claim must be within a minute of now.
+    """
+    given = headers.get(PRINCIPAL_HEADER)
+    if not secret or not given or "." not in given or len(given.encode("utf-8", "surrogatepass")) > MAX_PRINCIPAL_BYTES:
+        return None
+    now = time.time() if now is None else now
+    claim_text, _, mac = given.rpartition(".")
+    try:
+        claim = json.loads(base64.b64decode(claim_text + "=" * (-len(claim_text) % 4), altchars=b"-_", validate=True))
+    except (ValueError, UnicodeError):
+        return None
+    if not isinstance(claim, dict) or set(claim) != PRINCIPAL_KEYS or not mac:
+        return None
+    kind, owner, issued, request_id = claim["kind"], claim["ownerId"], claim["issuedAt"], claim["requestId"]
+    if claim["version"] != 1 or not isinstance(kind, str) or kind not in PRINCIPAL_KINDS:
+        return None
+    if isinstance(issued, bool) or not isinstance(issued, int) or not isinstance(owner, str):
+        return None
+    if len(owner) > 256 or any(ord(char) < 32 or ord(char) == 127 for char in owner):
+        return None
+    if (kind == OWNER_SESSION) != bool(owner):
+        return None
+    if not (isinstance(request_id, str) and _NONCE.fullmatch(request_id)):
+        return None
+    if not now - MAX_SKEW_SECONDS <= issued <= now + MAX_SKEW_SECONDS:
+        return None
+    digest = hashlib.sha256(body).hexdigest()
+    message = "\n".join(("kirocrew-proxy-principal-v1", str(issued), method, target, digest, claim_text))
+    if not _matches(_mac(secret, message), mac):
+        return None
+    return kind if _first_use(f"principal:{request_id}", issued + MAX_SKEW_SECONDS, now) else None
 
 
 def unsigned_allowed() -> bool:
@@ -154,12 +211,27 @@ class Handler(BaseHTTPRequestHandler):
         self._json(401, {"error": "This request did not come through Kiro Crew."})
         return False
 
+    def _person(self, body: bytes) -> bool:
+        """Answer 403 and return False unless the gateway says a person in the dashboard sent this.
+
+        `ui/dev` has no gateway, so it is the person, as `unsigned_allowed` already says.
+        """
+        if unsigned_allowed():
+            return True
+        secret = os.environ.get(SECRET_ENV, "")
+        if principal(self.headers, self.command, self.path, body, secret) == OWNER_SESSION:
+            return True
+        self._json(403, {"error": NOT_A_PERSON})
+        return False
+
     def do_GET(self):
         body = self._body()
         if body is None or not self._allowed(body):
             return
         url = urlparse(self.path)
         path, query = url.path, parse_qs(url.query)
+        if path.endswith(PERSON_GETS) and not self._person(body):
+            return
         repo = (query.get("repo") or [None])[0]
         try:
             if path == "/health":
@@ -228,9 +300,15 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             self._json(400, {"error": "The body must be a JSON object."})
             return
+        route = urlparse(self.path).path
+        # A build of a folder the caller names reads any folder, so it is a person's call too.
+        # A rebuild of a project already listed is not.
+        names_a_folder = route.endswith("/build") and bool(body.get("repo_path"))
+        if (route.endswith(PERSON_POSTS) or names_a_folder) and not self._person(raw):
+            return
         # Writes take turns, so two builds can't race. Reads go on meanwhile.
         with _writes:
-            self._post(urlparse(self.path).path, body)
+            self._post(route, body)
 
     def _post(self, route: str, body: dict) -> None:
         if route.endswith("/folder-window"):
@@ -280,7 +358,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(400, {"error": str(error)})
             return
         if route.endswith("/agents/draft"):
-            # Only a person, through this page, uses or drops a draft. No agent tool can.
+            # Only a person, through this page, uses or drops a draft. `do_POST` refuses any
+            # caller the gateway does not vouch for as a dashboard session; no MCP tool does it.
             try:
                 target = store.resolve_repo(body.get("repo"))
                 action, draft_id = body.get("action"), body.get("id")

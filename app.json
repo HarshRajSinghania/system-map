@@ -63,7 +63,8 @@
   "backend": {
     "entryPoint": "backend/server.py",
     "port": "auto",
-    "healthCheck": "/health"
+    "healthCheck": "/health",
+    "signedPrincipal": true
   },
   "ui": {
     "entry": "dist/index.mjs",

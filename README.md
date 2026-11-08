@@ -186,6 +186,12 @@ missing file as 0%.
   cases, saved views and notes, and the coverage report you loaded.
 - **What it never does.** Write to your repo, run your code, or make a network call of its own.
   The Design chat is an ordinary Kiro Crew chat, so it talks to your model as any chat does.
+- **What an agent can and can't do through the backend.** The backend asks the gateway who is
+  calling (`backend.signedPrincipal`). A caller that isn't a person in the dashboard, such as an
+  agent or tool, can read the built models, rebuild a project already listed, and write the app's
+  own plan status, agent settings, regions and coverage. It can't use or drop an agent draft, accept or drop a
+  proposal, build a folder it names, remove a project, set the default folder, browse or list
+  folders, or open the folder window. Those answer 403.
 - **Removing a project** deletes its app data for good. It never touches the repo.
 - **Uninstalling** keeps the data folder. `kirocrew app uninstall system-map --purge-data` deletes
   it too, and can't be undone.

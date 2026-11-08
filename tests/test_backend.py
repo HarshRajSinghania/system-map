@@ -20,7 +20,7 @@ sys.path.insert(0, str(ROOT / "tests"))
 
 from backend import server  # noqa: E402
 from core import agent_drafts, store  # noqa: E402
-from helpers import PROXY_SECRET, commit_all, git, proxy_signature, proxy_v2, signed_request  # noqa: E402
+from helpers import PROXY_SECRET, commit_all, git, principal_claim, proxy_signature, proxy_v2, signed_request  # noqa: E402
 from test_agent_drafts import EVIDENCE  # noqa: E402
 from test_agents import FILES, SETTINGS  # noqa: E402
 
@@ -450,6 +450,165 @@ class Gate(Served):
         self.assertEqual(self.status("/repos", headers=headers), 401)
 
 
+#: Every route only a person in the dashboard may use: (method, path, body).
+PERSON_ROUTES = (
+    ("POST", "/agents/draft", {"repo": "nope", "action": "bogus"}),
+    ("POST", "/build", {"repo_path": "/nonexistent-folder-for-test"}),
+    ("POST", "/repo-remove", {"repo": "nope"}),
+    ("POST", "/default-folder", {"folder": "/nonexistent-folder-for-test"}),
+    ("POST", "/folder-window", {}),
+    ("POST", "/folder-window-close", {}),
+    ("POST", "/proposal-status", {"repo": "nope", "id": "x", "status": "accepted"}),
+    ("POST", "/intent-delete", {"repo": "nope", "kind": "proposals", "id": "x"}),
+    ("GET", "/browse", None),
+    ("GET", "/workspaces?folder=/nonexistent-folder-for-test", None),
+    ("GET", "/folder-window", None),
+)
+#: Opening a real window is not something a test should allow.
+NOT_RUN_AS_A_PERSON = {("POST", "/folder-window")}
+
+
+class Person(Served):
+    """Only a person in the dashboard, by the gateway's signed principal claim, may use person routes."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        base = Path(cls._tmp.name)
+        cls.repo = base / "repo"
+        (cls.repo / "supabase" / "migrations").mkdir(parents=True)
+        (cls.repo / "supabase" / "migrations" / "001.sql").write_text("CREATE TABLE public.orgs (id uuid PRIMARY KEY);\n")
+        subprocess.run(["git", "-C", str(cls.repo), "init", "-q"], check=True)
+        cls.data = base / "data"
+        store.build(cls.repo, cls.data)
+        cls.serve()
+
+    def code(self, method, path, body=None, kind="owner-session", **claim):
+        """The HTTP status of a gateway-signed call whose principal claim is built from `kind` and `claim`.
+
+        `kind=None` sends no claim. `target` and `secret` in `claim` change what the claim is signed for.
+        """
+        data = None if body is None else json.dumps(body).encode()
+        request = signed_request(self.url(path), data, method, principal=None)
+        if kind:
+            target = claim.pop("target", path)
+            request.add_header("X-KiroCrew-Principal", principal_claim(kind, method, target, data or b"", **claim))
+        try:
+            with urllib.request.urlopen(request, timeout=10) as reply:
+                reply.read()
+                return reply.status
+        except urllib.error.HTTPError as error:
+            error.close()
+            return error.code
+
+    def test_a_person_in_the_dashboard_is_allowed(self):
+        for method, path, body in PERSON_ROUTES:
+            if (method, path) in NOT_RUN_AS_A_PERSON:
+                continue
+            with self.subTest(route=f"{method} {path}"):
+                self.assertNotIn(self.code(method, path, body), (401, 403))
+
+    def test_each_other_kind_of_caller_is_a_403(self):
+        for method, path, body in PERSON_ROUTES:
+            for kind in ("agent-tool", "app-token", "none"):
+                with self.subTest(route=f"{method} {path}", kind=kind):
+                    self.assertEqual(self.code(method, path, body, kind=kind), 403)
+
+    def test_no_claim_is_a_403(self):
+        for method, path, body in PERSON_ROUTES:
+            with self.subTest(route=f"{method} {path}"):
+                self.assertEqual(self.code(method, path, body, kind=None), 403)
+
+    def test_a_forged_claim_is_a_403(self):
+        for method, path, body in PERSON_ROUTES:
+            with self.subTest(route=f"{method} {path}"):
+                self.assertEqual(self.code(method, path, body, secret="another-secret"), 403)
+
+    def test_a_stale_claim_is_a_403(self):
+        old = int(time.time()) - 120
+        for method, path, body in PERSON_ROUTES:
+            with self.subTest(route=f"{method} {path}"):
+                self.assertEqual(self.code(method, path, body, issued_at=old), 403)
+
+    def test_a_claim_made_for_another_request_is_a_403(self):
+        for method, path, body in PERSON_ROUTES:
+            with self.subTest(route=f"{method} {path}"):
+                self.assertEqual(self.code(method, path, body, target="/repos"), 403)
+
+    def test_a_claim_is_good_once(self):
+        claim = {"request_id": os.urandom(16).hex()}
+        self.assertNotEqual(self.code("POST", "/repo-remove", {"repo": "nope"}, **claim), 403)
+        self.assertEqual(self.code("POST", "/repo-remove", {"repo": "nope"}, **claim), 403)
+
+    def test_the_refusal_says_why_in_plain_words(self):
+        request = signed_request(self.url("/default-folder"), b"{}", principal="agent-tool")
+        with self.assertRaises(urllib.error.HTTPError) as caught:
+            urllib.request.urlopen(request, timeout=5)
+        self.assertEqual(json.load(caught.exception), {"error": "Only a person in the dashboard can do this."})
+
+    def test_an_agent_cannot_remove_a_project(self):
+        key = self.get("/repos")["repos"][0]["repo_key"]
+        self.assertEqual(self.code("POST", "/repo-remove", {"repo": key}, kind="agent-tool"), 403)
+        self.assertEqual([row["repo_key"] for row in self.get("/repos")["repos"]], [key])
+
+    def test_an_agent_can_still_read_the_model(self):
+        for path in ("/repos", "/overview", "/graph", "/findings", "/plan", "/agents", "/agents/draft", "/worktrees", "/risk", "/explore"):
+            with self.subTest(path=path):
+                self.assertEqual(self.code("GET", path, kind="agent-tool"), 200)
+
+    def test_an_agent_can_still_rebuild_a_listed_project(self):
+        self.assertEqual(self.code("POST", "/build", {}, kind="agent-tool"), 200)
+
+    def test_an_agent_can_still_write_the_apps_own_data(self):
+        self.assertNotEqual(self.code("POST", "/plan-status", {"repo": "nope"}, kind="agent-tool"), 403)
+        self.assertNotEqual(self.code("POST", "/coverage", {"repo": "nope"}, kind="agent-tool"), 403)
+
+
+class Principal(unittest.TestCase):
+    """`server.principal` held to Kiro Crew's claim format, with a fixed clock."""
+
+    NOW = 1_800_000_000
+
+    def setUp(self):
+        self.addCleanup(server._nonces.clear)
+
+    def kind(self, claim, method="GET", target="/browse", body=b"", secret=PROXY_SECRET, now=None):
+        return server.principal({"X-KiroCrew-Principal": claim}, method, target, body, secret, self.NOW if now is None else now)
+
+    def make(self, kind="owner-session", **more):
+        return principal_claim(kind, more.pop("method", "GET"), more.pop("target", "/browse"), more.pop("body", b""), issued_at=self.NOW, **more)
+
+    def test_each_kind_is_read_from_a_good_claim(self):
+        for kind in ("owner-session", "agent-tool", "app-token", "none"):
+            self.assertEqual(self.kind(self.make(kind)), kind)
+
+    def test_a_claim_is_bound_to_its_request_and_its_secret(self):
+        self.assertIsNone(self.kind(self.make(), method="POST"))
+        self.assertIsNone(self.kind(self.make(), target="/browse?path=/"))
+        self.assertIsNone(self.kind(self.make(), body=b"{}"))
+        self.assertIsNone(self.kind(self.make(), secret="another-secret"))
+        self.assertIsNone(self.kind(self.make(), secret=""))
+
+    def test_a_claim_is_good_for_60_seconds_either_way_and_once(self):
+        claim = self.make(request_id="a" * 32)
+        self.assertIsNone(self.kind(claim, now=self.NOW + 61))
+        self.assertIsNone(self.kind(claim, now=self.NOW - 61))
+        self.assertEqual(self.kind(claim, now=self.NOW + 60), "owner-session")
+        self.assertIsNone(self.kind(claim, now=self.NOW))
+
+    def test_only_an_owner_session_names_an_owner(self):
+        self.assertIsNone(self.kind(self.make("owner-session", owner_id="")))
+        self.assertIsNone(self.kind(self.make("agent-tool", owner_id="someone")))
+
+    def test_a_claim_that_is_not_in_the_format_fails_without_raising(self):
+        good = self.make()
+        claim, _, mac = good.rpartition(".")
+        for bad in ("", ".", "no-dot", "!!!." + mac, claim, claim + ".", "é." + mac, good + "." + good, "x" * 5000 + "." + mac):
+            with self.subTest(bad=bad[:20]):
+                self.assertIsNone(self.kind(bad))
+        self.assertIsNone(server.principal({}, "GET", "/browse", b"", PROXY_SECRET, self.NOW))
+
+
 class Threads(unittest.TestCase):
     """A long build holds the write turn, but reads still get answers, and other writes wait."""
 
@@ -555,6 +714,11 @@ class DevUnsigned(Bare):
 
     def test_an_unsigned_call_works(self):
         self.assertEqual(self.raw("/repos")["repos"], [])
+
+    def test_unsigned_is_the_person_for_person_routes(self):
+        self.assertIn("dirs", self.raw("/browse"))
+        self.assertEqual(self.status("/repo-remove", b'{"repo": "nope"}', method="POST"), 404)
+        self.assertEqual(self.status("/default-folder", b'{"folder": "/nonexistent-folder-for-test"}', method="POST"), 400)
 
 
 class DevUnsignedFromAnAgentShell(DevUnsigned):
