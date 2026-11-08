@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core import read, store  # noqa: E402
-from core.extractors import plans  # noqa: E402
-from core.sources import open_source  # noqa: E402
+from core.extractors import plans, typescript  # noqa: E402
+from core.sources import TreeSource, open_source  # noqa: E402
 from tests.helpers import commit_all, git  # noqa: E402
 
 
@@ -104,6 +104,98 @@ class WhatItCouldntRead(Build):
         self.write("prisma/schema.prisma", 'datasource db {\n  provider = "sqlite"\n}\n')
         self.write("prisma/migrations/1_init/migration.sql", "CREATE TABLE a (id INTEGER PRIMARY KEY);\n")
         self.assertEqual(self.unread(), [])
+
+    def test_python_files_are_counted_with_the_folder_holding_most(self):
+        self.app()
+        for name in ("core/a.py", "core/b.py", "scripts/c.py"):
+            self.write(name, "x = 1\n")
+        found = self.build()["read"]
+        self.assertIn({"what": "3 Python files it doesn't read", "where": "core/"}, found["unread"])
+        self.assertTrue(read.tell(found).endswith("Not read: 3 Python files it doesn't read (core/)."))
+
+    def test_one_file_at_the_root_has_no_folder(self):
+        self.app()
+        self.write("Main.java", "class Main {}\n")
+        self.assertIn({"what": "1 Java file it doesn't read", "where": ""}, self.build()["read"]["unread"])
+
+    def test_a_tie_between_folders_goes_to_the_first_by_name(self):
+        self.app()
+        for name in ("zeta/a.go", "zeta/b.go", "alpha/c.go", "alpha/d.go"):
+            self.write(name, "package x\n")
+        self.assertIn({"what": "4 Go files it doesn't read", "where": "alpha/"}, self.build()["read"]["unread"])
+
+    def test_more_files_at_the_root_than_in_any_folder_gives_no_folder(self):
+        self.app()
+        for name in ("a.rb", "b.rb", "lib/c.rb"):
+            self.write(name, "x = 1\n")
+        self.assertIn({"what": "3 Ruby files it doesn't read", "where": ""}, self.build()["read"]["unread"])
+
+    def test_both_elixir_endings_count_and_languages_go_most_files_first_then_by_name(self):
+        self.app()
+        for name in ("a.ex", "b.exs", "c.rs", "d.rs", "e.kt", "f.kt", "g.cs"):
+            self.write(name, "x\n")
+        self.assertEqual(
+            self.unread(),
+            ["2 Elixir files it doesn't read", "2 Kotlin files it doesn't read", "2 Rust files it doesn't read", "1 C# file it doesn't read"],
+        )
+
+    def test_a_repo_with_tables_still_names_the_languages_it_skipped(self):
+        self.app()
+        self.write("db/schema.sql", "CREATE TABLE a (id INTEGER PRIMARY KEY);\nCREATE TYPE x AS ENUM ('a');\n")
+        self.write("tools/run.py", "x = 1\n")
+        self.assertEqual(
+            self.unread(),
+            ["1 SQL statement it couldn't read", "1 Python file it doesn't read"],
+        )
+
+    def test_installed_packages_and_build_output_are_not_counted_as_the_project_languages(self):
+        self.app()
+        for folder in (".venv/lib/site-packages", "venv/lib", ".tox/py312", "pkg/__pycache__", "env/site-packages", "vendor/gems"):
+            for number in range(3):
+                self.write(f"{folder}/m{number}.py", "x = 1\n")
+        self.write("tools/real.py", "x = 1\n")
+        self.assertEqual(self.build()["read"]["unread"], [{"what": "1 Python file it doesn't read", "where": "tools/"}])
+
+    def test_a_plain_folder_still_reads_its_own_vendor_and_target_folders(self):
+        self.app()
+        self.write("app/vendor/page.tsx")
+        self.write("src/features/target/Card.tsx")
+        blobs = TreeSource(self.root).blobs
+        self.assertIn("app/vendor/page.tsx", blobs)
+        self.assertIn("src/features/target/Card.tsx", blobs)
+        self.assertIn("app/vendor/page.tsx", typescript.code_files(TreeSource(self.root)))
+
+    def test_a_committed_vendor_folder_gives_no_language_item_in_a_git_repo(self):
+        self.app()
+        for name in ("vendor/a.go", "vendor/b.go", "internal/vendor/c.go", "web/node_modules/pkg/d.java", "lib/python3.12/site-packages/e.py"):
+            self.write(name, "x\n")
+        self.write("tools/main.go", "package main\n")
+        git(self.root, "init", "-q", "-b", "main")
+        commit_all(self.root)
+        self.assertEqual(self.build()["read"]["unread"], [{"what": "1 Go file it doesn't read", "where": "tools/"}])
+
+    def test_languages_come_after_every_other_explanation(self):
+        self.app('"next": "16.0.0", "@prisma/client": "6.0.0", "mysql2": "3.0.0", "drizzle-orm": "1.0.0"')
+        self.write("prisma/schema.prisma", 'datasource db {\n  provider = "postgresql"\n}\n')
+        self.write("drizzle.config.ts")
+        self.write("apps/web/next.config.ts")
+        for name in ("tools/a.py", "tools/b.py", "tools/c.py"):
+            self.write(name, "x = 1\n")
+        self.assertEqual(
+            self.unread(),
+            [
+                "A Prisma schema with no SQL migrations",
+                "A Drizzle schema with no SQL migrations",
+                "A Next.js app in a subfolder",
+                "A MySQL database",
+                "3 Python files it doesn't read",
+            ],
+        )
+
+    def test_a_typescript_only_repo_has_no_language_items(self):
+        self.app()
+        self.write("lib/more.js", "export const y = 2\n")
+        self.assertEqual(self.build()["read"]["unread"], [])
 
     def test_a_folder_with_nothing_to_read_says_so_plainly(self):
         self.write("notes.txt", "hello\n")

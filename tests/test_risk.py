@@ -253,6 +253,18 @@ class Reports(unittest.TestCase):
             with self.subTest(text), self.assertRaises(ValueError):
                 coverage.parse(text)
 
+    def test_a_bad_lcov_line_is_refused_with_its_line_number(self):
+        for line in ("DA:5", "DA:5,x", "DA:", "BRDA:1,0,0"):
+            with self.subTest(line), self.assertRaises(ValueError) as caught:
+                coverage.parse(f"SF:a.ts\n{line}\nend_of_record\n")
+            self.assertEqual(str(caught.exception), f"Line 2 of the coverage report isn't valid lcov: {line}")
+
+    def test_the_line_number_counts_over_the_whole_text(self):
+        text = "SF:a.ts\nDA:1,1\nBRDA:1,0,0,1\nend_of_record\nSF:b.ts\nDA:2,0\nDA:3\n"
+        with self.assertRaises(ValueError) as caught:
+            coverage.parse(text)
+        self.assertEqual(str(caught.exception), "Line 7 of the coverage report isn't valid lcov: DA:3")
+
     def test_paths_from_another_folder_find_their_repo_files(self):
         known = {"src/a.ts", "src/b.ts", "a.ts"}
         matched, unmatched = coverage.match_paths(

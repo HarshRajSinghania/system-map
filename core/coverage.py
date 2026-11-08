@@ -36,16 +36,24 @@ def _istanbul(report: dict) -> dict[str, dict]:
 def _lcov(text: str) -> dict[str, dict]:
     files: dict[str, dict] = {}
     current: dict | None = None
-    for line in text.splitlines():
+    for number, line in enumerate(text.splitlines(), 1):
         if line.startswith("SF:"):
             current = files.setdefault(line[3:], {"lines_total": 0, "lines_hit": 0, "branches_total": 0, "branches_hit": 0})
         elif current is None:
             continue
         elif line.startswith("DA:"):
+            fields = line[3:].split(",")
+            try:
+                hits = int(fields[1])
+            except (IndexError, ValueError):
+                raise ValueError(f"Line {number} of the coverage report isn't valid lcov: {line}") from None
             current["lines_total"] += 1
-            current["lines_hit"] += int(line[3:].split(",")[1]) > 0
+            current["lines_hit"] += hits > 0
         elif line.startswith("BRDA:"):
-            taken = line[5:].split(",")[3]
+            fields = line[5:].split(",")
+            if len(fields) < 4:
+                raise ValueError(f"Line {number} of the coverage report isn't valid lcov: {line}")
+            taken = fields[3]
             current["branches_total"] += 1
             current["branches_hit"] += taken not in ("-", "0")
     return files

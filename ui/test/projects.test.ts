@@ -13,6 +13,7 @@ import {
   rowHint,
   rowStatus,
   searchLabel,
+  setAsideLine,
   shortPath,
   slotHasMessages,
   splitWorkspaces,
@@ -219,6 +220,21 @@ test('a 400 or 404 from the backend keeps its own words', () => {
   assert.equal(plainError(caught, 'add this project'), "/tmp/x isn't a git repo.")
 })
 
+test('a 500 that carries the backend\'s own sentence shows that sentence', () => {
+  const sentence = "System Map hit a bug (RuntimeError). The details are in the app's log."
+  const caught = new Error(`API 500: ${JSON.stringify({ error: sentence })}`)
+  assert.equal(plainError(caught, 'load this project'), sentence)
+  const hostShape = Object.assign(new Error('API 500: x'), { status: 500, body: JSON.stringify({ error: sentence }) })
+  assert.equal(plainError(hostShape, 'load this project'), sentence)
+})
+
+test('other 5xx answers, and a 500 with no sentence, keep the backend-not-answering text', () => {
+  const text = "Couldn't load this project, because System Map's backend isn't answering. Try again in a moment."
+  assert.equal(plainError(new Error('API 502: {"error":"bad gateway"}'), 'load this project'), text)
+  assert.equal(plainError(new Error('API 503: {"error":"down"}'), 'load this project'), text)
+  assert.equal(plainError(new Error('API 500: Traceback (most recent call last): boom'), 'load this project'), text)
+})
+
 test('the host error shape works the same way', () => {
   const caught = Object.assign(new Error('API 404: x'), { status: 404, body: '{"error":"no project"}' })
   assert.equal(plainError(caught, 'remove it'), 'no project')
@@ -245,4 +261,15 @@ test('each failure says what to do next', () => {
   assert.match(plainError(new Error('API 403: x'), 'do it'), /permissions/)
   assert.match(plainError(new Error('API 502: x'), 'do it'), /Try again/)
   assert.match(plainError(new TypeError('Failed to fetch'), 'do it'), /connected/)
+})
+
+test('a set-aside file gets one plain line naming the file and where it went', () => {
+  const line = setAsideLine({
+    file: 'intent/regions.json',
+    kept_as: 'unreadable/intent/regions.json.20261108T174200Z',
+  })
+  assert.equal(
+    line,
+    "Couldn't read intent/regions.json, so it was set aside as unreadable/intent/regions.json.20261108T174200Z.",
+  )
 })

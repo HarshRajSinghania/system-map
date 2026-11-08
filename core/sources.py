@@ -131,7 +131,10 @@ class GitSource:
 
 
 #: Folders that hold no source, and can hold hundreds of thousands of files.
-TREE_SKIP = {".git", "node_modules", ".next", ".turbo", ".vercel", "dist", "build", "coverage", ".cache"}
+TREE_SKIP = {
+    ".git", "node_modules", ".next", ".turbo", ".vercel", "dist", "build", "coverage", ".cache",
+    ".venv", "venv", ".tox", "__pycache__", "site-packages",
+}
 
 
 class TreeSource:

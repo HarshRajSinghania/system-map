@@ -23,6 +23,7 @@ import re
 import sys
 import threading
 import time
+import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -254,6 +255,7 @@ class Handler(BaseHTTPRequestHandler):
                     {
                         "manifest": {k: manifest[k] for k in keep if k in manifest},
                         "freshness": store.freshness(target),
+                        "set_aside": store.set_aside(target),
                         "tables": store.table_index(target),
                     },
                 )
@@ -287,6 +289,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json(404, {"error": str(error).strip("'\"")})
         except (ValueError, OSError) as error:
             self._json(400, {"error": str(error)})
+        except Exception as error:
+            self._bug(error)
+
+    def _bug(self, error: Exception) -> None:
+        """Answer 500 for an exception no route expected, and log its traceback to stderr."""
+        traceback.print_exception(error, file=sys.stderr)
+        self._json(500, {"error": f"System Map hit a bug ({type(error).__name__}). The details are in the app's log."})
 
     def do_POST(self):
         raw = self._body()
@@ -308,7 +317,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         # Writes take turns, so two builds can't race. Reads go on meanwhile.
         with _writes:
-            self._post(route, body)
+            try:
+                self._post(route, body)
+            except Exception as error:
+                self._bug(error)
 
     def _post(self, route: str, body: dict) -> None:
         if route.endswith("/folder-window"):

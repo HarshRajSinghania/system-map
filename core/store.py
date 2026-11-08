@@ -34,6 +34,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -107,6 +108,111 @@ def _write_json(path: Path, value: object) -> None:
     temp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
     temp.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     temp.replace(path)
+
+
+_SET_ASIDE_SUFFIX = re.compile(r"\.\d{8}T\d{6}Z(-\d+)?$")
+
+
+#: Proposals, use cases and views are found by their id.
+ITEM_KEYS = ("id",)
+#: An agent draft is read for its settings and the commit they were tried on.
+DRAFT_KEYS = ("settings", "commit")
+
+
+def _shaped(raw: bytes, keys: tuple[str, ...], each_object: bool = False) -> tuple[bool, object]:
+    """Parse saved bytes. Every saved file is a JSON object, and `keys` must all be in it.
+    With `each_object`, every value in it must be an object too."""
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (ValueError, RecursionError):  # nested too deep to parse counts as bad JSON
+        return False, None
+    if not isinstance(value, dict) or any(key not in value for key in keys):
+        return False, None
+    if each_object and not all(isinstance(inner, dict) for inner in value.values()):
+        return False, None
+    return True, value
+
+
+def _reserve(base: Path) -> Path:
+    """Claim an unused name for a set-aside copy: `base`, then `base-2`, `base-3` and so on."""
+    base.parent.mkdir(parents=True, exist_ok=True)
+    kept, number = base, 2
+    while True:
+        try:
+            os.close(os.open(kept, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return kept
+        except FileExistsError:
+            kept = base.with_name(f"{base.name}-{number}")
+            number += 1
+
+
+def read_saved(target: Path, path: Path, default: object, keys: tuple[str, ...] = (), each_object: bool = False) -> object:
+    """Read a saved JSON object. A missing one gives `default`. One that is not valid JSON, not an
+    object, lacks a key in `keys`, or (with `each_object`) holds a value that is not an object is moved
+    to `<target>/unreadable/<its path>.<UTC stamp>`, bytes unchanged, and gives `default`. A copy already
+    there is never overwritten. A file that can't be opened (no permission, a file where a folder
+    should be) gives `default`, stays where it is, and logs one line.
+
+    Two small windows stay open. A kill between claiming the copy's name and the move leaves an empty
+    copy. A save landing in the two calls between the re-read and the move is kept under `unreadable/`,
+    not lost."""
+    try:
+        raw = path.read_bytes()
+    except (FileNotFoundError, IsADirectoryError):
+        return default
+    except OSError as error:
+        print(f"system-map: could not read {path}: {error}", file=sys.stderr)
+        return default
+    good, value = _shaped(raw, keys, each_object)
+    if good:
+        return value
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    reserved = None
+    try:
+        reserved = _reserve(target / "unreadable" / f"{path.relative_to(target).as_posix()}.{stamp}")
+        again = path.read_bytes()
+        if again != raw:  # a writer replaced it since we read it
+            good, value = _shaped(again, keys, each_object)
+            if good:
+                reserved.unlink(missing_ok=True)
+                return value
+        os.replace(path, reserved)
+        return default
+    except FileNotFoundError:
+        pass  # another request moved it first
+    except OSError as error:
+        print(f"system-map: could not set aside {path}: {error}", file=sys.stderr)
+    if reserved is not None:
+        reserved.unlink(missing_ok=True)
+    return default
+
+
+def _sweep(target: Path) -> None:
+    """Read every saved file, so one that can't be read is set aside before anyone lists them."""
+    for name in ("coverage.json", "intent/agents.json"):
+        read_saved(target, target / name, None)
+    for name in ("intent/plan_status.json", "intent/regions.json"):
+        read_saved(target, target / name, None, each_object=True)
+    read_saved(target, target / "intent" / "agents-draft.json", None, DRAFT_KEYS)
+    for path in sorted((target / "reads").rglob("*.json")):
+        read_saved(target, path, None)
+    for kind in INTENT_KINDS:
+        for path in sorted((target / "intent" / kind).glob("*.json")):
+            read_saved(target, path, None, ITEM_KEYS)
+
+
+def set_aside(target: Path) -> list[dict]:
+    """The saved files that could not be read and were kept under `unreadable/`.
+
+    Reads every saved file first, so the answer is the same whichever view asked first."""
+    _sweep(target)
+    folder = target / "unreadable"
+    rows = []
+    for path in folder.rglob("*") if folder.is_dir() else []:
+        if path.is_file():
+            relative = path.relative_to(folder).as_posix()
+            rows.append({"file": _SET_ASIDE_SUFFIX.sub("", relative), "kept_as": f"unreadable/{relative}"})
+    return sorted(rows, key=lambda row: (row["file"], row["kept_as"]))
 
 
 def _builder_id() -> str:
@@ -523,8 +629,7 @@ def graph_of(shards: list[dict], externals: list[dict]) -> dict:
 
 
 def _plan_overrides(target: Path) -> dict[str, dict]:
-    path = target / "intent" / "plan_status.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    return read_saved(target, target / "intent" / "plan_status.json", {}, each_object=True)
 
 
 def load_system(target: Path) -> dict:
@@ -567,8 +672,7 @@ def _join_regions(joined: dict, regions: dict[str, dict], home: str | None) -> N
 
 
 def load_agent_settings(target: Path) -> dict:
-    path = target / "intent" / "agents.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    return read_saved(target, target / "intent" / "agents.json", {})
 
 
 def _check_agent_settings(target: Path, settings: dict) -> dict:
@@ -626,8 +730,7 @@ def set_agent_settings(target: Path, settings: dict) -> dict:
 
 
 def load_regions(target: Path) -> dict[str, dict]:
-    path = target / "intent" / "regions.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    return read_saved(target, target / "intent" / "regions.json", {}, each_object=True)
 
 
 def set_region(target: Path, node_id: str, region: str | None) -> dict:
@@ -722,8 +825,7 @@ def load_findings(target: Path) -> list[dict]:
 
 
 def load_coverage(target: Path) -> dict | None:
-    path = target / "coverage.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+    return read_saved(target, target / "coverage.json", None)
 
 
 def set_coverage(target: Path, report: str | None = None, commit: str | None = None) -> dict:
@@ -842,7 +944,8 @@ def load_notes(target: Path, node_id: str) -> list[dict]:
     directory = _note_dir(target, node_id)
     if not directory.is_dir():
         return []
-    return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(directory.glob("*.json"))]
+    notes = [read_saved(target, p, None) for p in sorted(directory.glob("*.json"))]
+    return [note for note in notes if note is not None]
 
 
 def check_evidence(source, evidence: list, ref: str) -> None:

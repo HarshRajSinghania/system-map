@@ -1,7 +1,7 @@
 import { useAppApi } from '@kirocrew/app-sdk'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { plainError } from './errors'
-import type { BuildRead, Project } from './projects'
+import type { BuildRead, Project, SetAside } from './projects'
 
 export const BASE = '/apps/system-map/api'
 
@@ -41,6 +41,7 @@ export interface Overview {
     }
   }
   freshness: Freshness
+  set_aside?: SetAside[]
   tables: TableRow[]
 }
 

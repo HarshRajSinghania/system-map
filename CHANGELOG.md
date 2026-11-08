@@ -16,6 +16,17 @@ commit that set the version in `app.json`. The format follows
   or listing folders. Those answer 403. Reading the built models, rebuilding a listed project and
   loading coverage are unchanged, and `ui/dev` still counts as the person.
 
+### Added
+- The status menu and the overview name each language the repo has but System Map doesn't read,
+  such as "3 Python files it doesn't read (core/)". A Python or Java repo no longer maps as nearly
+  empty with nothing said.
+- CI on every pull request, push to `main` and once a day. It runs every Python test against the
+  oldest Kiro Crew the app supports (`minKiroCrewVersion`) and the newest release, and fails on any
+  skipped test (`python3 tests/strict.py`). It also runs the UI tests, typecheck and build, and fails if
+  `ui/dist` is not the committed build.
+- Tests that sign requests with Kiro Crew's own signing code and check System Map's test signatures
+  with Kiro Crew's own checks, so the two can't drift apart.
+
 ### Changed
 - The app now says it needs Kiro Crew 0.12.0 or newer (`minKiroCrewVersion`). 0.12.0 is the first
   release with `backend.signedPrincipal`; 0.11.2 has the v2 proxy signature and panel tabs but not
@@ -25,6 +36,12 @@ commit that set the version in `app.json`. The format follows
 - Every git call now runs with `GIT_OPTIONAL_LOCKS=0` and no file-system monitor, so reading a repo
   never refreshes its `.git/index` or takes `index.lock`, and the worktree poll cannot collide with
   your own git commands.
+- A coverage report with a bad lcov line gets a 400 that names the line, instead of a dropped
+  connection. Any other unexpected error in the backend answers 500 with a short message and logs
+  the traceback.
+- A saved file System Map can't read (plan status, agent settings, regions, coverage, notes,
+  proposals, use cases, views, the agent draft) no longer breaks whole views. It is moved, unchanged,
+  to `unreadable/` in the project's data folder, the rest loads, and the status menu says where it went.
 
 ## [0.12.1] - 2026-11-08
 

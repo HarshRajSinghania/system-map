@@ -1,7 +1,9 @@
 import email.message
 import http.client
+import io
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -23,6 +25,7 @@ from core import agent_drafts, store  # noqa: E402
 from helpers import PROXY_SECRET, commit_all, git, principal_claim, proxy_signature, proxy_v2, signed_request  # noqa: E402
 from test_agent_drafts import EVIDENCE  # noqa: E402
 from test_agents import FILES, SETTINGS  # noqa: E402
+from test_sweep import build_with_every_saved_file, saved_files  # noqa: E402
 
 
 class Served(unittest.TestCase):
@@ -145,6 +148,15 @@ class BackendTests(Served):
         self.assertEqual(caught.exception.code, 400)
         self.assertIn("no coverage report", json.load(caught.exception)["error"])
 
+    def test_a_bad_lcov_line_is_a_400_with_the_whole_reply(self):
+        report = Path(self._tmp.name) / "bad.info"
+        for text, line in (("SF:a.ts\nDA:5\n", "DA:5"), ("SF:a.ts\nBRDA:1,0,0\n", "BRDA:1,0,0")):
+            report.write_text(text)
+            with self.subTest(line), self.assertRaises(urllib.error.HTTPError) as caught:
+                self.post("/coverage", {"report": str(report)})
+            self.assertEqual(caught.exception.code, 400)
+            self.assertEqual(json.load(caught.exception), {"error": f"Line 2 of the coverage report isn't valid lcov: {line}"})
+
     def test_risk_reads_with_or_without_a_report(self):
         value = self.get("/risk")
         self.assertIsNone(value["coverage"])
@@ -175,6 +187,175 @@ class BackendTests(Served):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.post("/build", {"repo_path": str(self.data)})
         self.assertEqual(caught.exception.code, 400)
+
+
+class UnreadableSavedFile(Served):
+    """A broken saved file is set aside, not an error."""
+
+    #: Invalid UTF-8, and valid UTF-8 that stops mid-object.
+    BROKEN_FILES = (b'{"svc": {"region": \xff', b'{"half": ')
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        base = Path(cls._tmp.name)
+        repo = base / "repo"
+        (repo / "supabase" / "migrations").mkdir(parents=True)
+        (repo / "supabase" / "migrations" / "001.sql").write_text("CREATE TABLE public.orgs (id uuid PRIMARY KEY);\n")
+        subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+        cls.data = base / "data"
+        store.build(repo, cls.data)
+        cls.target = store.repo_dir(repo, cls.data)
+        cls.regions = cls.target / "intent" / "regions.json"
+        cls.serve()
+
+    def setUp(self):
+        """Each test starts from a clean data folder, so none depends on the order they run in."""
+        shutil.rmtree(self.target / "unreadable", ignore_errors=True)
+        shutil.rmtree(self.target / "intent", ignore_errors=True)
+        self.regions.parent.mkdir(parents=True)
+
+    def kept(self, relative):
+        return sorted((self.target / "unreadable" / relative).parent.glob(f"{Path(relative).name}.*"))
+
+    def test_system_and_findings_still_answer_with_no_regions_and_the_file_is_kept(self):
+        for data in self.BROKEN_FILES:
+            with self.subTest(data=data):
+                self.setUp()
+                self.regions.write_bytes(data)
+                system = self.get("/system")
+                self.assertTrue(all("region" not in node for node in system["nodes"]))
+                self.assertFalse(self.regions.exists())
+                self.regions.write_bytes(data)  # findings meets its own broken copy
+                findings = self.get("/findings")["findings"]
+                self.assertFalse([f for f in findings if "region" in f.get("rule", "")])
+                self.assertFalse(self.regions.exists())
+                first, second = self.kept("intent/regions.json")
+                self.assertRegex(first.name, r"^regions\.json\.\d{8}T\d{6}Z$")
+                self.assertEqual((first.read_bytes(), second.read_bytes()), (data, data))
+
+    def test_overview_asked_first_lists_the_file(self):
+        for data in self.BROKEN_FILES:
+            with self.subTest(data=data):
+                self.setUp()
+                self.regions.write_bytes(data)
+                listed = self.get("/overview")["set_aside"]
+                self.assertEqual([item["file"] for item in listed], ["intent/regions.json"])
+                self.assertEqual((self.target / listed[0]["kept_as"]).read_bytes(), data)
+
+    def test_a_proposal_with_no_id_is_set_aside_and_explore_still_answers(self):
+        bad = self.target / "intent" / "proposals" / "x.json"
+        bad.parent.mkdir()
+        bad.write_text("{}")
+        self.assertEqual(self.get("/explore")["proposals"], [])
+        self.assertFalse(bad.exists())
+        self.assertEqual([item["file"] for item in self.get("/overview")["set_aside"]], ["intent/proposals/x.json"])
+
+    def test_a_plan_status_list_is_set_aside_and_system_answers(self):
+        status = self.target / "intent" / "plan_status.json"
+        status.write_text("[]")
+        self.assertEqual(self.status_of("/system"), 200)
+        self.assertFalse(status.exists())
+        self.assertEqual([item["file"] for item in self.get("/overview")["set_aside"]], ["intent/plan_status.json"])
+
+    def test_an_agent_draft_with_no_settings_is_set_aside_and_the_route_answers_with_no_draft(self):
+        draft = self.target / "intent" / "agents-draft.json"
+        draft.write_text("{}")
+        reply = self.get("/agents/draft")
+        self.assertEqual(reply["draft"], None)
+        self.assertFalse(draft.exists())
+        self.assertEqual([item["file"] for item in self.get("/overview")["set_aside"]], ["intent/agents-draft.json"])
+
+    def test_a_plan_status_or_region_whose_values_are_not_objects_is_set_aside_and_system_answers(self):
+        for name, text in (("plan_status.json", '{"plan:x": "built"}'), ("regions.json", '{"svc": "eu"}')):
+            with self.subTest(name):
+                self.setUp()
+                saved = self.target / "intent" / name
+                saved.write_text(text)
+                self.assertEqual(self.status_of("/system"), 200)
+                self.assertFalse(saved.exists())
+                self.assertEqual([item["file"] for item in self.get("/overview")["set_aside"]], [f"intent/{name}"])
+
+    def status_of(self, path):
+        with urllib.request.urlopen(signed_request(self.url(path)), timeout=5) as reply:
+            return reply.status
+
+
+class GoodSavedFiles(Served):
+    """Asking for the overview must not move a file that reads fine."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        base = Path(cls._tmp.name)
+        cls.data = base / "data"
+        cls.target = build_with_every_saved_file(base / "repo", cls.data)
+        cls.before = saved_files(cls.target)
+        cls.serve()
+
+    def test_overview_lists_nothing_and_leaves_every_good_file_in_place(self):
+        self.assertEqual(self.get("/overview")["set_aside"], [])
+        self.assertEqual(saved_files(self.target), self.before)
+        self.assertFalse((self.target / "unreadable").exists())
+
+
+class UnexpectedErrors(unittest.TestCase):
+    """The handler runs in this process, so a store function can be made to fail."""
+
+    MESSAGE = {"error": "System Map hit a bug (RuntimeError). The details are in the app's log."}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.env = mock.patch.dict(os.environ, {"KIROCREW_PROXY_SECRET": PROXY_SECRET})
+        cls.env.start()
+        for name in ("KIROCREW_APP_NAME", "KIROCREW_SPAWN_INSTANCE", "SYSTEM_MAP_UNSIGNED"):
+            os.environ.pop(name, None)
+        cls.httpd = server.Server(("127.0.0.1", 0), server.Handler)
+        cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+        cls.env.stop()
+
+    def call(self, path, body=None):
+        """The status and parsed reply, and what the handler wrote to stderr."""
+        data = None if body is None else json.dumps(body).encode()
+        errors = io.StringIO()
+        with mock.patch.object(sys, "stderr", errors):
+            try:
+                with urllib.request.urlopen(signed_request(self.base + path, data), timeout=5) as reply:
+                    return reply.status, json.load(reply), errors.getvalue()
+            except urllib.error.HTTPError as error:
+                return error.code, json.load(error), errors.getvalue()
+
+    def test_a_get_route_that_hits_a_bug_is_a_500_and_logs_the_traceback(self):
+        with mock.patch.object(store, "resolve_repo", return_value=Path("/nowhere")), mock.patch.object(
+            store, "load_risk", side_effect=RuntimeError("boom")
+        ):
+            code, reply, log = self.call("/risk")
+        self.assertEqual((code, reply), (500, self.MESSAGE))
+        self.assertIn("Traceback (most recent call last)", log)
+        self.assertIn("RuntimeError: boom", log)
+
+    def test_a_post_route_that_hits_a_bug_is_a_500_and_logs_the_traceback(self):
+        with mock.patch.object(store, "resolve_repo", return_value=Path("/nowhere")), mock.patch.object(
+            store, "set_coverage", side_effect=RuntimeError("boom")
+        ):
+            code, reply, log = self.call("/coverage", {})
+        self.assertEqual((code, reply), (500, self.MESSAGE))
+        self.assertIn("Traceback (most recent call last)", log)
+        self.assertIn("RuntimeError: boom", log)
+
+    def test_the_expected_errors_keep_their_replies(self):
+        with mock.patch.object(store, "resolve_repo", side_effect=KeyError("no such repo")):
+            self.assertEqual(self.call("/risk")[:2], (404, {"error": "no such repo"}))
+        with mock.patch.object(store, "resolve_repo", return_value=Path("/nowhere")), mock.patch.object(
+            store, "set_coverage", side_effect=ValueError("bad report")
+        ):
+            self.assertEqual(self.call("/coverage", {})[:2], (400, {"error": "bad report"}))
 
 
 class AgentRoutes(Served):

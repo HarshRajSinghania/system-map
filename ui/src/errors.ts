@@ -15,7 +15,7 @@ function parts(caught: unknown): { status: number | null; body: string } {
   return match ? { status: Number(match[1]), body: match[2] } : { status: null, body: '' }
 }
 
-/** The backend words its own 400s and 404s for people, so those can be shown as they are. */
+/** The backend words its own 400s, 404s and 500s for people, so those can be shown as they are. */
 function ownWords(body: string): string | null {
   try {
     const parsed = JSON.parse(body) as { error?: unknown }
@@ -29,7 +29,7 @@ function ownWords(body: string): string | null {
 export function plainError(caught: unknown, doing: string): string {
   const { status, body } = parts(caught)
   if (status === null) return `Couldn't ${doing}. Check the dashboard is still connected, then try again.`
-  if (status === 400 || status === 404) {
+  if (status === 400 || status === 404 || status === 500) {
     const words = ownWords(body)
     if (words) return words
   }
