@@ -580,5 +580,62 @@ class Scope(Fixture):
         self.assertEqual(self.links("hands_off_to"), {("agent:lead", "agent:w")})
 
 
+class ShadowedSdkNames(Fixture):
+    """An SDK name declared again around a call is not the SDK's."""
+
+    OPENAI = 'import { Agent, run, handoff } from "@openai/agents";\n'
+
+    def agents(self, code: str, sdk: str = "@openai/agents") -> set[str]:
+        self.build({"package.json": package(sdk), "src/a.ts": code})
+        return self.agent_ids()
+
+    def test_an_agent_class_destructured_inside_a_function_makes_no_agent(self):
+        code = self.OPENAI + 'export function f(ctx: any) {\n  const { Agent } = ctx;\n  return new Agent({ name: "x" });\n}\n'
+        self.assertEqual(self.agents(code), set())
+
+    def test_an_agent_class_declared_inside_a_function_makes_no_agent_but_others_in_the_file_count(self):
+        code = (
+            self.OPENAI
+            + 'export function f() {\n  const Agent = class {};\n  return new Agent({ name: "y" });\n}\n'
+            + 'export function g() { return new Agent({ name: "z" }); }\n'
+            + 'export const top = Agent.create({ name: "t" });\n'
+        )
+        self.assertEqual(self.agents(code), {"agent:z", "agent:t"})
+
+    def test_a_namespace_taken_as_a_parameter_makes_no_agent(self):
+        code = 'import * as sdk from "@openai/agents";\nexport function f(sdk: any) { return new sdk.Agent({ name: "w" }); }\n'
+        self.assertEqual(self.agents(code), set())
+        control = code.replace("(sdk: any)", "()")
+        self.assertEqual(self.agents(control), {"agent:w"})
+
+    def test_an_imported_agent_used_inside_a_function_still_makes_an_agent(self):
+        code = self.OPENAI + 'export function f() { return new Agent({ name: "c" }); }\n'
+        self.assertEqual(self.agents(code), {"agent:c"})
+
+    def test_a_run_taken_as_a_parameter_or_local_starts_nothing(self):
+        base = self.OPENAI + 'const agent = new Agent({ name: "a" });\n'
+        for use in ('export function g(run: any) { return run(agent, "q"); }\n', 'export function g() {\n  const run = make();\n  return run(agent, "q");\n}\n'):
+            self.build({"package.json": package("@openai/agents"), "src/a.ts": base + use})
+            self.assertEqual(self.agent_ids(), {"agent:a"})
+            self.assertEqual(self.links("starts"), set())
+        self.build({"package.json": package("@openai/agents"), "src/a.ts": base + 'export function g() { return run(agent, "q"); }\n'})
+        self.assertEqual({target for _, target in self.links("starts")}, {"agent:a"})
+
+    def test_a_handoff_taken_as_a_parameter_is_not_the_sdk_s(self):
+        code = (
+            self.OPENAI + 'const b = new Agent({ name: "b" });\n'
+            'export const make = (handoff: any) => new Agent({ name: "lead", handoffs: [handoff(b)] });\n'
+        )
+        self.build({"package.json": package("@openai/agents"), "src/a.ts": code})
+        self.assertEqual(self.links("hands_off_to"), set())
+
+    def test_a_query_taken_as_a_parameter_or_local_makes_no_agent(self):
+        sdk = 'import { query } from "@anthropic-ai/claude-agent-sdk";\n'
+        call = 'query({ options: { agents: { fixer: { description: "d", prompt: "p" } } } })'
+        self.assertEqual(self.agents(sdk + f"export function f(query: any) {{ return {call}; }}\n", "@anthropic-ai/claude-agent-sdk"), set())
+        self.assertEqual(self.agents(sdk + f"export function f() {{\n  const query = make();\n  return {call};\n}}\n", "@anthropic-ai/claude-agent-sdk"), set())
+        self.assertEqual(self.agents(sdk + f"export function f() {{ return {call}; }}\n", "@anthropic-ai/claude-agent-sdk"), {"agent:fixer"})
+
+
 if __name__ == "__main__":
     unittest.main()
