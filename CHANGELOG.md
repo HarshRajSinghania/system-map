@@ -7,6 +7,11 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The Agents layer wraps a crowded rank into columns or rows, so a module that starts many agents
+  on one model no longer shrinks the map until no card reads.
+
 ## [0.12.0] - 2026-11-08
 
 ### Added

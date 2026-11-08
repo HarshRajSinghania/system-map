@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { CARD_HEIGHT, CARD_WIDTH, GROUP_JOBS, GROUP_ROUTES, GROUP_TABLES, agentsView, buildView, fileCount, savedView, shortPath, trailFor } from '../src/graphView.ts'
 import { extent, layoutView, readableLayout } from '../src/layout.ts'
+import type { MapView } from '../src/graphView.ts'
 import type { SystemEdge, SystemGraph, SystemNode } from '../src/model.ts'
 
 function node(id: string, kind: string, extra: Partial<SystemNode> = {}): SystemNode {
@@ -322,6 +323,89 @@ test('the agents picture goes top down when that reads clearly bigger, and stays
 
 test('with no canvas size yet, the picture stays left to right', () => {
   assert.equal(readableLayout(agentsView(withAgents), 0, 0).direction, 'LR')
+})
+
+/** One module starts `count` agents, and every agent uses `services` model services. */
+function crowdedView(count: number, services = 1, banded = false): MapView {
+  const agents = Array.from({ length: count }, (_, i) => `agent:a${i}`)
+  const models = Array.from({ length: services }, (_, i) => `service:m${i}`)
+  const cards = [
+    { id: 'module:app', kind: 'module', title: 'app' },
+    ...agents.map((id) => ({ id, kind: 'agent', title: id })),
+    ...models.map((id) => ({ id, kind: 'service', title: id })),
+  ]
+  const lines = [
+    ...agents.map((id) => ({ id: `s:${id}`, source: 'module:app', target: id, kind: 'starts', count: 1 })),
+    ...agents.flatMap((id) => models.map((model) => ({ id: `u:${id}:${model}`, source: id, target: model, kind: 'uses_model', count: 1 }))),
+  ]
+  return { cards, lines, bands: banded ? [{ id: 'band:eu', label: 'EU', tone: 'away', members: models }] : [] }
+}
+
+function overlaps(placed: ReturnType<typeof layoutView>): boolean {
+  const spots = [...placed.places.values()]
+  return spots.some((a, i) => spots.slice(i + 1).some((b) => a.x < b.x + CARD_WIDTH && b.x < a.x + CARD_WIDTH && a.y < b.y + CARD_HEIGHT && b.y < a.y + CARD_HEIGHT))
+}
+
+test('a crowded rank wraps into columns or rows that read at least twice as large', () => {
+  const view = crowdedView(28)
+  const plain = Math.max(fitIn(layoutView(view, 'LR'), 1000, 600), fitIn(layoutView(view, 'TB'), 1000, 600))
+  const chosen = readableLayout(view, 1000, 600)
+  assert.ok(fitIn(chosen, 1000, 600) >= plain * 2, `${fitIn(chosen, 1000, 600)} against ${plain}`)
+  assert.equal(overlaps(chosen), false)
+  assert.equal(chosen.places.size, view.cards.length)
+  const module = chosen.places.get('module:app')
+  const service = chosen.places.get('service:m0')
+  assert.ok(module && service)
+  if (chosen.direction === 'LR') {
+    for (const [id, spot] of chosen.places) {
+      if (!id.startsWith('agent:')) continue
+      assert.ok(spot.x >= module.x + CARD_WIDTH, `${id} right of the module`)
+      assert.ok(spot.x + CARD_WIDTH <= service.x, `${id} left of the service`)
+    }
+  }
+})
+
+test('left to right keeps every agent between the module and the service once wrapped', () => {
+  // Wide and short boxes keep this in the wrapped left to right case.
+  const chosen = readableLayout(crowdedView(28), 2400, 500)
+  assert.equal(chosen.direction, 'LR')
+  const module = chosen.places.get('module:app')
+  const service = chosen.places.get('service:m0')
+  assert.ok(module && service)
+  const xs = new Set<number>()
+  for (const [id, spot] of chosen.places) {
+    if (!id.startsWith('agent:')) continue
+    xs.add(Math.round(spot.x))
+    assert.ok(spot.x >= module.x + CARD_WIDTH && spot.x + CARD_WIDTH <= service.x, id)
+  }
+  assert.ok(xs.size > 1, 'the agents are in several columns')
+  assert.equal(overlaps(chosen), false)
+})
+
+test('a small picture is laid out exactly as it was before wrapping', () => {
+  const view = crowdedView(3)
+  const chosen = readableLayout(view, 300, 200)
+  const plain = layoutView(view, chosen.direction)
+  assert.deepEqual([...chosen.places], [...plain.places])
+  assert.deepEqual(chosen.bands, plain.bands)
+})
+
+test('a rank that holds band members is not wrapped', () => {
+  const view = crowdedView(3, 12, true)
+  const chosen = readableLayout(view, 400, 300)
+  const plain = layoutView(view, chosen.direction)
+  assert.deepEqual([...chosen.places], [...plain.places])
+  assert.deepEqual(chosen.bands, plain.bands)
+  const axis = chosen.direction === 'LR' ? 'x' : 'y'
+  const spots = view.cards.filter((card) => card.id.startsWith('service:')).map((card) => chosen.places.get(card.id)?.[axis])
+  assert.equal(new Set(spots).size, 1, 'the band members share one rank')
+})
+
+test('with no canvas size, nothing is wrapped', () => {
+  const view = crowdedView(28)
+  const chosen = readableLayout(view, 0, 0)
+  assert.equal(chosen.direction, 'LR')
+  assert.deepEqual([...chosen.places], [...layoutView(view, 'LR').places])
 })
 
 test('today’s map lays out with no bands', () => {
