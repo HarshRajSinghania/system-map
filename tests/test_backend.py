@@ -1,5 +1,6 @@
 import email.message
 import http.client
+import io
 import json
 import os
 import socket
@@ -145,6 +146,15 @@ class BackendTests(Served):
         self.assertEqual(caught.exception.code, 400)
         self.assertIn("no coverage report", json.load(caught.exception)["error"])
 
+    def test_a_bad_lcov_line_is_a_400_with_the_whole_reply(self):
+        report = Path(self._tmp.name) / "bad.info"
+        for text, line in (("SF:a.ts\nDA:5\n", "DA:5"), ("SF:a.ts\nBRDA:1,0,0\n", "BRDA:1,0,0")):
+            report.write_text(text)
+            with self.subTest(line), self.assertRaises(urllib.error.HTTPError) as caught:
+                self.post("/coverage", {"report": str(report)})
+            self.assertEqual(caught.exception.code, 400)
+            self.assertEqual(json.load(caught.exception), {"error": f"Line 2 of the coverage report isn't valid lcov: {line}"})
+
     def test_risk_reads_with_or_without_a_report(self):
         value = self.get("/risk")
         self.assertIsNone(value["coverage"])
@@ -175,6 +185,65 @@ class BackendTests(Served):
         with self.assertRaises(urllib.error.HTTPError) as caught:
             self.post("/build", {"repo_path": str(self.data)})
         self.assertEqual(caught.exception.code, 400)
+
+
+class UnexpectedErrors(unittest.TestCase):
+    """The handler runs in this process, so a store function can be made to fail."""
+
+    MESSAGE = {"error": "System Map hit a bug (RuntimeError). The details are in the app's log."}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.env = mock.patch.dict(os.environ, {"KIROCREW_PROXY_SECRET": PROXY_SECRET})
+        cls.env.start()
+        for name in ("KIROCREW_APP_NAME", "KIROCREW_SPAWN_INSTANCE", "SYSTEM_MAP_UNSIGNED"):
+            os.environ.pop(name, None)
+        cls.httpd = server.Server(("127.0.0.1", 0), server.Handler)
+        cls.base = f"http://127.0.0.1:{cls.httpd.server_address[1]}"
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+        cls.env.stop()
+
+    def call(self, path, body=None):
+        """The status and parsed reply, and what the handler wrote to stderr."""
+        data = None if body is None else json.dumps(body).encode()
+        errors = io.StringIO()
+        with mock.patch.object(sys, "stderr", errors):
+            try:
+                with urllib.request.urlopen(signed_request(self.base + path, data), timeout=5) as reply:
+                    return reply.status, json.load(reply), errors.getvalue()
+            except urllib.error.HTTPError as error:
+                return error.code, json.load(error), errors.getvalue()
+
+    def test_a_get_route_that_hits_a_bug_is_a_500_and_logs_the_traceback(self):
+        with mock.patch.object(store, "resolve_repo", return_value=Path("/nowhere")), mock.patch.object(
+            store, "load_risk", side_effect=RuntimeError("boom")
+        ):
+            code, reply, log = self.call("/risk")
+        self.assertEqual((code, reply), (500, self.MESSAGE))
+        self.assertIn("Traceback (most recent call last)", log)
+        self.assertIn("RuntimeError: boom", log)
+
+    def test_a_post_route_that_hits_a_bug_is_a_500_and_logs_the_traceback(self):
+        with mock.patch.object(store, "resolve_repo", return_value=Path("/nowhere")), mock.patch.object(
+            store, "set_coverage", side_effect=RuntimeError("boom")
+        ):
+            code, reply, log = self.call("/coverage", {})
+        self.assertEqual((code, reply), (500, self.MESSAGE))
+        self.assertIn("Traceback (most recent call last)", log)
+        self.assertIn("RuntimeError: boom", log)
+
+    def test_the_expected_errors_keep_their_replies(self):
+        with mock.patch.object(store, "resolve_repo", side_effect=KeyError("no such repo")):
+            self.assertEqual(self.call("/risk")[:2], (404, {"error": "no such repo"}))
+        with mock.patch.object(store, "resolve_repo", return_value=Path("/nowhere")), mock.patch.object(
+            store, "set_coverage", side_effect=ValueError("bad report")
+        ):
+            self.assertEqual(self.call("/coverage", {})[:2], (400, {"error": "bad report"}))
 
 
 class AgentRoutes(Served):
