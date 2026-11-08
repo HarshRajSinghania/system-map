@@ -18,7 +18,7 @@ jobs:
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Pick the Kiro Crew versions to test
@@ -59,14 +59,14 @@ jobs:
       GIT_COMMITTER_NAME: ci
       GIT_COMMITTER_EMAIL: ci@example.com
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
       - name: Install the TypeScript compiler the tests use
@@ -85,10 +85,10 @@ jobs:
   ui:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
       - run: npm ci
