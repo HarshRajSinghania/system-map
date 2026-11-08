@@ -19,7 +19,8 @@ commit that set the version in `app.json`. The format follows
 ### Added
 - The status menu and the overview name each language the repo has but System Map doesn't read,
   such as "3 Python files it doesn't read (core/)". A Python or Java repo no longer maps as nearly
-  empty with nothing said.
+  empty with nothing said. A repo with nothing System Map can read is refused with the same words,
+  so the error says why.
 - CI on every pull request, push to `main` and once a day. It runs every Python test against the
   oldest Kiro Crew the app supports (`minKiroCrewVersion`) and the newest release, and fails on any
   skipped test (`python3 tests/strict.py`). It also runs the UI tests, typecheck and build, and fails if
