@@ -112,9 +112,24 @@ class _Run:
         self.paths = sorted(path for path in paths if not ts.TEST_FILE.search(path))
         specifiers = [IMPORTS[sdk] for sdk in sdks]
         unread = [path for path in self.paths if path not in files.cache]
+        # A file is masked only if it imports from an SDK module. The rest are kept as read, and
+        # `read_users` masks the few that can start a Mastra agent once the agents are known.
+        self.unmasked: dict[str, str] = {}
         for path, text in files.source.read_many(unread).items():
-            if any(specifier in text for specifier in specifiers) or (MASTRA in sdks and GENERATE.search(text)):
+            if any(specifier in text for specifier in specifiers):
                 files.put(path, text)
+            elif MASTRA in sdks:
+                self.unmasked[path] = text
+
+    def read_users(self) -> None:
+        """Mask each file that calls `.generate(` or `.stream(` and names a Mastra agent variable."""
+        names = {name for (_, name), agent in self.variables.items() if agent and self.found[agent]["sdk"] == MASTRA}
+        if not names:
+            return
+        named = re.compile(r"(?<![\w$.])(?:" + "|".join(sorted(map(re.escape, names))) + r")(?![\w$])")
+        for path, text in self.unmasked.items():
+            if path not in self.files.cache and GENERATE.search(text) and named.search(text):
+                self.files.put(path, text)
 
     def importers(self, sdk: str):
         """Each file that imports from the SDK's module: its path, and what it imports."""
@@ -421,6 +436,7 @@ def read(files: base._Files, project, nodes: list[dict], paths: list[str], sdks:
     if CLAUDE in sdks:
         _define_query(run)
     _link_hand_offs(run)
+    run.read_users()
     _link_runs(run)
     _link_models(run)
     return list(run.found.values()), list(run.edges.found.values())
