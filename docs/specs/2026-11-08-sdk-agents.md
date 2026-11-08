@@ -1,7 +1,7 @@
 ---
 title: Agents from SDKs (G2), phase 1
 estimate: 340m
-status: approved
+status: done
 ---
 # Agents from SDKs
 
@@ -77,3 +77,13 @@ UI, checked in `ui/dev` in light and dark:
 | 5 | Skill, docs and build | `skills/system-map/SKILL.md`, `README.md`, `CHANGELOG.md`, `docs/backlog.md`, `ui/dist` | 20m |
 
 **Estimate:** 340m. The six tasks add up to 290m, plus 50m for review and fixes.
+
+## As built
+- Imports and fields: OpenAI Agents from `@openai/agents` (`new Agent({ name })`, `Agent.create`, `handoffs` plain or `handoff(x)`; `run(agent, …)` starts it). Mastra's `Agent` from `@mastra/core/agent` (`agent.generate` and `agent.stream` start it). Claude Agent SDK `query` from `@anthropic-ai/claude-agent-sdk`: each key of `options.agents` is an agent, named by that key, and the calling module starts it.
+- A reader runs only when the root `package.json` lists the SDK. A listed or marked agent with the same name wins. `@openai/agents` and `@ai-sdk/openai` map to OpenAI, `@anthropic-ai/claude-agent-sdk` and `@ai-sdk/anthropic` to Anthropic, so `@ai-sdk/*` now gives a service with no agent SDK.
+- Proof (criterion 7), TypeScript 5.9 with `@openai/agents` 0.21.0, `@mastra/core` 1.82.0 and `@anthropic-ai/claude-agent-sdk` 0.3.319, on the makers' official examples:
+  - OpenAI Agents: 21 projects, 175 agents by the compiler, 172 found and matched, none found that the compiler didn't. 21 of 24 hand-offs.
+  - Mastra: 9 projects, 61 by the compiler, 60 found and matched.
+  - Claude Agent SDK: no official example declares `options.agents` (10 projects checked), so the reader was proven only on a made-up fixture, 4 of 4.
+- Named skips: agents in test files (3), an agent outside the code root when `src/` exists (1), and a `handoff(...)` held in a variable (3 hand-offs). `verify-sdk` lists the first two under `skipped` and exits 0 when only skips remain.
+- Not read: LangGraph and Python SDKs, asks-you from approval hooks, agent subclasses, `export default` agents followed by import, `Runner.run`, `mastra.getAgent("name")`, `@openai/agents-core` imports, a hand-off list or `handoff(...)` in a variable, and `.claude/agents/*.md` subagents. These are rows in `docs/backlog.md`.

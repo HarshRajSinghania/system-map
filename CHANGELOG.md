@@ -7,6 +7,19 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Agents from SDKs.** Agents declared with the OpenAI Agents SDK, Mastra or the Claude Agent
+  SDK show in the Agents tab with no settings, when the root `package.json` lists the SDK. Each has
+  its name, what starts it, who it hands work to (OpenAI Agents) and its model. The detail says
+  which package it came from, with a line. A listed or marked agent with the same name wins.
+- `python3 -m core verify-sdk <repo> <truth.json>` compares those agents and hand-offs with the
+  TypeScript compiler's answer from `scripts/sdk_truth.mjs`. Agents in test files, or outside the
+  code root, are listed under `skipped` and don't fail the check.
+
+### Changed
+- A project that uses `@ai-sdk/openai` or `@ai-sdk/anthropic` now shows that service, even with no
+  agent SDK. `@openai/agents` and `@anthropic-ai/claude-agent-sdk` map to the same two services.
+
 ## [0.11.0] - 2026-11-07
 
 ### Added

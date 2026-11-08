@@ -7,8 +7,8 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 - Work from `main`, on version 0.11.0. Each change goes on its own branch, with a PR into
   `main`. The remote, `origin`, is a private GitHub repo. The older slice branches are kept, and
   `main` holds all of them.
-- Run the checks in the README's Checks section. All pass on `main`: 875 Python tests and
-  109 UI tests.
+- Run the checks in the README's Checks section. All pass on `main`: 938 Python tests and
+  110 UI tests.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
 - Look at screenshots before you commit UI. Checks have passed while pictures showed faults.
@@ -29,6 +29,7 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 | Folder window on a Mac and Linux | Press Browse on each | Only WSL has run for real. The others are stubbed |
 | Design chat opens on its first message | Sync, open a project with no chat, leave, and look for no New Session. Then send a message | Proven only in `ui/dev`, whose chat is a stand-in |
 | Agents after review | Sync. Turn the Agents layer on and off from an open area. With it on, open a saved view from Explore: the button must go off. Pick a filter whose count is 0, and look at a disabled Agents button on a project with no agents | The tab, layer, Show on map, regions, bands and region findings were seen for real, in the light theme. The review fixes since `3ceff3e` were not. The saved-view rule lives in App wiring, which no test loads |
+| Agents from SDKs | Sync. Build a project that lists `@openai/agents` in its root `package.json`. Open the Agents tab with no settings: the agents show, the detail says "From @openai/agents" with a line, and a hand-off reads in Starts from and Then. Turn on the Agents layer on the Map. Look in light and dark | Seen only in `ui/dev`, in both themes, on an official OpenAI Agents example. Long agent names wrap inside the narrow Then column |
 | Agents in the side panel and dark theme | Open the panel tab on an agent, and switch the theme | Not looked at yet |
 | Find my agents | Sync. On a project with no agent settings, press Find my agents and approve `draft_agents` in the chat. The card must show within 8 seconds. Try Edit first then Cancel, Edit first then save, Drop, and Use these. Press Find my agents again while a card shows, and check that Use these on the old card is refused. On a project with no agents, try Edit first then Mark as agent. Set Hand-off calls in the form and check what starts each agent. Look in light and dark | Its routes, tool and skill were proven on a real project by 3 runs of a fresh agent through the MCP server. In `ui/dev`, in both themes: the card, Use these refused for a newer draft with the message on the new card, and an open settings form taking the new values after Use these. Mark as agent from a draft and the disabled button's reason were not looked at |
 
@@ -54,7 +55,7 @@ From the scope document. Each needs a short spec first, kept as an artifact like
 | C6 | Sub-agents get ids and paths, write results to files and return a path | Soon | See `docs/context-management.md` |
 | M6 | Scheduled refresh | Later | Crons and `permissions.spawn` are in the SDK, not tried |
 | E6 | Agents propose Intent edits for you to accept | Later | Drafts work for proposals only. Only a person may accept |
-| G2 | Agents from SDKs: Claude Agent SDK, OpenAI Agents, LangGraph, Mastra | Soon | Found with no settings. Hold each reader to the SDK's own types |
+| G2 | Agents from SDKs: Claude Agent SDK, OpenAI Agents, LangGraph, Mastra | Soon | Phase 1 done: OpenAI Agents, Mastra and the Claude Agent SDK, proven with `verify-sdk` (spec `2026-11-08-sdk-agents`). Left: LangGraph and the Python SDKs, asks-you from approval hooks, agent subclasses, and the limits below |
 | G3 | Evals and guardrails beside each agent | Later | No sign in code says what is an eval or a budget yet. Cut from slice 7 |
 
 ## Store listing
@@ -84,7 +85,7 @@ These are named on screen, not hidden. Each is a choice, not a bug.
 | MySQL and MongoDB | `core/extractors/` | Each needs its own module behind the boundary |
 | Limits on what-ifs are Postgres only | `limits_apply` in `core/explore.py` | They are proven against real Postgres. SQLite needs its own sweep |
 | SQL built from pieces at runtime | `sql_uses` in `core/extractors/typescript.py` | Only SQL seen as one whole string links to its tables |
-| Agents need settings | `settings_of` in `core/agents.py` | With none, there are no agents, only suggestions and Find my agents. G2 would find SDK agents with none |
+| Agents need settings | `settings_of` in `core/agents.py` | With none, there are no agents, only suggestions and Find my agents. Agents from the three TypeScript SDKs need none |
 | An agent named in a later argument | `_hand_offs` in `core/agents.py` | A hand-off call reads only its first argument, so `run(job, "mail")` starts nothing. Nor does a name held in a variable, a cast such as `"mail" as Name` or `satisfies Name`, or one in brackets |
 | A call written as page text | `ts.mask_code` | JSX text is not masked, so `<p>Run queueAgent("mail", id).</p>` reads as a call to a hand-off, model or asks-you name |
 | Asks you from SQL | `asks_you` in `core/agents.py` | An agent that runs in the database and leaves a person a task through a SQL function is not marked. Only calls in an agent's own code count |
@@ -92,6 +93,16 @@ These are named on screen, not hidden. Each is a choice, not a bug.
 | An agent that shares its file with others | `_regions` in `core/agents.py` | It gets its own object and the files its names are imported from. A handler written in that same file, outside the object, is not read |
 | Asks you, or only tells you | `asks_you` in `core/agents.py` | A call to an asks-you name counts either way. Telling the two apart needs the call's arguments |
 | A job that starts an agent two calls deep | `find` in `core/agents.py` | Only the job's command and the one SQL function it calls are read |
+| LangGraph and Python agent SDKs | `core/sdk_agents.py` | Only the OpenAI Agents, Mastra and Claude Agent SDKs for TypeScript are read |
+| SDK listed only in a sub-package | `core/sdk_agents.py` | A reader runs only when the root `package.json` lists the SDK, so a project that lists it only in a workspace package gives no SDK agents. Seen on a whole monorepo of official examples |
+| Asks you from SDK approval hooks | `core/sdk_agents.py` | An SDK agent never shows as asking you, since its approval hooks are not read |
+| Agent subclasses | `core/sdk_agents.py` | `RealtimeAgent`, `SandboxAgent` and other classes that extend an SDK's `Agent` are not read |
+| An agent exported, then imported | `core/sdk_agents.py` | An `export default` agent is not followed by import |
+| `Runner.run` and `mastra.getAgent("name")` | `core/sdk_agents.py` | Only `run(agent, …)`, `agent.generate` and `agent.stream` start an agent, so other ways in show no start |
+| Imports from `@openai/agents-core` | `core/sdk_agents.py` | Only `@openai/agents` is read. A project that imports `Agent` from the core package gives no agents |
+| A hand-off list or `handoff(...)` held in a variable | `core/sdk_agents.py` | A hand-off list, or a `handoff(...)` call, held in a variable is not followed. In the official examples, 3 of 24 hand-offs were skipped this way |
+| Claude subagents in `.claude/agents/*.md` | `core/sdk_agents.py` | Only the keys of `options.agents` in code are read, not subagents defined as files |
+| Agents in test files, or outside the code root | `core/sdk_agents.py` | Skipped on purpose. `verify-sdk` lists them under `skipped`: 3 in test files and 1 outside `src/` in the official examples |
 
 ## Screen walks
 

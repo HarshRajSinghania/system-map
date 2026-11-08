@@ -54,17 +54,19 @@ count them, for the routes they open.
 In `worktrees`, `high` means a real trial merge conflicted, or two worktrees change one table.
 A merge is only tried on commits, so `merge: uncommitted` means nobody knows yet.
 
-Agents come only from settings a person saved in the Agents tab, or a draft they used. An
-empty `agents` list means nobody has, not that there are none: say so, name its
-`suggestions`, and offer to find them. A model called through a name in the settings links to
+Agents declared with the OpenAI Agents, Mastra or Claude Agent SDK show with no settings, when
+the root package.json lists the SDK. Other agents come only from settings a person saved in the
+Agents tab, or a draft they used. An empty `agents` list means nobody has, not that there are
+none: say so, name its `suggestions`, and offer to find them. A model called through a name in the settings links to
 every model the project uses, so `uses_model` means it can reach that model, not that it
 always does. A person tags each service's region. Say `leaves_region` came from their tags,
 and never tag a service yourself.
 
 ## Find my agents
 
-When someone asks you to find the agents, read the code and draft the settings with
-`draft_agents`. Only a person uses a draft, in the Agents tab.
+Find my agents is for home-made agent lists. Agents from the SDKs above need no settings. When
+someone asks you to find the agents, read the code and draft the settings with `draft_agents`.
+Only a person uses a draft, in the Agents tab.
 
 1. Call `agents`. Its `suggestions` are modules that call a model, so start reading there.
 2. **`list`**: find the one file that exports an array of agents, each an object with a
