@@ -30,6 +30,37 @@ import { triage } from "./agents";
 
 export const go = () => run(triage, "hello");
 """
+MASTRA_AGENTS = """import { Agent } from "@mastra/core/agent";
+import { openai } from "@ai-sdk/openai";
+
+export const writer = new Agent({ id: "writer", name: "writer", instructions: "Writes drafts.", model: openai("gpt-4o") });
+export const editor = new Agent({ id: "editor", name: "editor", description: "Edits drafts.", model: "anthropic/claude-sonnet-4" });
+export const reader = new Agent({ id: "reader", name: "reader", model: "google/gemini-2.5-flash" });
+"""
+MASTRA_JOB = """import { writer, editor } from "./agents";
+
+export async function work() {
+  await writer.generate("write");
+  const out = await editor.stream("edit");
+  return out;
+}
+"""
+CLAUDE_REVIEW = """import { query } from "@anthropic-ai/claude-agent-sdk";
+
+export async function review() {
+  for await (const message of query({
+    prompt: "review",
+    options: {
+      agents: {
+        linter: { description: "Lints the change.", prompt: "Lint.", model: "haiku" },
+        "test-runner": { description: "Runs the tests.", prompt: "Run." },
+      },
+    },
+  })) {
+    console.log(message);
+  }
+}
+"""
 ANTHROPIC_CLIENT = 'import Anthropic from "@anthropic-ai/sdk";\nexport const client = new Anthropic();\n'
 
 
@@ -219,6 +250,15 @@ class Listing(Fixture):
         self.build({"package.json": package("@openai/agents"), "src/agents.ts": OPENAI_AGENTS}, None)
         self.assertEqual(len(self.agent_ids()), 3)
 
+    def test_only_a_listed_sdk_is_read(self):
+        files = {
+            "package.json": package("@openai/agents"),
+            "src/agents.ts": OPENAI_AGENTS,
+            "src/mastra.ts": MASTRA_AGENTS,
+        }
+        self.build(files)
+        self.assertEqual(self.agent_ids(), {"agent:billing", "agent:support", "agent:triage"})
+
 
 class NoSdk(Fixture):
     LISTED = {
@@ -288,6 +328,142 @@ class Merge(Fixture):
         self.assertNotIn("sdk", triage)
 
 
+class Mastra(Fixture):
+    FILES = {
+        "package.json": package("@mastra/core", "@ai-sdk/openai"),
+        "src/agents.ts": MASTRA_AGENTS,
+        "src/job.ts": MASTRA_JOB,
+        "src/claude.ts": ANTHROPIC_CLIENT,
+    }
+
+    def test_each_new_agent_from_mastra_is_an_agent(self):
+        self.build(self.FILES)
+        self.assertEqual(self.agent_ids(), {"agent:writer", "agent:editor", "agent:reader"})
+        node = self.nodes["agent:editor"]
+        self.assertEqual((node["source"], node["sdk"], node["description"]), ("sdk", "@mastra/core", "Edits drafts."))
+        self.assertEqual(node["evidence"], [f"src/agents.ts:{line_of(MASTRA_AGENTS, 'new Agent({ id: \"editor\"')}"])
+        self.assertEqual(self.nodes["agent:writer"]["description"], "Writes drafts.")
+
+    def test_generate_and_stream_start_the_agent_from_the_module(self):
+        self.build(self.FILES)
+        starts = {target for _, target in self.links("starts")}
+        self.assertEqual(starts, {"agent:writer", "agent:editor"})
+        source = next(source for source, target in self.links("starts") if target == "agent:writer")
+        self.assertEqual(self.edges[(source, "starts", "agent:writer")]["evidence"], [f"src/job.ts:{line_of(MASTRA_JOB, 'writer.generate')}"])
+        self.assertEqual(self.edges[(source, "starts", "agent:editor")]["evidence"], [f"src/job.ts:{line_of(MASTRA_JOB, 'editor.stream')}"])
+
+    def test_models_by_provider_function_and_prefix(self):
+        self.build(self.FILES)
+        self.assertEqual(
+            self.links("uses_model"),
+            {("agent:writer", "service:openai"), ("agent:editor", "service:anthropic")},
+        )
+        edge = self.edges[("agent:writer", "uses_model", "service:openai")]
+        self.assertEqual(edge["evidence"], [f"src/agents.ts:{line_of(MASTRA_AGENTS, 'model: openai')}"])
+
+    def test_with_no_model_there_is_no_model_link(self):
+        code = 'import { Agent } from "@mastra/core/agent";\nexport const a = new Agent({ id: "a", name: "a" });\n'
+        self.build({"package.json": package("@mastra/core"), "src/a.ts": code, "src/c.ts": ANTHROPIC_CLIENT})
+        self.assertEqual(self.agent_ids(), {"agent:a"})
+        self.assertEqual(self.links("uses_model"), set())
+
+    def test_a_provider_the_project_does_not_have_is_not_linked(self):
+        files = {k: v for k, v in self.FILES.items() if k != "src/claude.ts"}
+        self.build(files)
+        self.assertEqual(self.links("uses_model"), {("agent:writer", "service:openai")})
+
+    def test_a_template_name_and_a_local_agent_class_add_nothing(self):
+        files = {
+            "package.json": package("@mastra/core"),
+            "src/a.ts": 'import { Agent } from "@mastra/core/agent";\nconst id = "x";\nexport const a = new Agent({ id, name: `n-${id}` });\n',
+            "src/b.ts": 'class Agent {\n  constructor(public config: unknown) {}\n}\nexport const b = new Agent({ name: "local" });\n',
+        }
+        self.build(files)
+        self.assertEqual(self.agent_ids(), set())
+
+    def test_a_call_on_something_that_is_not_an_agent_starts_nothing(self):
+        files = dict(self.FILES, **{"src/job.ts": 'import { client } from "./claude";\nexport const f = () => client.generate("x");\n'})
+        self.build(files)
+        self.assertEqual(self.links("starts"), set())
+
+    def test_the_sdk_not_in_package_json_is_not_read(self):
+        self.build(dict(self.FILES, **{"package.json": package("@ai-sdk/openai")}))
+        self.assertEqual(self.agent_ids(), set())
+
+
+class ClaudeAgentSdk(Fixture):
+    FILES = {"package.json": package("@anthropic-ai/claude-agent-sdk"), "src/review.ts": CLAUDE_REVIEW}
+
+    def test_each_key_of_options_agents_is_an_agent(self):
+        self.build(self.FILES)
+        self.assertEqual(self.agent_ids(), {"agent:linter", "agent:test-runner"})
+        node = self.nodes["agent:linter"]
+        self.assertEqual((node["source"], node["sdk"], node["status"], node["description"]), ("sdk", "@anthropic-ai/claude-agent-sdk", "built", "Lints the change."))
+        self.assertEqual(node["evidence"], [f"src/review.ts:{line_of(CLAUDE_REVIEW, 'linter:')}"])
+        self.assertEqual(self.nodes["agent:test-runner"]["evidence"], [f"src/review.ts:{line_of(CLAUDE_REVIEW, 'test-runner')}"])
+
+    def test_the_module_that_makes_the_call_starts_each_one(self):
+        self.build(self.FILES)
+        sources = {source for source, _ in self.links("starts")}
+        self.assertEqual(len(sources), 1)
+        self.assertTrue(sources.pop().startswith("module:"))
+        self.assertEqual({target for _, target in self.links("starts")}, {"agent:linter", "agent:test-runner"})
+        edge = next(e for (_, kind, target), e in self.edges.items() if kind == "starts" and target == "agent:linter")
+        self.assertEqual(edge["evidence"], [f"src/review.ts:{line_of(CLAUDE_REVIEW, 'query(')}"])
+
+    def test_each_agent_uses_anthropic(self):
+        self.build(self.FILES)
+        self.assertEqual(self.links("uses_model"), {("agent:linter", "service:anthropic"), ("agent:test-runner", "service:anthropic")})
+
+    def test_options_and_agents_can_be_constants_in_the_file(self):
+        code = (
+            'import { query } from "@anthropic-ai/claude-agent-sdk";\n'
+            'const agents = { fixer: { description: "Fixes.", prompt: "Fix." } };\n'
+            'const options = { agents };\n'
+            'export const go = () => query({ prompt: "x", options });\n'
+        )
+        self.build({"package.json": package("@anthropic-ai/claude-agent-sdk"), "src/a.ts": code})
+        self.assertEqual(self.agent_ids(), {"agent:fixer"})
+
+    def test_agents_from_a_call_or_a_computed_variable_key_add_nothing(self):
+        code = (
+            'import { query } from "@anthropic-ai/claude-agent-sdk";\n'
+            "const key = process.env.KEY;\n"
+            'export const a = () => query({ prompt: "x", options: { agents: makeAgents() } });\n'
+            'export const b = () => query({ prompt: "x", options: { agents: { [key]: { description: "d", prompt: "p" } } } });\n'
+        )
+        self.build({"package.json": package("@anthropic-ai/claude-agent-sdk"), "src/a.ts": code})
+        self.assertEqual(self.agent_ids(), set())
+
+    def test_a_computed_key_that_is_a_constant_counts(self):
+        code = (
+            'import { query } from "@anthropic-ai/claude-agent-sdk";\n'
+            'const KEY = "scribe";\n'
+            'export const a = () => query({ prompt: "x", options: { agents: { [KEY]: { description: "d", prompt: "p" } } } });\n'
+        )
+        self.build({"package.json": package("@anthropic-ai/claude-agent-sdk"), "src/a.ts": code})
+        self.assertEqual(self.agent_ids(), {"agent:scribe"})
+
+    def test_a_query_that_is_not_from_the_sdk_adds_nothing(self):
+        code = 'import { query } from "./db";\nexport const a = () => query({ options: { agents: { fixer: { description: "d" } } } });\n'
+        self.build({"package.json": package("@anthropic-ai/claude-agent-sdk"), "src/a.ts": code, "src/db.ts": "export const query = (x: unknown) => x;\n"})
+        self.assertEqual(self.agent_ids(), set())
+
+    def test_a_query_without_agents_adds_nothing(self):
+        code = 'import { query } from "@anthropic-ai/claude-agent-sdk";\nexport const a = () => query({ prompt: "x", options: { model: "opus" } });\n'
+        self.build({"package.json": package("@anthropic-ai/claude-agent-sdk"), "src/a.ts": code})
+        self.assertEqual(self.agent_ids(), set())
+
+    def test_the_sdk_not_in_package_json_is_not_read(self):
+        self.build(dict(self.FILES, **{"package.json": package("react")}))
+        self.assertEqual(self.agent_ids(), set())
+
+    def test_two_calls_that_name_one_agent_make_one_agent_started_by_both(self):
+        files = dict(self.FILES, **{"src/second/review.ts": CLAUDE_REVIEW})
+        self.build(files)
+        self.assertEqual(self.agent_ids(), {"agent:linter", "agent:test-runner"})
+        self.assertEqual(self.nodes["agent:linter"]["path"], "src/review.ts")
+        self.assertEqual(len({source for source, target in self.links("starts") if target == "agent:linter"}), 2)
 
 
 if __name__ == "__main__":

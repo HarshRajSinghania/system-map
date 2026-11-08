@@ -14,11 +14,11 @@ from . import agents as base
 from .extractors import typescript as ts
 from .sources import package_dependencies
 
-OPENAI = "@openai/agents"
+OPENAI, MASTRA, CLAUDE = "@openai/agents", "@mastra/core", "@anthropic-ai/claude-agent-sdk"
 #: Each SDK as package.json names it, and the module its agent class or `query` is imported from.
-IMPORTS = {OPENAI: "@openai/agents"}
+IMPORTS = {OPENAI: "@openai/agents", MASTRA: "@mastra/core/agent", CLAUDE: "@anthropic-ai/claude-agent-sdk"}
 #: The model a model-less agent uses: the SDK's own provider.
-DEFAULT_SERVICE = {OPENAI: "OpenAI"}
+DEFAULT_SERVICE = {OPENAI: "OpenAI", CLAUDE: "Anthropic"}
 #: The part of a `provider/model` string before the slash.
 PREFIX_SERVICE = {"openai": "OpenAI", "anthropic": "Anthropic"}
 PREFIX = re.compile(r"""["'`](openai|anthropic)/""")
@@ -26,6 +26,7 @@ PREFIX = re.compile(r"""["'`](openai|anthropic)/""")
 DESCRIBED = ("description", "instructions")
 #: What a template's hole becomes in a string. A name or description with it is not a plain string.
 HOLE = "…"
+GENERATE = re.compile(rf"(?<![\w$.])({base.IDENT})\s*\??\.\s*(?:generate|stream)\s*\(")
 
 Where = tuple[int, int]
 
@@ -108,7 +109,7 @@ class _Run:
         specifiers = [IMPORTS[sdk] for sdk in sdks]
         unread = [path for path in self.paths if path not in files.cache]
         for path, text in files.source.read_many(unread).items():
-            if any(specifier in text for specifier in specifiers):
+            if any(specifier in text for specifier in specifiers) or (MASTRA in sdks and GENERATE.search(text)):
                 files.put(path, text)
 
     def importers(self, sdk: str):
@@ -200,6 +201,52 @@ def _define_class(run: _Run, sdk: str, create: bool) -> None:
                 run.hand_offs[name] = (path, props["handoffs"])
 
 
+def _object(run: _Run, path: str, where: Where | None) -> tuple[str, int] | None:
+    """The object literal a value is, or a variable set to one here or in an import: (file, its `{`)."""
+    if not where:
+        return None
+    code = run.files.cache[path][2]
+    start = _strip(code, where)
+    if code.startswith("{", start):
+        return path, start
+    name = base._ident(code, *where)
+    found = run.files.object(name, path) if name else None
+    return (found[0], found[2]) if found else None
+
+
+def _members(run: _Run, place: tuple[str, int] | None) -> dict[str, Where]:
+    """The properties of the object literal at `place`."""
+    return base._props(*run.files.cache[place[0]][::2], place[1]) if place else {}
+
+
+def _key_name(run: _Run, path: str, key: str, at: int) -> str | None:
+    """An `agents` key as a name: as written, or a computed key that is a string or a constant."""
+    if not key.startswith("["):
+        return key
+    inner = key[1:-1]
+    return inner[1:-1] if inner[:1] in "\"'`" and inner[-1:] == inner[:1] else run.files.const(inner, path, at=at)
+
+
+def _define_query(run: _Run) -> None:
+    """Each key of `options.agents` in a `query({ … })` call. The module that makes the call starts them."""
+    for path, named, spaces in run.importers(CLAUDE):
+        code = run.files.cache[path][2]
+        for start, paren in _calls(code, _heads(named, spaces, "query")):
+            arguments = base._items(code, paren, base._close(code, paren))
+            call = _object(run, path, arguments[0]) if arguments else None
+            options = _object(run, call[0], _members(run, call).get("options")) if call else None
+            listing = _object(run, options[0], _members(run, options).get("agents")) if options else None
+            for key, where in _members(run, listing).items():
+                home = listing[0]
+                name = _key_name(run, home, key, listing[1])
+                body = _object(run, home, where)
+                props = _members(run, body) if body and body[0] == home else {}
+                line = base._line(run.files.cache[home][0], _strip(run.files.cache[home][2], where))
+                if name and (run.add(CLAUDE, name, home, line, props) or run.found[name]["sdk"] == CLAUDE):
+                    run.models.setdefault(name, (home, None))
+                    run.starts(CLAUDE, path, start, name)
+
+
 def _model_services(run: _Run, sdk: str, path: str, where: Where | None) -> list[str]:
     """The providers a `model` value names: an `openai/` or `anthropic/` prefix in a string, or a
     call of a provider function from `@ai-sdk/…`. No `model` is the SDK's own provider, as is a
@@ -252,12 +299,17 @@ def _link_hand_offs(run: _Run) -> None:
 
 
 def _link_runs(run: _Run) -> None:
-    """What starts an agent: `run(agent, …)`."""
-    for path, named, spaces in run.importers(OPENAI):
-        code = run.files.cache[path][2]
-        for start, paren in _calls(code, _heads(named, spaces, "run")):
-            arguments = base._items(code, paren, base._close(code, paren))
-            run.starts(OPENAI, path, start, run.agent_at(path, arguments[0]) if arguments else None)
+    """What starts an agent: `run(agent, …)`, or `agent.generate(…)` and `agent.stream(…)`."""
+    if OPENAI in run.sdks:
+        for path, named, spaces in run.importers(OPENAI):
+            code = run.files.cache[path][2]
+            for start, paren in _calls(code, _heads(named, spaces, "run")):
+                arguments = base._items(code, paren, base._close(code, paren))
+                run.starts(OPENAI, path, start, run.agent_at(path, arguments[0]) if arguments else None)
+    if MASTRA in run.sdks:
+        for path in run.paths:
+            for match in GENERATE.finditer(run.files.cache[path][2]) if path in run.files.cache else ():
+                run.starts(MASTRA, path, match.start(), run.lookup(match.group(1), path))
 
 
 def read(files: base._Files, project, nodes: list[dict], paths: list[str], sdks: list[str], owned: set[str]) -> tuple[list[dict], list[dict]]:
@@ -266,6 +318,10 @@ def read(files: base._Files, project, nodes: list[dict], paths: list[str], sdks:
     run = _Run(files, project, nodes, paths, sdks, owned)
     if OPENAI in sdks:
         _define_class(run, OPENAI, create=True)
+    if MASTRA in sdks:
+        _define_class(run, MASTRA, create=False)
+    if CLAUDE in sdks:
+        _define_query(run)
     _link_hand_offs(run)
     _link_runs(run)
     _link_models(run)
