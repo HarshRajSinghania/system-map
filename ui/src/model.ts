@@ -215,7 +215,9 @@ export interface AgentRow {
   jobs: string[]
   path: string
   module: string
-  source: 'list' | 'module'
+  source: 'list' | 'module' | 'sdk'
+  /** The SDK's package name, for an agent made with one. */
+  sdk?: string
   evidence: string[]
   /** Lines where it waits for a person. */
   asks_you: string[]

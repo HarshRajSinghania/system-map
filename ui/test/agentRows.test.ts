@@ -16,6 +16,7 @@ import {
   modelsOf,
   nodeLabel,
   regionTone,
+  sdkLine,
   SETTING_HELP,
   SETTING_KEYS,
   setupKey,
@@ -59,6 +60,14 @@ const rows = [
   agent('renewals', { asks_you: ['r.ts:5'], starts: [{ node: 'job:renewals', evidence: 'm.sql:347' }] }),
   agent('inbox', { status: 'planned' }),
 ]
+
+test('an SDK agent says which package made it, and no other agent does', () => {
+  for (const sdk of ['@openai/agents', '@mastra/core', '@anthropic-ai/claude-agent-sdk']) {
+    assert.equal(sdkLine(agent('helper', { source: 'sdk', sdk, jobs: [], status: 'built' })), `From ${sdk}`)
+  }
+  assert.equal(sdkLine(agent('triage')), null)
+  assert.equal(sdkLine(agent('mail', { source: 'module' })), null)
+})
 
 test('each filter counts the agents it keeps', () => {
   assert.deepEqual(filterCounts(rows), { all: 4, model: 2, leaves: 1, asks: 2, planned: 1 })
