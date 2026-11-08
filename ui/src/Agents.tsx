@@ -2,7 +2,7 @@ import { Badge, Btn, Input } from '@kirocrew/app-sdk/ui'
 import { useMemo, useState } from 'react'
 import type { CSSProperties, ReactNode } from 'react'
 import { AgentDraftCard } from './AgentDraft'
-import { AGENT_FILTERS, draftErrorFor, draftSettings, filterAgents, filterCounts, FIND_OFF, fromForm, handsOffTo, markedSettings, modelLabel, modelsOf, nodeLabel, regionTone, SETTING_HELP, SETTING_KEYS, SETTING_LABELS, setupKey, startsFrom, STATUS_LABEL, toForm } from './agentRows'
+import { AGENT_FILTERS, draftErrorFor, draftSettings, filterAgents, filterCounts, FIND_OFF, fromForm, handsOffTo, markedSettings, modelLabel, modelsOf, nodeLabel, regionTone, sdkLine, SETTING_HELP, SETTING_KEYS, SETTING_LABELS, setupKey, startsFrom, STATUS_LABEL, toForm } from './agentRows'
 import type { AgentFilter, AgentForm, DraftError, RegionTone } from './agentRows'
 import type { AgentDraft, AgentDraftState, AgentModel, AgentRow, AgentSettings, AgentState, AgentStatus } from './model'
 import { MONO, MUTED } from './parts'
@@ -75,6 +75,7 @@ function InOut({ row, rows, home }: { row: AgentRow; rows: AgentRow[]; home: str
 }
 
 function Detail({ row, rows, home, canAsk, onShow, onAsk }: { row: AgentRow; rows: AgentRow[]; home: string | null; canAsk: boolean; onShow: (id: string) => void; onAsk: (row: AgentRow) => void }) {
+  const sdk = sdkLine(row)
   const evidence = [...row.evidence, ...modelsOf(row).map((model) => model.evidence), ...row.asks_you, ...row.hands_off_to.map((link) => link.evidence)]
   return (
     <div data-testid="agent-detail" style={{ fontSize: 13 }}>
@@ -82,6 +83,12 @@ function Detail({ row, rows, home, canAsk, onShow, onAsk }: { row: AgentRow; row
         <strong style={{ fontSize: 15 }}>{row.label}</strong>
         <Status status={row.status} />
       </div>
+      {sdk && (
+        <p style={{ ...MUTED, margin: '4px 0 0', fontSize: 12 }}>
+          {sdk}
+          {row.evidence[0] && <span style={{ ...MONO, marginLeft: 8, overflowWrap: 'anywhere' }}>{row.evidence[0]}</span>}
+        </p>
+      )}
       {row.description && <p style={{ margin: '6px 0 0' }}>{row.description}</p>}
       <InOut row={row} rows={rows} home={home} />
       {row.jobs.length > 0 && (

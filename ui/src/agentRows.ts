@@ -51,6 +51,11 @@ export function handsOffTo(row: AgentRow, rows: AgentRow[]): string[] {
   return [...new Set(row.hands_off_to.map((link) => nodeLabel(link.node, rows)))]
 }
 
+/** Where an SDK agent comes from, as the detail says it. Other agents have no such line. */
+export function sdkLine(row: AgentRow): string | null {
+  return row.source === 'sdk' && row.sdk ? `From ${row.sdk}` : null
+}
+
 /** Each model once, with the first line that proves it. */
 export function modelsOf(row: AgentRow): AgentModel[] {
   const seen = new Map<string, AgentModel>()
