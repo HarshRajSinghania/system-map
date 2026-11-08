@@ -57,6 +57,10 @@ IMPORT_NAMES = re.compile(r"""(?:^|[\s;}])import\s+([\w$*{}\s,]+?)\s+from\s*(["'
 SERVICE_PACKAGES = {
     "@anthropic-ai/sdk": "Anthropic",
     "openai": "OpenAI",
+    "@openai/agents": "OpenAI",
+    "@anthropic-ai/claude-agent-sdk": "Anthropic",
+    "@ai-sdk/openai": "OpenAI",
+    "@ai-sdk/anthropic": "Anthropic",
     "@google/generative-ai": "Google AI",
     "@google-cloud/vertexai": "Google Vertex AI",
     "@supabase/supabase-js": "Supabase",

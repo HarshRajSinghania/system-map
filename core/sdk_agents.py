@@ -1,0 +1,272 @@
+"""Find the agents an agent SDK's own code declares.
+
+A project built on an SDK names its agents in code: `new Agent({ name })`, or a key of the
+`agents` option of a `query` call. This reads those, only when the root package.json lists the
+SDK, and only what the code states: a literal or constant name, and agents it can follow by
+import. It never guesses. Hand-offs, what starts each agent and the model it uses come from the
+same code. Python SDK code is not read.
+"""
+from __future__ import annotations
+
+import re
+
+from . import agents as base
+from .extractors import typescript as ts
+from .sources import package_dependencies
+
+OPENAI = "@openai/agents"
+#: Each SDK as package.json names it, and the module its agent class or `query` is imported from.
+IMPORTS = {OPENAI: "@openai/agents"}
+#: The model a model-less agent uses: the SDK's own provider.
+DEFAULT_SERVICE = {OPENAI: "OpenAI"}
+#: The part of a `provider/model` string before the slash.
+PREFIX_SERVICE = {"openai": "OpenAI", "anthropic": "Anthropic"}
+PREFIX = re.compile(r"""["'`](openai|anthropic)/""")
+#: What an agent's description is read from, first one that is a string.
+DESCRIBED = ("description", "instructions")
+#: What a template's hole becomes in a string. A name or description with it is not a plain string.
+HOLE = "…"
+
+Where = tuple[int, int]
+
+
+def listed(source) -> list[str]:
+    """The SDKs the root package.json lists, as dependencies or dev dependencies."""
+    deps = package_dependencies(source)
+    return [package for package in IMPORTS if package in deps["runtime"] | deps["dev"]]
+
+
+def _imports(masked: str, specifier: str) -> tuple[dict[str, str], set[str]]:
+    """What a file imports from one module: each name there as it is called here, and the
+    namespaces. An import of types only gives nothing."""
+    named: dict[str, str] = {}
+    spaces: set[str] = set()
+    for match in ts.IMPORT_NAMES.finditer(masked):
+        clause = match.group(1).strip()
+        if match.group(3) != specifier or clause.startswith("type "):
+            continue
+        for block in re.findall(r"\{([^}]*)\}", clause):
+            for item in filter(None, (part.strip() for part in block.split(","))):
+                if not item.startswith("type "):
+                    real, _, local = item.partition(" as ")
+                    named[local.strip() or real.strip()] = real.strip()
+        for part in re.sub(r"\{[^}]*\}", "", clause).split(","):
+            if part.strip().startswith("* as "):
+                spaces.add(part.strip()[5:].strip())
+    return named, spaces
+
+
+def _heads(named: dict[str, str], spaces: set[str], real: str) -> list[str]:
+    """How a file writes an imported name in code, as patterns: `Agent`, or `sdk.Agent`."""
+    return [re.escape(local) for local, name in named.items() if name == real] + [rf"{re.escape(space)}\s*\.\s*{real}" for space in sorted(spaces)]
+
+
+def _calls(code: str, heads: list[str], new: bool = False, member: str = "") -> list[tuple[int, int]]:
+    """Each call of an imported name, as `new Name(` or `Name(`: where it starts and its `(`.
+    A name after a `.` is another object's, not the import."""
+    if not heads:
+        return []
+    lead = r"new\s+" if new else ""
+    pattern = re.compile(rf"(?<![\w$.]){lead}(?:{'|'.join(heads)}){member}\s*(?:<[^()]*?>)?\s*\(")
+    return [(match.start(), match.end() - 1) for match in pattern.finditer(code)]
+
+
+def _providers(masked: str) -> dict[str, str]:
+    """The model functions a file imports from an AI SDK provider, such as `openai`: name -> service."""
+    found = {}
+    for match in ts.IMPORT_NAMES.finditer(masked):
+        service = ts.service_for_package(match.group(3)) if match.group(3).startswith("@ai-sdk/") else None
+        for block in re.findall(r"\{([^}]*)\}", match.group(1)) if service else ():
+            for item in filter(None, (part.strip() for part in block.split(","))):
+                real, _, local = item.partition(" as ")
+                found[local.strip() or real.strip()] = service
+    return found
+
+
+def _strip(code: str, where: Where) -> int:
+    """Where a value really starts, past the space before it."""
+    value = code[where[0] : where[1]]
+    return where[0] + len(value) - len(value.lstrip())
+
+
+class _Run:
+    """What the readers share: files, the agents found so far, and the links."""
+
+    def __init__(self, files: base._Files, project, nodes: list[dict], paths: list[str], sdks: list[str], owned: set[str]):
+        self.files, self.project, self.owned, self.sdks = files, project, owned, sdks
+        self.services = {node["name"]: node["id"] for node in nodes if base.is_ai_service(node)}
+        self.found: dict[str, dict] = {}
+        self.edges = base._Edges()
+        # Where an agent is: the variable that holds it, the start of its `new`, and its span.
+        self.variables: dict[tuple[str, str], str | None] = {}
+        self.inline: dict[tuple[str, int], str] = {}
+        self.spans: dict[str, list[Where]] = {}
+        # What is linked once every agent is known: each agent's `model` and `handoffs`.
+        self.models: dict[str, tuple[str, Where | None]] = {}
+        self.hand_offs: dict[str, tuple[str, Where]] = {}
+        self.paths = sorted(path for path in paths if not ts.TEST_FILE.search(path))
+        specifiers = [IMPORTS[sdk] for sdk in sdks]
+        unread = [path for path in self.paths if path not in files.cache]
+        for path, text in files.source.read_many(unread).items():
+            if any(specifier in text for specifier in specifiers):
+                files.put(path, text)
+
+    def importers(self, sdk: str):
+        """Each file that imports from the SDK's module: its path, and what it imports."""
+        for path in self.paths:
+            entry = self.files.cache.get(path)
+            if entry and IMPORTS[sdk] in entry[0]:
+                named, spaces = _imports(entry[1], IMPORTS[sdk])
+                if named or spaces:
+                    yield path, named, spaces
+
+    def plain(self, path: str, where: Where | None) -> str | None:
+        """A string, or a constant that holds one, but not a template with a hole in it."""
+        value = self.files.value(path, *where) if where else None
+        return value if value and HOLE not in value else None
+
+    def add(self, sdk: str, name: str, path: str, line: int, props: dict[str, Where]) -> bool:
+        """Keep an agent, unless one has the name already. False if it was not kept."""
+        if name in self.found:
+            return False
+        description = next(filter(None, (self.plain(path, props.get(key)) for key in DESCRIBED)), "")
+        module = ts.module_of(path, self.project.code_root)[1]
+        self.found[name] = {
+            "id": f"agent:{name}",
+            "kind": "agent",
+            "status": "built",
+            "layer": "facts",
+            "name": name,
+            "label": name,
+            "description": description,
+            "jobs": [],
+            "path": path,
+            "module": f"module:{module}",
+            "source": "sdk",
+            "sdk": sdk,
+            "asks_you": [],
+            "evidence": [f"{path}:{line}"],
+        }
+        return True
+
+    def lookup(self, name: str, path: str, hops: int = 3) -> str | None:
+        """The agent a variable holds in this file, or in the file it is imported from."""
+        if (path, name) in self.variables:
+            return self.variables[(path, name)]
+        for target, real in self.files.origin(name, path) if hops else ():
+            found = self.lookup(real, target, hops - 1)
+            if found:
+                return found
+        return None
+
+    def agent_at(self, path: str, where: Where) -> str | None:
+        """The agent a stretch of code names: a variable, or a `new Agent(…)` written there."""
+        name = base._ident(self.files.cache[path][2], *where)
+        return self.lookup(name, path) if name else self.inline.get((path, where[0]))
+
+    def starts(self, sdk: str, path: str, at: int, name: str | None) -> None:
+        """Code that no agent owns starts an agent of this SDK."""
+        if not name or name not in self.found or self.found[name]["sdk"] != sdk or path in self.owned:
+            return
+        if any(start <= at < end for start, end in self.spans.get(path, ())):
+            return
+        module = f"module:{ts.module_of(path, self.project.code_root)[1]}"
+        self.edges.add(module, f"agent:{name}", "starts", f"{path}:{base._line(self.files.cache[path][0], at)}")
+
+
+def _define_class(run: _Run, sdk: str, create: bool) -> None:
+    """Each `new Agent({ name })`, and with `create`, each `Agent.create({ name })`."""
+    for path, named, spaces in run.importers(sdk):
+        text, _, code = run.files.cache[path]
+        heads = _heads(named, spaces, "Agent")
+        sites = _calls(code, heads, new=True) + (_calls(code, heads, member=r"\s*\.\s*create") if create else [])
+        for start, paren in sorted(sites):
+            arguments = base._items(code, paren, base._close(code, paren))
+            if not arguments or code[arguments[0][0]] != "{":
+                continue
+            props = base._props(text, code, arguments[0][0])
+            name = run.plain(path, props.get("name"))
+            if not name or not run.add(sdk, name, path, base._line(text, start), props):
+                continue
+            run.spans.setdefault(path, []).append((start, base._close(code, paren) + 1))
+            run.inline[(path, start)] = name
+            held = re.search(rf"(?:const|let|var)\s+({base.IDENT})\s*(?::[^=;]*)?=\s*$", code[max(0, start - 200) : start])
+            if held:
+                # Two variables of one name in a file leave it unclear which is meant.
+                key = (path, held.group(1))
+                run.variables[key] = None if key in run.variables else name
+            run.models[name] = (path, props.get("model"))
+            if "handoffs" in props:
+                run.hand_offs[name] = (path, props["handoffs"])
+
+
+def _model_services(run: _Run, sdk: str, path: str, where: Where | None) -> list[str]:
+    """The providers a `model` value names: an `openai/` or `anthropic/` prefix in a string, or a
+    call of a provider function from `@ai-sdk/…`. No `model` is the SDK's own provider, as is a
+    plain model name where that SDK has one."""
+    default = DEFAULT_SERVICE.get(sdk)
+    if not where:
+        return [default] if default else []
+    _, masked, code = run.files.cache[path]
+    found = {PREFIX_SERVICE[prefix] for prefix in PREFIX.findall(masked[where[0] : where[1]])}
+    const = run.plain(path, where)
+    if const and (match := re.match(r"(openai|anthropic)/", const)):
+        found.add(PREFIX_SERVICE[match.group(1)])
+    for local, service in _providers(masked).items():
+        if re.search(rf"(?<![\w$.]){re.escape(local)}\s*\(", code[where[0] : where[1]]):
+            found.add(service)
+    if not found and default and const and "/" not in const:
+        found.add(default)
+    return sorted(found)
+
+
+def _link_models(run: _Run) -> None:
+    """A `uses_model` link from each agent to its provider's service, when the project has one."""
+    for name, (path, where) in sorted(run.models.items()):
+        node = run.found[name]
+        text = run.files.cache[path][0]
+        line = base._line(text, _strip(run.files.cache[path][2], where)) if where else int(node["evidence"][0].rsplit(":", 1)[1])
+        evidence = f"{path}:{line}" if where else node["evidence"][0]
+        for service in _model_services(run, node["sdk"], path, where):
+            if service in run.services:
+                run.edges.add(node["id"], run.services[service], "uses_model", evidence)
+
+
+def _link_hand_offs(run: _Run) -> None:
+    """Each agent in an OpenAI agent's `handoffs`, plain or as `handoff(x)`."""
+    for name, (path, where) in sorted(run.hand_offs.items()):
+        text, masked, code = run.files.cache[path]
+        start = _strip(code, where)
+        if not code.startswith("[", start):
+            continue
+        named, spaces = _imports(masked, IMPORTS[OPENAI])
+        calls = dict(_calls(code, _heads(named, spaces, "handoff")))
+        for first, last in base._items(code, start, base._close(code, start)):
+            item = (first, last)
+            if first in calls:
+                arguments = base._items(code, calls[first], base._close(code, calls[first]))
+                item = arguments[0] if arguments else item
+            target = run.agent_at(path, item)
+            if target and run.found[target]["sdk"] == OPENAI:
+                run.edges.add(f"agent:{name}", f"agent:{target}", "hands_off_to", f"{path}:{base._line(text, first)}")
+
+
+def _link_runs(run: _Run) -> None:
+    """What starts an agent: `run(agent, …)`."""
+    for path, named, spaces in run.importers(OPENAI):
+        code = run.files.cache[path][2]
+        for start, paren in _calls(code, _heads(named, spaces, "run")):
+            arguments = base._items(code, paren, base._close(code, paren))
+            run.starts(OPENAI, path, start, run.agent_at(path, arguments[0]) if arguments else None)
+
+
+def read(files: base._Files, project, nodes: list[dict], paths: list[str], sdks: list[str], owned: set[str]) -> tuple[list[dict], list[dict]]:
+    """Agent nodes the listed SDKs declare, and their links. `owned` are files whose code an
+    agent already owns, which start nothing here."""
+    run = _Run(files, project, nodes, paths, sdks, owned)
+    if OPENAI in sdks:
+        _define_class(run, OPENAI, create=True)
+    _link_hand_offs(run)
+    _link_runs(run)
+    _link_models(run)
+    return list(run.found.values()), list(run.edges.found.values())
