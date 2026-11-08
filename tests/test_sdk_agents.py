@@ -481,5 +481,62 @@ class ClaudeAgentSdk(Fixture):
         self.assertEqual(len({source for source, target in self.links("starts") if target == "agent:linter"}), 2)
 
 
+class Scope(Fixture):
+    """A name used where a function or block declares it again is not the agent variable."""
+
+    MASTRA_A = 'import { Agent } from "@mastra/core/agent";\nexport const agent = new Agent({ name: "w", id: "w" });\n'
+    OPENAI_A = 'import { Agent } from "@openai/agents";\nexport const agent = new Agent({ name: "w" });\n'
+
+    def mastra(self, use: str) -> set[tuple[str, str]]:
+        files = {"package.json": package("@mastra/core"), "src/a.ts": self.MASTRA_A, "src/b.ts": 'import { agent } from "./a";\n' + use}
+        self.build(files)
+        return self.links("starts")
+
+    def openai(self, use: str) -> set[tuple[str, str]]:
+        files = {"package.json": package("@openai/agents"), "src/a.ts": self.OPENAI_A, "src/b.ts": 'import { run } from "@openai/agents";\nimport { agent } from "./a";\n' + use}
+        self.build(files)
+        return self.links("starts")
+
+    def test_a_function_that_does_not_redeclare_the_name_still_starts_the_agent(self):
+        for links in (self.mastra('export function g() { return agent.generate("q"); }\n'), self.openai('export function g() { return run(agent, "q"); }\n')):
+            self.assertEqual({target for _, target in links}, {"agent:w"})
+
+    def test_a_parameter_of_that_name_is_not_the_agent_for_mastra(self):
+        self.assertEqual(self.mastra('export function g(agent: any) { return agent.generate("q"); }\n'), set())
+
+    def test_a_parameter_of_that_name_is_not_the_agent_for_openai(self):
+        self.assertEqual(self.openai('export function g(agent: any) { return run(agent, "q"); }\n'), set())
+        self.assertEqual(self.openai('export const g = (agent) => run(agent, "q");\n'), set())
+        self.assertEqual(self.openai('export const g = ({ agent }: { agent: any }) => { return run(agent, "q"); };\n'), set())
+
+    def test_a_local_constant_of_that_name_in_the_same_function_is_not_the_agent(self):
+        self.assertEqual(self.mastra('export function g() { const agent = make(); return agent.generate("q"); }\n'), set())
+        self.assertEqual(self.openai('export function g() {\n  const { agent } = make();\n  return run(agent, "q");\n}\n'), set())
+
+    def test_a_declaration_in_another_function_does_not_hide_the_agent(self):
+        use = 'function other(agent: any) { return 1; }\nexport function g() { return agent.generate("q"); }\n'
+        self.assertEqual({target for _, target in self.mastra(use)}, {"agent:w"})
+
+    def test_a_name_declared_in_a_block_that_does_not_hold_the_use_does_not_hide_it(self):
+        use = 'export function g(flag: boolean) {\n  if (flag) { const agent = make(); agent.go(); }\n  return agent.generate("q");\n}\n'
+        self.assertEqual({target for _, target in self.mastra(use)}, {"agent:w"})
+
+    def test_a_local_variable_that_holds_the_agent_is_still_the_agent(self):
+        code = 'import { Agent } from "@mastra/core/agent";\nexport function g() {\n  const local = new Agent({ name: "x", id: "x" });\n  return local.generate("q");\n}\n'
+        self.build({"package.json": package("@mastra/core"), "src/b.ts": code})
+        self.assertEqual({target for _, target in self.links("starts")}, {"agent:x"})
+
+    def test_a_parameter_named_like_an_agent_is_not_a_hand_off(self):
+        code = (
+            'import { Agent } from "@openai/agents";\nimport { agent } from "./a";\n'
+            'export const make = (agent: any) => new Agent({ name: "lead", handoffs: [agent] });\n'
+        )
+        self.build({"package.json": package("@openai/agents"), "src/a.ts": self.OPENAI_A, "src/b.ts": code})
+        self.assertEqual(self.links("hands_off_to"), set())
+        control = code.replace("(agent: any)", "()")
+        self.build({"package.json": package("@openai/agents"), "src/a.ts": self.OPENAI_A, "src/b.ts": control})
+        self.assertEqual(self.links("hands_off_to"), {("agent:lead", "agent:w")})
+
+
 if __name__ == "__main__":
     unittest.main()

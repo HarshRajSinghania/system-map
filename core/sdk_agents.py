@@ -102,6 +102,10 @@ class _Run:
         self.variables: dict[tuple[str, str], str | None] = {}
         self.inline: dict[tuple[str, int], str] = {}
         self.spans: dict[str, list[Where]] = {}
+        # Where a file declares a name as a variable, and which of those hold an agent.
+        self.declared: dict[tuple[str, str], list[tuple[int, Where | None]]] = {}
+        self.held: set[tuple[str, int]] = set()
+        self.expressions: dict[str, list[tuple[int, int, str]]] = {}
         # What is linked once every agent is known: each agent's `model` and `handoffs`.
         self.models: dict[str, tuple[str, Where | None]] = {}
         self.hand_offs: list[tuple[str, str, Where]] = []
@@ -150,12 +154,82 @@ class _Run:
         }
         return True
 
-    def lookup(self, name: str, path: str, hops: int = 3) -> str | None:
-        """The agent a variable holds in this file, or in the file it is imported from."""
+    def declarations(self, name: str, path: str) -> list[tuple[int, tuple[int, int] | None]]:
+        """Each place a file declares `name` as a variable: where, and the block it is in."""
+        if (name, path) not in self.declared:
+            code, token = self.files.cache[path][2], re.escape(name)
+            pattern = re.compile(rf"\b(?:const|let|var)\s+(?:{token}(?![\w$])|[{{\[][^=;]*?(?<![\w$.]){token}(?![\w$])[^=;]*?[}}\]]\s*=)")
+            starts = [match.start() for match in pattern.finditer(code) if (path, match.start()) not in self.held]
+            self.declared[(name, path)] = [(start, self.files._block(path, start)) for start in starts]
+        return self.declared[(name, path)]
+
+    def is_parameter(self, name: str, path: str, block_start: int) -> bool:
+        """Whether the function whose body opens at `block_start` takes `name` as a parameter."""
+        code, token = self.files.cache[path][2], rf"(?<![\w$.]){re.escape(name)}(?![\w$])"
+        tail = code[max(0, block_start - 400) : block_start]
+        if re.search(rf"{token}\s*=>\s*$", tail):
+            return True
+        match = re.search(r"\(([^()]*)\)\s*(?::[^(){};]*?)?\s*(?:=>)?\s*$", tail)
+        if not match:
+            return False
+        keyword = re.search(r"(\w+)\s*$", tail[: match.start()])
+        if keyword and keyword.group(1) in ("if", "while", "switch", "with"):
+            return False
+        if keyword and keyword.group(1) == "for":
+            return bool(re.search(rf"\b(?:const|let|var)\s+{token}", match.group(1)))
+        return self.in_list(name, match.group(1))
+
+    @staticmethod
+    def in_list(name: str, params: str) -> bool:
+        """Whether a parameter list binds `name`, not as a type or a default value."""
+        token = rf"(?<![\w$.]){re.escape(name)}(?![\w$])"
+        return any(not params[: found.start()].rstrip().endswith((":", "=")) for found in re.finditer(token, params))
+
+    def arrows(self, path: str) -> list[tuple[int, int, str]]:
+        """Each arrow function with an expression for a body: where the body starts and ends, and its parameters."""
+        if path not in self.expressions:
+            code, found = self.files.cache[path][2], []
+            for arrow in re.finditer(r"=>\s*", code):
+                if code.startswith("{", arrow.end()):
+                    continue
+                head = re.search(r"\(([^()]*)\)\s*(?::[^(){};]*?)?\s*$", code[max(0, arrow.start() - 400) : arrow.start()]) or re.search(r"([\w$]+)\s*$", code[max(0, arrow.start() - 80) : arrow.start()])
+                depth, index = 0, arrow.end()
+                while index < len(code):
+                    if code[index] in "([{":
+                        depth += 1
+                    elif code[index] in ")]}":
+                        if depth == 0:
+                            break
+                        depth -= 1
+                    elif code[index] in ",;" and depth == 0:
+                        break
+                    index += 1
+                found.append((arrow.end(), index, head.group(1) if head else ""))
+            self.expressions[path] = found
+        return self.expressions[path]
+
+    def shadowed(self, name: str, path: str, at: int) -> bool:
+        """Whether a function or block around `at` declares `name` again, as a parameter or a
+        variable of its own. The variable that holds an agent is not such a declaration."""
+        if any(start <= at < end and self.in_list(name, params) for start, end, params in self.arrows(path)):
+            return True
+        declarations = self.declarations(name, path)
+        block = self.files._block(path, at)
+        while block:
+            if any(where == block for _, where in declarations) or self.is_parameter(name, path, block[0]):
+                return True
+            block = self.files._block(path, block[0])
+        return False
+
+    def lookup(self, name: str, path: str, at: int | None = None, hops: int = 3) -> str | None:
+        """The agent a variable holds in this file, or in the file it is imported from. `at` is
+        where the name is used: a name declared again around it is not the agent."""
+        if at is not None and self.shadowed(name, path, at):
+            return None
         if (path, name) in self.variables:
             return self.variables[(path, name)]
         for target, real in self.files.origin(name, path) if hops else ():
-            found = self.lookup(real, target, hops - 1)
+            found = self.lookup(real, target, None, hops - 1)
             if found:
                 return found
         return None
@@ -163,7 +237,7 @@ class _Run:
     def agent_at(self, path: str, where: Where) -> str | None:
         """The agent a stretch of code names: a variable, or a `new Agent(…)` written there."""
         name = base._ident(self.files.cache[path][2], *where)
-        return self.lookup(name, path) if name else self.inline.get((path, where[0]))
+        return self.lookup(name, path, where[0]) if name else self.inline.get((path, where[0]))
 
     def starts(self, sdk: str, path: str, at: int, name: str | None) -> None:
         """Code that no agent owns starts an agent of this SDK."""
@@ -199,6 +273,7 @@ def _define_class(run: _Run, sdk: str, create: bool) -> None:
             held = re.search(rf"(?:const|let|var)\s+({base.IDENT})\s*(?::[^=;]*)?=\s*$", code[max(0, start - 200) : start])
             if held:
                 # Two variables of one name in a file leave it unclear which is meant.
+                run.held.add((path, max(0, start - 200) + held.start()))
                 key = (path, held.group(1))
                 run.variables[key] = None if key in run.variables else name
             if kept:
@@ -315,7 +390,7 @@ def _link_runs(run: _Run) -> None:
     if MASTRA in run.sdks:
         for path in run.paths:
             for match in GENERATE.finditer(run.files.cache[path][2]) if path in run.files.cache else ():
-                run.starts(MASTRA, path, match.start(), run.lookup(match.group(1), path))
+                run.starts(MASTRA, path, match.start(), run.lookup(match.group(1), path, match.start(1)))
 
 
 def read(files: base._Files, project, nodes: list[dict], paths: list[str], sdks: list[str], owned: set[str]) -> tuple[list[dict], list[dict]]:
