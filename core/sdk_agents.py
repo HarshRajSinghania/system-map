@@ -236,6 +236,16 @@ class _Run:
             block = self.files._block(path, block[0])
         return False
 
+    def calls(self, path: str, heads: list[str], new: bool = False, member: str = "") -> list[tuple[int, int]]:
+        """Each call of an imported name in a file, except where the name the file calls it by
+        (the import, or its namespace) is declared again around the call."""
+        code, found = self.files.cache[path][2], []
+        for start, paren in _calls(code, heads, new=new, member=member):
+            local = re.match(rf"(?:new\s+)?({base.IDENT})", code[start:])
+            if not (local and self.shadowed(local.group(1), path, start)):
+                found.append((start, paren))
+        return found
+
     def lookup(self, name: str, path: str, at: int | None = None, hops: int = 3) -> str | None:
         """The agent a variable holds in this file, or in the file it is imported from. `at` is
         where the name is used: a name declared again around it is not the agent."""
@@ -269,7 +279,7 @@ def _define_class(run: _Run, sdk: str, create: bool) -> None:
     for path, named, spaces in run.importers(sdk):
         text, _, code = run.files.cache[path]
         heads = _heads(named, spaces, "Agent")
-        sites = _calls(code, heads, new=True) + (_calls(code, heads, member=r"\s*\.\s*create") if create else [])
+        sites = run.calls(path, heads, new=True) + (run.calls(path, heads, member=r"\s*\.\s*create") if create else [])
         for start, paren in sorted(sites):
             arguments = base._items(code, paren, base._close(code, paren))
             if not arguments or code[arguments[0][0]] != "{":
@@ -327,7 +337,7 @@ def _define_query(run: _Run) -> None:
     """Each key of `options.agents` in a `query({ … })` call. The module that makes the call starts them."""
     for path, named, spaces in run.importers(CLAUDE):
         code = run.files.cache[path][2]
-        for start, paren in _calls(code, _heads(named, spaces, "query")):
+        for start, paren in run.calls(path, _heads(named, spaces, "query")):
             arguments = base._items(code, paren, base._close(code, paren))
             call = _object(run, path, arguments[0]) if arguments else None
             options = _object(run, call[0], _members(run, call).get("options")) if call else None
@@ -397,7 +407,7 @@ def _link_hand_offs(run: _Run) -> None:
         if not code.startswith("[", start):
             continue
         named, spaces = _imports(masked, IMPORTS[OPENAI])
-        calls = dict(_calls(code, _heads(named, spaces, "handoff")))
+        calls = dict(run.calls(path, _heads(named, spaces, "handoff")))
         for first, last in base._items(code, start, base._close(code, start)):
             item = (first, last)
             paren = calls.get(first)
@@ -416,7 +426,7 @@ def _link_runs(run: _Run) -> None:
     if OPENAI in run.sdks:
         for path, named, spaces in run.importers(OPENAI):
             code = run.files.cache[path][2]
-            for start, paren in _calls(code, _heads(named, spaces, "run")):
+            for start, paren in run.calls(path, _heads(named, spaces, "run")):
                 arguments = base._items(code, paren, base._close(code, paren))
                 run.starts(OPENAI, path, start, run.agent_at(path, arguments[0]) if arguments else None)
     if MASTRA in run.sdks:
