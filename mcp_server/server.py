@@ -191,8 +191,9 @@ TOOLS = [
         "description": (
             "List the project's agents: what starts each one, who it hands work to, which models it uses "
             "and where they run, and when it asks a person. Pass an id such as agent:triage for one agent "
-            "with evidence. Read only. A person points System Map at the agents in its Agents tab, or uses "
-            "settings drafted with `draft_agents`."
+            "with evidence. Read only. Agents declared with the OpenAI Agents, Mastra or Claude Agent SDK are "
+            "found without settings when package.json lists the SDK. For home-made agent lists, a person points "
+            "System Map at them in the Agents tab, or uses settings drafted with `draft_agents`."
         ),
         "inputSchema": {
             "type": "object",

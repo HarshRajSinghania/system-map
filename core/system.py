@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 
-from . import agents
+from . import agents, sdk_agents
 from .extractors import drizzle, plans, typescript
 from .sources import is_migration
 
@@ -141,8 +141,9 @@ def build(source, tables: list[dict], agent_settings: dict | None = None) -> dic
         edges += plan_edges(plan, module_for)
     nodes += found_plans
     settings = agents.settings_of(agent_settings)
-    if project and settings:
-        found_agents, agent_edges = agents.find(source, project, settings, nodes, commands, sql)
+    sdks = sdk_agents.listed(source) if project else []
+    if project and (settings or sdks):
+        found_agents, agent_edges = agents.find(source, project, settings or agents.DEFAULTS, nodes, commands, sql, sdks)
         nodes += found_agents
         edges += agent_edges
     return {

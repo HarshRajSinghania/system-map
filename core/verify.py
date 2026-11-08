@@ -11,6 +11,7 @@ from pathlib import Path
 
 from . import store
 from .extractors.postgres import normal_type
+from .extractors.typescript import TEST_FILE
 from .sources import run_git
 
 DELETE_RULES = {"a": "no action", "r": "restrict", "c": "cascade", "n": "set null", "d": "set default"}
@@ -155,6 +156,50 @@ def compare_table_calls(model: dict[str, list[dict]], truth: dict[str, list[dict
         if ours != theirs:
             diffs.append({"file": path, "what": "table_call", "model": ours, "compiler": theirs})
     return diffs
+
+
+def compare_sdk_agents(nodes: list[dict], edges: list[dict], truth: dict, code_root: str = "") -> dict:
+    """Compare the SDK agents and hand-offs the model found with the compiler's answer.
+
+    Agents are compared by (sdk, name), hand-offs by (from, to). Returns what matched, what
+    differs, what the compiler found in a test file or outside the code root (named skips,
+    not differences), and what the compiler could not read.
+    """
+    ours = {(node["sdk"], node["name"]): node["evidence"][0] for node in nodes if node.get("kind") == "agent" and node.get("source") == "sdk"}
+    theirs: dict[tuple[str, str], str] = {}
+    for agent in truth["agents"]:
+        theirs.setdefault((agent["sdk"], agent["name"]), f"{agent['path']}:{agent['line']}")
+    names = {node["id"]: node["name"] for node in nodes if node.get("kind") == "agent" and node.get("source") == "sdk"}
+    linked = {
+        (names[edge["source"]], names[edge["target"]]): edge["evidence"][0]
+        for edge in edges
+        if edge["kind"] == "hands_off_to" and edge["source"] in names and edge["target"] in names
+    }
+    cited = {(item["from"], item["to"]): f"{item['path']}:{item['line']}" for item in truth.get("hand_offs", [])}
+    diffs = []
+    skipped = []
+    for what, found, real in (("agent", ours, theirs), ("hand_off", linked, cited)):
+        for key in sorted(found.keys() - real.keys()):
+            diffs.append({"what": what, "only_in": "model", "item": list(key), "at": found[key]})
+        for key in sorted(real.keys() - found.keys()):
+            row = {"what": what, "only_in": "compiler", "item": list(key), "at": real[key]}
+            path = real[key].rpartition(":")[0]
+            if TEST_FILE.search(path):
+                skipped.append(row | {"why": "in a test file"})
+            elif code_root and not path.startswith(code_root):
+                skipped.append(row | {"why": f"outside the code root ({code_root})"})
+            else:
+                diffs.append(row)
+    matched: dict[str, int] = {}
+    for sdk, _ in ours.keys() & theirs.keys():
+        matched[sdk] = matched.get(sdk, 0) + 1
+    return {
+        "agents_matched": dict(sorted(matched.items())),
+        "hand_offs_matched": len(linked.keys() & cited.keys()),
+        "unreadable": truth.get("unreadable", []),
+        "skipped": skipped,
+        "differences": diffs,
+    }
 
 
 def route_tree_paths(text: str) -> set[str]:

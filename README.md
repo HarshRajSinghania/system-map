@@ -156,7 +156,7 @@ Each tab reads the same model.
 | Code | TypeScript and JavaScript, with `paths` and `baseUrl` from `tsconfig.json` or `jsconfig.json` |
 | Jobs | `cron.schedule` calls in SQL |
 | Plans | `docs/specs`, `docs/plans`, `specs`, and a `BRIEF`, `PLAN`, `ROADMAP`, `PRD`, `SPEC` or `TODO` file at the top of the repo |
-| Agents | The exported list you name in the Agents tab, or modules you mark, or a draft from the Design chat that you use. Hand-offs, model calls and calls that ask a person are found by the names you give there. A hand-off is a property, as in `{ agent: "mail" }`, or a call whose first argument names the agent, as in `queueAgent("mail", id)`. Jobs start an agent when their `cron.schedule` command, or the SQL function it calls, names it |
+| Agents | Agents declared with the OpenAI Agents SDK (`@openai/agents`), Mastra (`@mastra/core`) or the Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`), with no settings, when the root `package.json` lists the SDK. Hand-offs between OpenAI Agents come from `handoffs`. And the exported list you name in the Agents tab, or modules you mark, or a draft from the Design chat that you use. Hand-offs, model calls and calls that ask a person are found by the names you give there. A hand-off is a property, as in `{ agent: "mail" }`, or a call whose first argument names the agent, as in `queueAgent("mail", id)`. Jobs start an agent when their `cron.schedule` command, or the SQL function it calls, names it |
 | History | Git history and worktrees. Coverage reports from Vitest, Jest or anything that writes lcov |
 
 A project needs no git history, though Risk has no churn without it, and there are no worktrees.
@@ -319,6 +319,20 @@ checks routes against TanStack's generated route tree:
 node scripts/ts_truth.mjs <checkout> /tmp/truth.json
 python3 -m core verify-code <repo> /tmp/truth.json
 ```
+
+### Prove the SDK agent readers
+
+Ask the real compiler which agents a project declares with an agent SDK, then compare. Install
+the SDKs the project uses, and TypeScript, in a scratch folder above or beside it, so its
+`node_modules` resolve:
+
+```bash
+node scripts/sdk_truth.mjs <project> > truth.json
+python3 -m core verify-sdk <project> truth.json
+```
+
+An agent the compiler finds in a test file, or outside the code root, is listed under `skipped`
+and is not a difference. Any other difference exits non-zero.
 
 ### Prove risk against real tools
 

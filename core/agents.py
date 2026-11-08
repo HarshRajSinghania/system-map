@@ -51,6 +51,8 @@ def suggestions(nodes: list[dict], edges: list[dict]) -> list[str]:
 
 
 ROW_KEYS = ("id", "name", "label", "description", "status", "jobs", "path", "module", "source", "evidence", "asks_you")
+#: Only an agent an SDK declares has these, so other rows stay as they were.
+OPTIONAL_ROW_KEYS = ("sdk",)
 
 
 def rows(joined: dict) -> list[dict]:
@@ -80,6 +82,7 @@ def rows(joined: dict) -> list[dict]:
                 )
         found.append(
             {key: node.get(key) for key in ROW_KEYS}
+            | {key: node[key] for key in OPTIONAL_ROW_KEYS if key in node}
             | {
                 "leaves_region": node.get("leaves_region", []),
                 "starts": links(node["id"], "starts", False),
@@ -631,20 +634,42 @@ def _sql_functions(sql: dict[str, str]) -> dict[str, str]:
     return bodies
 
 
-def find(source, project, settings: dict, nodes: list[dict], job_calls: dict[str, str], sql: dict[str, str]) -> tuple[list[dict], list[dict]]:
-    """Agent nodes, and their links: what starts each one, hand-offs and the models it uses."""
+def find(source, project, settings: dict, nodes: list[dict], job_calls: dict[str, str], sql: dict[str, str], sdks: list[str] = ()) -> tuple[list[dict], list[dict]]:
+    """Agent nodes, and their links: what starts each one, hand-offs and the models it uses.
+
+    Listed and marked agents come first. The agents of the SDKs the project lists are added
+    beside them. An SDK agent with the name of a listed or marked agent is the same agent, and
+    the listed one is the person's word, so its node is left out. Links into it stay, aimed at
+    the listed agent: a `starts`, or another agent's hand-off. Only its own outgoing links go.
+    """
     every = set(source.list_files())
     config = next((name for name in ("tsconfig.json", "jsconfig.json") if name in every), None)
     aliases = ts.read_tsconfig_paths(source.read_many([config]).get(config) if config else None)
     files = _Files(source, every, aliases)
     paths = ts.code_files(source)
+    found, edges, owned = _own_agents(files, paths, project, settings, nodes, job_calls, sql)
+    if not sdks:
+        return found, edges
+    from . import sdk_agents  # It reads this module's helpers, so it can't be imported above.
+
+    sdk_found, sdk_edges = sdk_agents.read(files, project, nodes, paths, list(sdks), owned)
+    names = {node["name"] for node in found}
+    left_out = {node["id"] for node in sdk_found if node["name"] in names}
+    sdk_found = [node for node in sdk_found if node["id"] not in left_out]
+    sdk_edges = [edge for edge in sdk_edges if edge["source"] not in left_out]
+    return found + sdk_found, sorted(edges + sdk_edges, key=lambda e: (e["source"], e["kind"], e["target"]))
+
+
+def _own_agents(files: _Files, paths: list[str], project, settings: dict, nodes: list[dict], job_calls: dict[str, str], sql: dict[str, str]) -> tuple[list[dict], list[dict], set[str]]:
+    """The listed and marked agents, their links, and the files their code is in."""
     by_id = {node["id"]: node for node in nodes}
+    source = files.source
 
     agents = _listed(files, settings)
     listed = {agent["name"] for agent in agents}
     agents += [agent for agent in _marked(files, settings, by_id, project.code_root, paths) if agent["name"] not in listed]
     if not agents:
-        return [], []
+        return [], [], set()
     names = {agent["name"] for agent in agents}
     regions = _regions(files, agents, project.imports, settings["list"])
     services = {node["name"]: node["id"] for node in nodes if is_ai_service(node)}
@@ -730,4 +755,4 @@ def find(source, project, settings: dict, nodes: list[dict], job_calls: dict[str
         for target, line in _hand_offs(files, settings, names, path, 0, len(text)):
             edges.add(module, f"agent:{target}", "starts", f"{path}:{line}")
 
-    return found, sorted(edges.found.values(), key=lambda e: (e["source"], e["kind"], e["target"]))
+    return found, sorted(edges.found.values(), key=lambda e: (e["source"], e["kind"], e["target"])), owned

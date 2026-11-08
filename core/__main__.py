@@ -7,6 +7,7 @@
     python3 -m core verify-drizzle <repo> <generated.sql>
     python3 -m core verify-routes <repo> <next-manifest.json>...
     python3 -m core verify-code <repo> <truth.json>
+    python3 -m core verify-sdk <repo> <truth.json>
     python3 -m core coverage <repo> [report] [commit]
     python3 -m core risk <repo>
     python3 -m core worktrees <repo>
@@ -21,9 +22,9 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-from . import explore, proposals, risk, store, verify
+from . import explore, proposals, risk, store, system, verify
 from .extractors import sqlite, typescript
-from .sources import open_source
+from .sources import TreeSource, open_source
 
 
 def build(repo_root: Path, ref: str | None) -> int:
@@ -92,6 +93,22 @@ def check_code(repo_root: Path, truth_path: Path) -> int:
     for diff in diffs[:40]:
         print(json.dumps(diff))
     return 1 if diffs else 0
+
+
+def check_sdk(repo_root: Path, truth_path: Path) -> int:
+    """Compare the SDK agents and hand-offs found in a folder with the compiler's answer."""
+    truth = json.loads(truth_path.read_text(encoding="utf-8"))
+    source = TreeSource(repo_root)
+    joined = system.build(source, [], None)
+    found = verify.compare_sdk_agents(joined["nodes"], joined["edges"], truth, typescript.code_root_of(source))
+    print(json.dumps({key: found[key] for key in ("agents_matched", "hand_offs_matched")} | {"unreadable": len(found["unreadable"]), "skipped": len(found["skipped"]), "differences": len(found["differences"])}))
+    for item in found["unreadable"]:
+        print(f"unreadable: {item['path']}:{item['line']} {item['why']}")
+    for item in found["skipped"]:
+        print(f"skipped: {item['at']} {item['what']} {' -> '.join(item['item'])} ({item['why']})")
+    for diff in found["differences"]:
+        print(f"{diff['at']} {diff['what']} {' -> '.join(diff['item'])} only in {diff['only_in']}")
+    return 1 if found["differences"] else 0
 
 
 def load_coverage(repo_root: Path, report: str | None, commit: str | None) -> int:
@@ -233,6 +250,8 @@ def main(argv: list[str]) -> int:
         return check_drizzle(Path(argv[1]).expanduser(), Path(argv[2]).expanduser())
     if len(argv) == 3 and argv[0] == "verify-code":
         return check_code(Path(argv[1]).expanduser(), Path(argv[2]))
+    if len(argv) == 3 and argv[0] == "verify-sdk":
+        return check_sdk(Path(argv[1]).expanduser(), Path(argv[2]))
     if len(argv) >= 2 and argv[0] == "coverage":
         return load_coverage(Path(argv[1]).expanduser(), argv[2] if len(argv) > 2 else None, argv[3] if len(argv) > 3 else None)
     if len(argv) == 2 and argv[0] == "risk":
