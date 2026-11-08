@@ -104,7 +104,7 @@ class _Run:
         self.spans: dict[str, list[Where]] = {}
         # What is linked once every agent is known: each agent's `model` and `handoffs`.
         self.models: dict[str, tuple[str, Where | None]] = {}
-        self.hand_offs: dict[str, tuple[str, Where]] = {}
+        self.hand_offs: list[tuple[str, str, Where]] = []
         self.paths = sorted(path for path in paths if not ts.TEST_FILE.search(path))
         specifiers = [IMPORTS[sdk] for sdk in sdks]
         unread = [path for path in self.paths if path not in files.cache]
@@ -187,7 +187,12 @@ def _define_class(run: _Run, sdk: str, create: bool) -> None:
                 continue
             props = base._props(text, code, arguments[0][0])
             name = run.plain(path, props.get("name"))
-            if not name or not run.add(sdk, name, path, base._line(text, start), props):
+            if not name:
+                continue
+            # A second agent of the SDK with a name is the same agent: it keeps the first one's
+            # node, but a variable that holds it, its code and its hand-offs still count.
+            kept = run.add(sdk, name, path, base._line(text, start), props)
+            if not kept and run.found[name]["sdk"] != sdk:
                 continue
             run.spans.setdefault(path, []).append((start, base._close(code, paren) + 1))
             run.inline[(path, start)] = name
@@ -196,9 +201,10 @@ def _define_class(run: _Run, sdk: str, create: bool) -> None:
                 # Two variables of one name in a file leave it unclear which is meant.
                 key = (path, held.group(1))
                 run.variables[key] = None if key in run.variables else name
-            run.models[name] = (path, props.get("model"))
+            if kept:
+                run.models[name] = (path, props.get("model"))
             if "handoffs" in props:
-                run.hand_offs[name] = (path, props["handoffs"])
+                run.hand_offs.append((name, path, props["handoffs"]))
 
 
 def _object(run: _Run, path: str, where: Where | None) -> tuple[str, int] | None:
@@ -281,7 +287,7 @@ def _link_models(run: _Run) -> None:
 
 def _link_hand_offs(run: _Run) -> None:
     """Each agent in an OpenAI agent's `handoffs`, plain or as `handoff(x)`."""
-    for name, (path, where) in sorted(run.hand_offs.items()):
+    for name, path, where in sorted(run.hand_offs):
         text, masked, code = run.files.cache[path]
         start = _strip(code, where)
         if not code.startswith("[", start):

@@ -171,6 +171,21 @@ class OpenAIAgents(Fixture):
         self.build(files)
         self.assertEqual(self.agent_ids(), {"agent:billing"})
 
+    def test_hand_offs_follow_a_variable_whose_agent_has_a_name_found_in_another_file(self):
+        # b.ts declares the same two names as a.ts, so its nodes are the first file's, but its own
+        # variables and `handoffs` still link them.
+        head = 'import { Agent } from "@openai/agents";\n'
+        files = {
+            "package.json": package("@openai/agents"),
+            "src/a.ts": head + 'export const one = new Agent({ name: "one" });\nexport const two = new Agent({ name: "two" });\n',
+            "src/b.ts": head
+            + 'const one = new Agent({ name: "one" });\nconst two = new Agent({ name: "two", handoffs: [one] });\n'
+            + 'const lead = new Agent({ name: "lead", handoffs: [one, two] });\n',
+        }
+        self.build(files)
+        self.assertEqual(self.links("hands_off_to"), {("agent:two", "agent:one"), ("agent:lead", "agent:one"), ("agent:lead", "agent:two")})
+        self.assertEqual(self.nodes["agent:one"]["evidence"], ["src/a.ts:2"])
+
 
 class NotAgents(Fixture):
     def agents_with(self, name_source: str, extra: str = "") -> set[str]:
