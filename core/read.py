@@ -63,19 +63,19 @@ def _unread(source, extraction, tables: int) -> list[dict]:
     unread = extraction.stats.get("drizzle_unread", [])
     if unread:
         found.append({"what": f"{_count(len(unread), 'part')} of a Drizzle schema it couldn't read", "where": unread[0]})
+    if not tables:
+        if "prisma/schema.prisma" in source.blobs:
+            found.append({"what": "A Prisma schema with no SQL migrations", "where": "prisma/schema.prisma"})
+        for path in source.blobs:
+            if drizzle.CONFIG.match(path):
+                found.append({"what": "A Drizzle schema with no SQL migrations", "where": path})
+            elif NESTED_NEXT.match(path):
+                found.append({"what": "A Next.js app in a subfolder", "where": path})
+        packages = package_dependencies(source)["runtime"]
+        for package in sorted(packages & set(OTHER_DATABASES)):
+            found.append({"what": f"A {OTHER_DATABASES[package]} database", "where": f"package.json: {package}"})
+    # Last, so the reason the map is empty comes before the languages it skipped.
     found.extend(_unread_languages(source))
-    if tables:
-        return found
-    if "prisma/schema.prisma" in source.blobs:
-        found.append({"what": "A Prisma schema with no SQL migrations", "where": "prisma/schema.prisma"})
-    for path in source.blobs:
-        if drizzle.CONFIG.match(path):
-            found.append({"what": "A Drizzle schema with no SQL migrations", "where": path})
-        elif NESTED_NEXT.match(path):
-            found.append({"what": "A Next.js app in a subfolder", "where": path})
-    packages = package_dependencies(source)["runtime"]
-    for package in sorted(packages & set(OTHER_DATABASES)):
-        found.append({"what": f"A {OTHER_DATABASES[package]} database", "where": f"package.json: {package}"})
     return found
 
 
