@@ -34,6 +34,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import time
 from pathlib import Path
 
@@ -112,31 +113,82 @@ def _write_json(path: Path, value: object) -> None:
 _SET_ASIDE_SUFFIX = re.compile(r"\.\d{8}T\d{6}Z(-\d+)?$")
 
 
-def read_saved(target: Path, path: Path, default: object) -> object:
-    """Read a saved JSON file. A missing one gives `default`. An unreadable one is moved
-    to `<target>/unreadable/<its path>.<UTC stamp>`, bytes unchanged, and gives `default`."""
+#: Proposals, use cases and views are found by their id.
+ITEM_KEYS = ("id",)
+
+
+def _shaped(raw: bytes, keys: tuple[str, ...]) -> tuple[bool, object]:
+    """Parse saved bytes. Every saved file is a JSON object, and `keys` must all be in it."""
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return default
+        value = json.loads(raw.decode("utf-8"))
     except ValueError:
-        pass
-    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    base = target / "unreadable" / f"{path.relative_to(target).as_posix()}.{stamp}"
+        return False, None
+    if not isinstance(value, dict) or any(key not in value for key in keys):
+        return False, None
+    return True, value
+
+
+def _reserve(base: Path) -> Path:
+    """Claim an unused name for a set-aside copy: `base`, then `base-2`, `base-3` and so on."""
+    base.parent.mkdir(parents=True, exist_ok=True)
     kept, number = base, 2
-    while kept.exists():
-        kept = base.with_name(f"{base.name}-{number}")
-        number += 1
+    while True:
+        try:
+            os.close(os.open(kept, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            return kept
+        except FileExistsError:
+            kept = base.with_name(f"{base.name}-{number}")
+            number += 1
+
+
+def read_saved(target: Path, path: Path, default: object, keys: tuple[str, ...] = ()) -> object:
+    """Read a saved JSON object. A missing one gives `default`. One that is not valid JSON, not an
+    object, or lacks a key in `keys` is moved to `<target>/unreadable/<its path>.<UTC stamp>`, bytes
+    unchanged, and gives `default`. A copy already there is never overwritten."""
     try:
-        kept.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(path, kept)
+        raw = path.read_bytes()
+    except (FileNotFoundError, IsADirectoryError):
+        return default
+    good, value = _shaped(raw, keys)
+    if good:
+        return value
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    reserved = None
+    try:
+        reserved = _reserve(target / "unreadable" / f"{path.relative_to(target).as_posix()}.{stamp}")
+        again = path.read_bytes()
+        if again != raw:  # a writer replaced it since we read it
+            good, value = _shaped(again, keys)
+            if good:
+                reserved.unlink(missing_ok=True)
+                return value
+        os.replace(path, reserved)
+        return default
     except FileNotFoundError:
         pass  # another request moved it first
+    except OSError as error:
+        print(f"system-map: could not set aside {path}: {error}", file=sys.stderr)
+    if reserved is not None:
+        reserved.unlink(missing_ok=True)
     return default
 
 
+def _sweep(target: Path) -> None:
+    """Read every saved file, so one that can't be read is set aside before anyone lists them."""
+    for name in ("coverage.json", "intent/plan_status.json", "intent/agents.json", "intent/regions.json", "intent/agents-draft.json"):
+        read_saved(target, target / name, None)
+    for path in sorted((target / "reads").rglob("*.json")):
+        read_saved(target, path, None)
+    for kind in INTENT_KINDS:
+        for path in sorted((target / "intent" / kind).glob("*.json")):
+            read_saved(target, path, None, ITEM_KEYS)
+
+
 def set_aside(target: Path) -> list[dict]:
-    """The saved files that could not be read and were kept under `unreadable/`."""
+    """The saved files that could not be read and were kept under `unreadable/`.
+
+    Reads every saved file first, so the answer is the same whichever view asked first."""
+    _sweep(target)
     folder = target / "unreadable"
     rows = []
     for path in folder.rglob("*") if folder.is_dir() else []:

@@ -74,12 +74,15 @@ class McpServerTests(unittest.TestCase):
         regions = store.repo_dir(self.repo, self.data) / "intent" / "regions.json"
         regions.parent.mkdir(parents=True)
         regions.write_text("{broken")
-        self.tool("findings")
-        value = json.loads(self.tool("overview")["content"][0]["text"])
-        (item,) = value["set_aside"]
-        self.assertEqual(item["file"], "intent/regions.json")
+        coverage = regions.parent.parent / "coverage.json"
+        coverage.write_text('{"half": ')
+        value = json.loads(self.tool("overview")["content"][0]["text"])  # nothing else was called first
+        by_file = {item["file"]: item for item in value["set_aside"]}
+        self.assertEqual(sorted(by_file), ["coverage.json", "intent/regions.json"])
+        item = by_file["intent/regions.json"]
         self.assertRegex(item["kept_as"], r"^unreadable/intent/regions\.json\.\d{8}T\d{6}Z$")
         self.assertEqual((regions.parent.parent / item["kept_as"]).read_text(), "{broken")
+        self.assertEqual((regions.parent.parent / by_file["coverage.json"]["kept_as"]).read_text(), '{"half": ')
 
     def test_findings_filter_by_node_and_severity(self):
         value = json.loads(self.tool("findings", severity="high")["content"][0]["text"])

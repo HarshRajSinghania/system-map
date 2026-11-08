@@ -3,6 +3,7 @@ import http.client
 import io
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -190,7 +191,8 @@ class BackendTests(Served):
 class UnreadableSavedFile(Served):
     """A broken saved file is set aside, not an error."""
 
-    BROKEN = b'{"svc": {"region": \xff'
+    #: Invalid UTF-8, and valid UTF-8 that stops mid-object.
+    BROKEN_FILES = (b'{"svc": {"region": \xff', b'{"half": ')
 
     @classmethod
     def setUpClass(cls):
@@ -204,25 +206,60 @@ class UnreadableSavedFile(Served):
         store.build(repo, cls.data)
         cls.target = store.repo_dir(repo, cls.data)
         cls.regions = cls.target / "intent" / "regions.json"
-        cls.regions.parent.mkdir(parents=True)
-        cls.regions.write_bytes(cls.BROKEN)
         cls.serve()
 
-    def test_system_and_findings_still_answer_with_no_regions_and_the_file_is_kept(self):
-        system = self.get("/system")
-        self.assertTrue(all("region" not in node for node in system["nodes"]))
-        findings = self.get("/findings")["findings"]
-        self.assertFalse([f for f in findings if "region" in f.get("rule", "")])
-        (kept,) = (self.target / "unreadable" / "intent").glob("regions.json.*")
-        self.assertRegex(kept.name, r"^regions\.json\.\d{8}T\d{6}Z$")
-        self.assertEqual(kept.read_bytes(), self.BROKEN)
-        self.assertFalse(self.regions.exists())
+    def setUp(self):
+        """Each test starts from a clean data folder, so none depends on the order they run in."""
+        shutil.rmtree(self.target / "unreadable", ignore_errors=True)
+        shutil.rmtree(self.target / "intent", ignore_errors=True)
+        self.regions.parent.mkdir(parents=True)
 
-    def test_overview_lists_the_file(self):
-        self.get("/system")
-        listed = self.get("/overview")["set_aside"]
-        self.assertEqual([item["file"] for item in listed], ["intent/regions.json"])
-        self.assertTrue((self.target / listed[0]["kept_as"]).is_file())
+    def kept(self, relative):
+        return sorted((self.target / "unreadable" / relative).parent.glob(f"{Path(relative).name}.*"))
+
+    def test_system_and_findings_still_answer_with_no_regions_and_the_file_is_kept(self):
+        for data in self.BROKEN_FILES:
+            with self.subTest(data=data):
+                self.setUp()
+                self.regions.write_bytes(data)
+                system = self.get("/system")
+                self.assertTrue(all("region" not in node for node in system["nodes"]))
+                self.assertFalse(self.regions.exists())
+                self.regions.write_bytes(data)  # findings meets its own broken copy
+                findings = self.get("/findings")["findings"]
+                self.assertFalse([f for f in findings if "region" in f.get("rule", "")])
+                self.assertFalse(self.regions.exists())
+                first, second = self.kept("intent/regions.json")
+                self.assertRegex(first.name, r"^regions\.json\.\d{8}T\d{6}Z$")
+                self.assertEqual((first.read_bytes(), second.read_bytes()), (data, data))
+
+    def test_overview_asked_first_lists_the_file(self):
+        for data in self.BROKEN_FILES:
+            with self.subTest(data=data):
+                self.setUp()
+                self.regions.write_bytes(data)
+                listed = self.get("/overview")["set_aside"]
+                self.assertEqual([item["file"] for item in listed], ["intent/regions.json"])
+                self.assertEqual((self.target / listed[0]["kept_as"]).read_bytes(), data)
+
+    def test_a_proposal_with_no_id_is_set_aside_and_explore_still_answers(self):
+        bad = self.target / "intent" / "proposals" / "x.json"
+        bad.parent.mkdir()
+        bad.write_text("{}")
+        self.assertEqual(self.get("/explore")["proposals"], [])
+        self.assertFalse(bad.exists())
+        self.assertEqual([item["file"] for item in self.get("/overview")["set_aside"]], ["intent/proposals/x.json"])
+
+    def test_a_plan_status_list_is_set_aside_and_system_answers(self):
+        status = self.target / "intent" / "plan_status.json"
+        status.write_text("[]")
+        self.assertEqual(self.status_of("/system"), 200)
+        self.assertFalse(status.exists())
+        self.assertEqual([item["file"] for item in self.get("/overview")["set_aside"]], ["intent/plan_status.json"])
+
+    def status_of(self, path):
+        with urllib.request.urlopen(signed_request(self.url(path)), timeout=5) as reply:
+            return reply.status
 
 
 class UnexpectedErrors(unittest.TestCase):
