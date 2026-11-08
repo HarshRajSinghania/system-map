@@ -255,6 +255,7 @@ class Handler(BaseHTTPRequestHandler):
                     {
                         "manifest": {k: manifest[k] for k in keep if k in manifest},
                         "freshness": store.freshness(target),
+                        "set_aside": store.set_aside(target),
                         "tables": store.table_index(target),
                     },
                 )

@@ -109,6 +109,43 @@ def _write_json(path: Path, value: object) -> None:
     temp.replace(path)
 
 
+_SET_ASIDE_SUFFIX = re.compile(r"\.\d{8}T\d{6}Z(-\d+)?$")
+
+
+def read_saved(target: Path, path: Path, default: object) -> object:
+    """Read a saved JSON file. A missing one gives `default`. An unreadable one is moved
+    to `<target>/unreadable/<its path>.<UTC stamp>`, bytes unchanged, and gives `default`."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return default
+    except ValueError:
+        pass
+    stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    base = target / "unreadable" / f"{path.relative_to(target).as_posix()}.{stamp}"
+    kept, number = base, 2
+    while kept.exists():
+        kept = base.with_name(f"{base.name}-{number}")
+        number += 1
+    try:
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(path, kept)
+    except FileNotFoundError:
+        pass  # another request moved it first
+    return default
+
+
+def set_aside(target: Path) -> list[dict]:
+    """The saved files that could not be read and were kept under `unreadable/`."""
+    folder = target / "unreadable"
+    rows = []
+    for path in folder.rglob("*") if folder.is_dir() else []:
+        if path.is_file():
+            relative = path.relative_to(folder).as_posix()
+            rows.append({"file": _SET_ASIDE_SUFFIX.sub("", relative), "kept_as": f"unreadable/{relative}"})
+    return sorted(rows, key=lambda row: (row["file"], row["kept_as"]))
+
+
 def _builder_id() -> str:
     """Hash this package's own code, so a better parser replaces older Facts."""
     package = Path(__file__).resolve().parent
@@ -523,8 +560,7 @@ def graph_of(shards: list[dict], externals: list[dict]) -> dict:
 
 
 def _plan_overrides(target: Path) -> dict[str, dict]:
-    path = target / "intent" / "plan_status.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    return read_saved(target, target / "intent" / "plan_status.json", {})
 
 
 def load_system(target: Path) -> dict:
@@ -567,8 +603,7 @@ def _join_regions(joined: dict, regions: dict[str, dict], home: str | None) -> N
 
 
 def load_agent_settings(target: Path) -> dict:
-    path = target / "intent" / "agents.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    return read_saved(target, target / "intent" / "agents.json", {})
 
 
 def _check_agent_settings(target: Path, settings: dict) -> dict:
@@ -626,8 +661,7 @@ def set_agent_settings(target: Path, settings: dict) -> dict:
 
 
 def load_regions(target: Path) -> dict[str, dict]:
-    path = target / "intent" / "regions.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    return read_saved(target, target / "intent" / "regions.json", {})
 
 
 def set_region(target: Path, node_id: str, region: str | None) -> dict:
@@ -722,8 +756,7 @@ def load_findings(target: Path) -> list[dict]:
 
 
 def load_coverage(target: Path) -> dict | None:
-    path = target / "coverage.json"
-    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+    return read_saved(target, target / "coverage.json", None)
 
 
 def set_coverage(target: Path, report: str | None = None, commit: str | None = None) -> dict:
@@ -842,7 +875,8 @@ def load_notes(target: Path, node_id: str) -> list[dict]:
     directory = _note_dir(target, node_id)
     if not directory.is_dir():
         return []
-    return [json.loads(p.read_text(encoding="utf-8")) for p in sorted(directory.glob("*.json"))]
+    notes = [read_saved(target, p, None) for p in sorted(directory.glob("*.json"))]
+    return [note for note in notes if note is not None]
 
 
 def check_evidence(source, evidence: list, ref: str) -> None:

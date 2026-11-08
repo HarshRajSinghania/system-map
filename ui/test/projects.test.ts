@@ -13,6 +13,7 @@ import {
   rowHint,
   rowStatus,
   searchLabel,
+  setAsideLine,
   shortPath,
   slotHasMessages,
   splitWorkspaces,
@@ -245,4 +246,15 @@ test('each failure says what to do next', () => {
   assert.match(plainError(new Error('API 403: x'), 'do it'), /permissions/)
   assert.match(plainError(new Error('API 502: x'), 'do it'), /Try again/)
   assert.match(plainError(new TypeError('Failed to fetch'), 'do it'), /connected/)
+})
+
+test('a set-aside file gets one plain line naming the file and where it went', () => {
+  const line = setAsideLine({
+    file: 'intent/regions.json',
+    kept_as: 'unreadable/intent/regions.json.20261108T174200Z',
+  })
+  assert.equal(
+    line,
+    "Couldn't read intent/regions.json, so it was set aside as unreadable/intent/regions.json.20261108T174200Z.",
+  )
 })

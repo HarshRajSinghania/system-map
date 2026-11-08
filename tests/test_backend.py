@@ -187,6 +187,44 @@ class BackendTests(Served):
         self.assertEqual(caught.exception.code, 400)
 
 
+class UnreadableSavedFile(Served):
+    """A broken saved file is set aside, not an error."""
+
+    BROKEN = b'{"svc": {"region": \xff'
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        base = Path(cls._tmp.name)
+        repo = base / "repo"
+        (repo / "supabase" / "migrations").mkdir(parents=True)
+        (repo / "supabase" / "migrations" / "001.sql").write_text("CREATE TABLE public.orgs (id uuid PRIMARY KEY);\n")
+        subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True)
+        cls.data = base / "data"
+        store.build(repo, cls.data)
+        cls.target = store.repo_dir(repo, cls.data)
+        cls.regions = cls.target / "intent" / "regions.json"
+        cls.regions.parent.mkdir(parents=True)
+        cls.regions.write_bytes(cls.BROKEN)
+        cls.serve()
+
+    def test_system_and_findings_still_answer_with_no_regions_and_the_file_is_kept(self):
+        system = self.get("/system")
+        self.assertTrue(all("region" not in node for node in system["nodes"]))
+        findings = self.get("/findings")["findings"]
+        self.assertFalse([f for f in findings if "region" in f.get("rule", "")])
+        (kept,) = (self.target / "unreadable" / "intent").glob("regions.json.*")
+        self.assertRegex(kept.name, r"^regions\.json\.\d{8}T\d{6}Z$")
+        self.assertEqual(kept.read_bytes(), self.BROKEN)
+        self.assertFalse(self.regions.exists())
+
+    def test_overview_lists_the_file(self):
+        self.get("/system")
+        listed = self.get("/overview")["set_aside"]
+        self.assertEqual([item["file"] for item in listed], ["intent/regions.json"])
+        self.assertTrue((self.target / listed[0]["kept_as"]).is_file())
+
+
 class UnexpectedErrors(unittest.TestCase):
     """The handler runs in this process, so a store function can be made to fail."""
 

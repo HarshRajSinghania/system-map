@@ -68,6 +68,18 @@ class McpServerTests(unittest.TestCase):
         self.assertIn("orgs | 1 | 0", value["text"])
         self.assertEqual(value["facts_changed_since_build"], [])
         self.assertIn("stale", value["freshness"])
+        self.assertEqual(value["set_aside"], [])
+
+    def test_overview_lists_a_saved_file_that_was_set_aside(self):
+        regions = store.repo_dir(self.repo, self.data) / "intent" / "regions.json"
+        regions.parent.mkdir(parents=True)
+        regions.write_text("{broken")
+        self.tool("findings")
+        value = json.loads(self.tool("overview")["content"][0]["text"])
+        (item,) = value["set_aside"]
+        self.assertEqual(item["file"], "intent/regions.json")
+        self.assertRegex(item["kept_as"], r"^unreadable/intent/regions\.json\.\d{8}T\d{6}Z$")
+        self.assertEqual((regions.parent.parent / item["kept_as"]).read_text(), "{broken")
 
     def test_findings_filter_by_node_and_severity(self):
         value = json.loads(self.tool("findings", severity="high")["content"][0]["text"])
