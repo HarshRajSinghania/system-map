@@ -7,6 +7,8 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-08
+
 ### Added
 - **Agents from SDKs.** Agents declared with the OpenAI Agents SDK, Mastra or the Claude Agent
   SDK show in the Agents tab with no settings, when the root `package.json` lists the SDK. Each has

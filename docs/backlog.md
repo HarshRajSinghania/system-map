@@ -4,7 +4,7 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 
 ## Before you start
 
-- Work from `main`, on version 0.11.0. Each change goes on its own branch, with a PR into
+- Work from `main`, on version 0.12.0. Each change goes on its own branch, with a PR into
   `main`. The remote, `origin`, is a private GitHub repo. The older slice branches are kept, and
   `main` holds all of them.
 - Run the checks in the README's Checks section. All pass on `main`: 965 Python tests and
