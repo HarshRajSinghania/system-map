@@ -11,8 +11,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from core import read, store  # noqa: E402
-from core.extractors import plans  # noqa: E402
-from core.sources import open_source  # noqa: E402
+from core.extractors import plans, typescript  # noqa: E402
+from core.sources import TreeSource, open_source  # noqa: E402
 from tests.helpers import commit_all, git  # noqa: E402
 
 
@@ -150,11 +150,29 @@ class WhatItCouldntRead(Build):
 
     def test_installed_packages_and_build_output_are_not_counted_as_the_project_languages(self):
         self.app()
-        for folder in (".venv/lib/site-packages", "venv/lib", ".tox/py312", "pkg/__pycache__", "env/site-packages", "target/gen", "vendor/gems"):
+        for folder in (".venv/lib/site-packages", "venv/lib", ".tox/py312", "pkg/__pycache__", "env/site-packages", "vendor/gems"):
             for number in range(3):
                 self.write(f"{folder}/m{number}.py", "x = 1\n")
         self.write("tools/real.py", "x = 1\n")
         self.assertEqual(self.build()["read"]["unread"], [{"what": "1 Python file it doesn't read", "where": "tools/"}])
+
+    def test_a_plain_folder_still_reads_its_own_vendor_and_target_folders(self):
+        self.app()
+        self.write("app/vendor/page.tsx")
+        self.write("src/features/target/Card.tsx")
+        blobs = TreeSource(self.root).blobs
+        self.assertIn("app/vendor/page.tsx", blobs)
+        self.assertIn("src/features/target/Card.tsx", blobs)
+        self.assertIn("app/vendor/page.tsx", typescript.code_files(TreeSource(self.root)))
+
+    def test_a_committed_vendor_folder_gives_no_language_item_in_a_git_repo(self):
+        self.app()
+        for name in ("vendor/a.go", "vendor/b.go", "internal/vendor/c.go", "web/node_modules/pkg/d.java", "lib/python3.12/site-packages/e.py"):
+            self.write(name, "x\n")
+        self.write("tools/main.go", "package main\n")
+        git(self.root, "init", "-q", "-b", "main")
+        commit_all(self.root)
+        self.assertEqual(self.build()["read"]["unread"], [{"what": "1 Go file it doesn't read", "where": "tools/"}])
 
     def test_languages_come_after_every_other_explanation(self):
         self.app('"next": "16.0.0", "@prisma/client": "6.0.0", "mysql2": "3.0.0", "drizzle-orm": "1.0.0"')

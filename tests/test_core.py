@@ -669,6 +669,88 @@ class SetAside(Fixture):
             explore.get_item(self.target, "use_cases", "y")
         self.assert_kept("intent/use_cases/y.json", b'{"title": "no id"}')
 
+    def test_an_agent_draft_without_settings_or_a_commit_is_set_aside_like_a_missing_one(self):
+        for data in (b"{}", b'{"settings": {}}', b'{"commit": "abc"}'):
+            with self.subTest(data=data):
+                shutil.rmtree(self.target / "unreadable", ignore_errors=True)
+                self.broken("intent/agents-draft.json", data)
+                self.assertEqual(agent_drafts.load(self.target), {"draft": None, "changed": [], "stale": False})
+                self.assert_kept("intent/agents-draft.json", data)
+                self.broken("intent/agents-draft.json", data)
+                with self.assertRaisesRegex(KeyError, "no agent draft"):
+                    agent_drafts._read(self.target, "any")
+                self.broken("intent/agents-draft.json", data)
+                store.set_aside(self.target)
+                self.assertFalse((self.target / "intent" / "agents-draft.json").exists())
+
+    def a_service(self) -> str:
+        """The build found no system nodes, so add one to this version for a status or region to land on."""
+        path = store.current(self.target) / "system.json"
+        joined = json.loads(path.read_text())
+        joined["nodes"].append({"id": "service:bookshop", "kind": "service", "name": "Bookshop", "status": "built"})
+        path.write_text(json.dumps(joined))
+        return "service:bookshop"
+
+    def test_a_status_or_region_that_is_not_an_object_is_set_aside_and_the_system_still_loads(self):
+        node = self.a_service()
+        for relative, text in (("intent/plan_status.json", {node: "built"}), ("intent/regions.json", {node: "eu"})):
+            for data in (json.dumps(text).encode(), json.dumps({node: None}).encode(), json.dumps({node: [1]}).encode()):
+                with self.subTest(relative, data=data):
+                    shutil.rmtree(self.target / "unreadable", ignore_errors=True)
+                    self.broken(relative, data)
+                    joined = store.load_system(self.target)
+                    self.assertFalse([n for n in joined["nodes"] if n.get("region_source") or n.get("status_source")])
+                    self.assert_kept(relative, data)
+
+    def test_a_status_and_region_whose_values_are_objects_are_kept_and_applied(self):
+        node = self.a_service()
+        statuses = self.broken("intent/plan_status.json", json.dumps({node: {"status": "partial"}}).encode())
+        regions = self.broken("intent/regions.json", json.dumps({node: {"region": "eu"}}).encode())
+        (found,) = store.load_system(self.target)["nodes"]
+        self.assertEqual((found["status"], found["region"]), ("partial", "eu"))
+        self.assertTrue(statuses.is_file() and regions.is_file())
+        self.assertEqual(self.kept_files(), [])
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root can read a file with no permissions")
+    def test_a_file_that_cannot_be_opened_gives_the_default_logs_one_line_and_stays(self):
+        path = self.broken("intent/regions.json", b"{}")
+        path.chmod(0)
+        self.addCleanup(path.chmod, 0o644)
+        errors = io.StringIO()
+        with mock.patch.object(sys, "stderr", errors):
+            self.assertEqual(store.load_regions(self.target), {})
+            self.assertEqual(store.set_aside(self.target), [])
+        self.assertTrue(path.exists())
+        self.assertEqual(self.kept_files(), [])
+        self.assertEqual(len(errors.getvalue().splitlines()), 2)  # one for each of the two reads
+        self.assertIn("Permission denied", errors.getvalue())
+
+    def test_a_file_where_a_folder_should_be_gives_the_default_logs_one_line_and_stays(self):
+        shutil.rmtree(self.target / "intent", ignore_errors=True)
+        (self.target / "intent").write_text("not a folder")
+        errors = io.StringIO()
+        with mock.patch.object(sys, "stderr", errors):
+            self.assertEqual(store.load_regions(self.target), {})
+        self.assertEqual((self.target / "intent").read_text(), "not a folder")
+        self.assertEqual(len(errors.getvalue().splitlines()), 1)
+        swept = io.StringIO()
+        with mock.patch.object(sys, "stderr", swept):
+            self.assertEqual(store.set_aside(self.target), [])  # the sweep copes with it too
+            self.assertEqual(explore.list_items(self.target, "proposals"), [])
+        self.assertEqual(len(swept.getvalue().splitlines()), 4)  # one for each fixed-name file under intent/
+
+    def test_json_nested_too_deep_to_parse_is_set_aside_like_bad_json(self):
+        deep = b"[" * 200_000
+        for relative, read, empty in (
+            ("intent/regions.json", lambda: store.load_regions(self.target), {}),
+            ("coverage.json", lambda: store.load_coverage(self.target), None),
+            ("intent/proposals/p.json", lambda: explore.list_items(self.target, "proposals"), []),
+        ):
+            with self.subTest(relative):
+                self.broken(relative, deep)
+                self.assertEqual(read(), empty)
+                self.assert_kept(relative, deep)
+
     def test_set_aside_alone_finds_every_broken_saved_file(self):
         paths = (
             "coverage.json",

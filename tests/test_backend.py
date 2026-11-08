@@ -25,6 +25,7 @@ from core import agent_drafts, store  # noqa: E402
 from helpers import PROXY_SECRET, commit_all, git, principal_claim, proxy_signature, proxy_v2, signed_request  # noqa: E402
 from test_agent_drafts import EVIDENCE  # noqa: E402
 from test_agents import FILES, SETTINGS  # noqa: E402
+from test_sweep import build_with_every_saved_file, saved_files  # noqa: E402
 
 
 class Served(unittest.TestCase):
@@ -257,9 +258,45 @@ class UnreadableSavedFile(Served):
         self.assertFalse(status.exists())
         self.assertEqual([item["file"] for item in self.get("/overview")["set_aside"]], ["intent/plan_status.json"])
 
+    def test_an_agent_draft_with_no_settings_is_set_aside_and_the_route_answers_with_no_draft(self):
+        draft = self.target / "intent" / "agents-draft.json"
+        draft.write_text("{}")
+        reply = self.get("/agents/draft")
+        self.assertEqual(reply["draft"], None)
+        self.assertFalse(draft.exists())
+        self.assertEqual([item["file"] for item in self.get("/overview")["set_aside"]], ["intent/agents-draft.json"])
+
+    def test_a_plan_status_or_region_whose_values_are_not_objects_is_set_aside_and_system_answers(self):
+        for name, text in (("plan_status.json", '{"plan:x": "built"}'), ("regions.json", '{"svc": "eu"}')):
+            with self.subTest(name):
+                self.setUp()
+                saved = self.target / "intent" / name
+                saved.write_text(text)
+                self.assertEqual(self.status_of("/system"), 200)
+                self.assertFalse(saved.exists())
+                self.assertEqual([item["file"] for item in self.get("/overview")["set_aside"]], [f"intent/{name}"])
+
     def status_of(self, path):
         with urllib.request.urlopen(signed_request(self.url(path)), timeout=5) as reply:
             return reply.status
+
+
+class GoodSavedFiles(Served):
+    """Asking for the overview must not move a file that reads fine."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls._tmp = tempfile.TemporaryDirectory()
+        base = Path(cls._tmp.name)
+        cls.data = base / "data"
+        cls.target = build_with_every_saved_file(base / "repo", cls.data)
+        cls.before = saved_files(cls.target)
+        cls.serve()
+
+    def test_overview_lists_nothing_and_leaves_every_good_file_in_place(self):
+        self.assertEqual(self.get("/overview")["set_aside"], [])
+        self.assertEqual(saved_files(self.target), self.before)
+        self.assertFalse((self.target / "unreadable").exists())
 
 
 class UnexpectedErrors(unittest.TestCase):
