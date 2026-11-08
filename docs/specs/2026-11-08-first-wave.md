@@ -94,16 +94,23 @@ Gap 7, a saved file it can't read:
   - `where` is the top folder holding the most of them, with ties by name; `""` for the repo root.
 - **Gap 6:** `_lcov` raises `ValueError` with the line number. `do_GET` and `do_POST` add a last `except
   Exception` that logs the traceback and returns the 500 above.
-- **Gap 7:** one helper, `store.read_saved(path, default)`, replaces each saved-file `json.loads`:
-  - On `ValueError` (which covers bad JSON and bad UTF-8), it moves the file to
-    `<project>/unreadable/<relative path>.<UTC stamp>` and returns `default`.
-  - A `FileNotFoundError` during the move counts as already moved.
-  - `store.set_aside(target)` lists that folder.
+- **Gap 7:** one helper, `store.read_saved(target, path, default, keys=(), each_object=False)`, replaces
+  each saved-file `json.loads`:
+  - A file that isn't valid JSON (bad JSON, bad UTF-8, nested too deep) is set aside. So is one that is
+    not an object, lacks a key in `keys`, or, with `each_object`, has a value that is not an object.
+    It moves to `<project>/unreadable/<relative path>.<UTC stamp>` and the reader gets `default`.
+  - The copy's name is reserved first (`O_CREAT|O_EXCL`, then `-2`, `-3`), so a kept copy is never
+    overwritten. The bytes are read again just before the move, and a file fixed meanwhile is used.
+  - A missing file or a directory gives `default`. Any other read or move error gives `default`, leaves
+    the file in place and logs one line.
+  - `store.set_aside(target)` reads every saved file first, then lists that folder. So the list is the
+    same whichever view asked first.
   - Built model files (`versions/`) are out of this; a rebuild remakes them.
 - **CI:**
   - Two Python matrix entries: `floor` and `latest`. The latest tag comes from
     `gh release view --repo kirodotdev/KiroCrew`.
-  - Both jobs are required, so a breaking Kiro Crew release blocks PRs until it is fixed.
+  - One last job, `checks`, needs every other job and fails unless they all pass. It is the one name
+    branch protection requires, so a breaking Kiro Crew release blocks PRs until it is fixed.
   - About 5 minutes per job.
 - **Data:** no model schema change. A file it can't read is moved and kept, never deleted.
   One-way door: no.
