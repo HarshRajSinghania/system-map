@@ -13,14 +13,26 @@ from functools import cached_property
 from pathlib import Path, PurePosixPath
 
 
+def git_command(repo_root: Path, *args: str) -> list[str]:
+    """A git command line that starts no file-system monitor daemon."""
+    return ["git", "-c", "core.fsmonitor=false", "-C", str(repo_root), *args]
+
+
+def git_env(env: dict | None = None) -> dict:
+    """The environment for every git call. `GIT_OPTIONAL_LOCKS=0` stops `git status`
+    and friends from refreshing `.git/index` or taking `index.lock` in the user's repo."""
+    return {**(os.environ if env is None else env), "GIT_OPTIONAL_LOCKS": "0"}
+
+
 def git(repo_root: Path, *args: str) -> str | None:
     try:
         done = subprocess.run(
-            ["git", "-C", str(repo_root), *args],
+            git_command(repo_root, *args),
             capture_output=True,
             text=True,
             timeout=20,
             check=True,
+            env=git_env(),
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -31,12 +43,12 @@ def run_git(repo_root: Path, *args: str, env: dict | None = None, timeout: int =
     """Run git and keep its exact output and exit code. None means it could not run."""
     try:
         return subprocess.run(
-            ["git", "-C", str(repo_root), *args],
+            git_command(repo_root, *args),
             capture_output=True,
             text=True,
             errors="replace",
             timeout=timeout,
-            env=env,
+            env=git_env(env),
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -98,11 +110,12 @@ class GitSource:
             return {}
         request = "".join(f"{self.commit}:{path}\n" for path in paths).encode()
         done = subprocess.run(
-            ["git", "-C", str(self.root), "cat-file", "--batch"],
+            git_command(self.root, "cat-file", "--batch"),
             input=request,
             capture_output=True,
             timeout=120,
             check=True,
+            env=git_env(),
         )
         out, at, found = done.stdout, 0, {}
         for path in paths:

@@ -7,6 +7,25 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+### Security
+- Actions only a person should take now need Kiro Crew's signed principal claim to say a person in
+  the dashboard sent them (`backend.signedPrincipal`), not an agent or tool calling through the
+  gateway. This covers the Intent layer (agent settings, service regions, plan status, using or
+  dropping an agent draft, accepting or dropping a proposal, deleting an intent item), building a
+  folder by path, removing a project, setting the default folder, the folder window, and browsing
+  or listing folders. Those answer 403. Reading the built models, rebuilding a listed project and
+  loading coverage are unchanged, and `ui/dev` still counts as the person.
+
+### Changed
+- The app now says it needs Kiro Crew 0.12.0 or newer (`minKiroCrewVersion`). 0.12.0 is the first
+  release with `backend.signedPrincipal`; 0.11.2 has the v2 proxy signature and panel tabs but not
+  that.
+
+### Fixed
+- Every git call now runs with `GIT_OPTIONAL_LOCKS=0` and no file-system monitor, so reading a repo
+  never refreshes its `.git/index` or takes `index.lock`, and the worktree poll cannot collide with
+  your own git commands.
+
 ## [0.12.1] - 2026-11-08
 
 ### Fixed

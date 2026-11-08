@@ -1,7 +1,8 @@
 """Proposals, use cases and saved views: the Intent layer's working files.
 
 These live in `intent/` in app data, and a rebuild leaves them alone. Agents write drafts.
-Only a person accepts or drops a proposal, so that stays out of the agent tools.
+Only a person accepts or drops a proposal: no agent tool does it, and the backend refuses any
+caller the gateway does not vouch for as a dashboard session.
 """
 from __future__ import annotations
 
@@ -223,7 +224,7 @@ def read_proposal(target: Path, item_id: str) -> dict:
 
 
 def set_status(target: Path, item_id: str, status: str) -> dict:
-    """A person's call. No agent tool reaches this."""
+    """A person's call. No agent tool reaches this, and the backend route needs an owner-session claim."""
     if status not in PROPOSAL_STATUSES:
         raise ValueError(f"status must be one of {', '.join(PROPOSAL_STATUSES)}")
     record = get_item(target, "proposals", item_id)

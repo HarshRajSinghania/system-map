@@ -1,4 +1,6 @@
+import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -343,6 +345,33 @@ class ReadOnly(Repo):
         self.assertEqual(git(self.repo, "count-objects", "-v"), before)
         self.assertEqual(git(self.repo, "for-each-ref"), refs)
         self.assertEqual(git(self.repo, "status", "--porcelain"), status)
+
+    def test_reading_a_touched_file_leaves_the_index_alone(self):
+        index = self.repo / ".git" / "index"
+        touched = self.repo / "shared.md"
+        # Newer than the index, with the same content: plain `git status` would refresh the index.
+        later = index.stat().st_mtime + 30
+        os.utime(touched, (later, later))
+        os.utime(index, (later - 20, later - 20))
+        content, stamp = index.read_bytes(), index.stat().st_mtime_ns
+        self.assertEqual(worktrees.uncommitted(str(self.repo)), set())
+        self.state()
+        self.assertEqual(index.read_bytes(), content)
+        self.assertEqual(index.stat().st_mtime_ns, stamp)
+        self.assertFalse((self.repo / ".git" / "index.lock").exists())
+
+    def test_git_is_never_run_with_optional_locks(self):
+        seen = []
+        real = subprocess.run
+
+        def spy(command, *args, **kwargs):
+            seen.append((command, (kwargs.get("env") or {}).get("GIT_OPTIONAL_LOCKS")))
+            return real(command, *args, **kwargs)
+
+        with mock.patch("subprocess.run", spy):
+            self.state()
+        self.assertTrue(seen)
+        self.assertEqual([command for command, flag in seen if flag != "0"], [])
 
 
 if __name__ == "__main__":

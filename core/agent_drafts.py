@@ -2,7 +2,8 @@
 
 The chat reads the code and works out the settings. This module checks them, tries them on the
 model's commit without writing a version, and keeps one draft per project. Only a person uses or
-drops a draft, so that stays out of the agent tools. Nothing here writes to a repo.
+drops a draft: no agent tool does it, and the backend refuses any caller the gateway does not vouch
+for as a dashboard session. Nothing here writes to a repo.
 """
 from __future__ import annotations
 
