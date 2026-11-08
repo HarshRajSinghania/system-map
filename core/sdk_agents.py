@@ -360,6 +360,20 @@ def _link_models(run: _Run) -> None:
                 run.edges.add(node["id"], run.services[service], "uses_model", evidence)
 
 
+def _held_handoff(run: _Run, path: str, code: str, calls: dict[int, int], item: Where) -> int | None:
+    """The `(` of `handoff(…)` when an item of `handoffs` is a variable set to one in scope
+    (`const x = handoff(agent, …)`), else None."""
+    name = base._ident(code, *item)
+    if not name:
+        return None
+    here = [(where, start) for start, where in run.declarations(name, path) if where is None or where[0] < item[0] <= where[1]]
+    if not here:
+        return None
+    start = min(here, key=lambda found: (found[0] is None, found[0][1] - found[0][0] if found[0] else 0))[1]
+    declared = re.compile(rf"(?:const|let|var)\s+{re.escape(name)}\s*(?::[^=;]*)?=\s*").match(code, start)
+    return calls.get(declared.end()) if declared else None
+
+
 def _link_hand_offs(run: _Run) -> None:
     """Each agent in an OpenAI agent's `handoffs`, plain or as `handoff(x)`."""
     for name, path, where in sorted(run.hand_offs):
@@ -371,8 +385,11 @@ def _link_hand_offs(run: _Run) -> None:
         calls = dict(_calls(code, _heads(named, spaces, "handoff")))
         for first, last in base._items(code, start, base._close(code, start)):
             item = (first, last)
-            if first in calls:
-                arguments = base._items(code, calls[first], base._close(code, calls[first]))
+            paren = calls.get(first)
+            if paren is None:
+                paren = _held_handoff(run, path, code, calls, item)
+            if paren is not None:
+                arguments = base._items(code, paren, base._close(code, paren))
                 item = arguments[0] if arguments else item
             target = run.agent_at(path, item)
             if target and run.found[target]["sdk"] == OPENAI:

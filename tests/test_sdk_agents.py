@@ -187,6 +187,32 @@ class OpenAIAgents(Fixture):
         self.assertEqual(self.nodes["agent:one"]["evidence"], ["src/a.ts:2"])
 
 
+class HeldHandoff(Fixture):
+    HEAD = 'import { Agent, handoff } from "@openai/agents";\nconst one = new Agent({ name: "one" });\nconst two = new Agent({ name: "two" });\n'
+
+    def hand_offs(self, body: str, head: str | None = None) -> set[tuple[str, str]]:
+        self.build({"package.json": package("@openai/agents"), "src/a.ts": (head or self.HEAD) + body})
+        return self.links("hands_off_to")
+
+    def test_a_handoff_held_in_a_variable_and_listed_links_its_first_argument(self):
+        body = 'const toOne = handoff(one, { toolNameOverride: "x" });\nconst toTwo = handoff<unknown>(two);\nnew Agent({ name: "lead", handoffs: [toOne, toTwo] });\n'
+        links = self.hand_offs(body)
+        self.assertEqual(links, {("agent:lead", "agent:one"), ("agent:lead", "agent:two")})
+        edge = self.edges[("agent:lead", "hands_off_to", "agent:one")]
+        self.assertEqual(edge["evidence"], [f"src/a.ts:{line_of(self.HEAD + body, 'handoffs: [toOne')}"])
+
+    def test_a_held_handoff_inside_a_function_counts_there(self):
+        body = 'export function build() {\n  const toOne = handoff(one);\n  return new Agent({ name: "lead", handoffs: [toOne] });\n}\n'
+        self.assertEqual(self.hand_offs(body), {("agent:lead", "agent:one")})
+
+    def test_a_variable_that_is_not_a_handoff_call_adds_nothing(self):
+        self.assertEqual(self.hand_offs('const other = makeIt(one);\nnew Agent({ name: "lead", handoffs: [other] });\n'), set())
+
+    def test_a_handoff_that_is_not_from_the_sdk_adds_nothing(self):
+        head = self.HEAD.replace(", handoff }", " }") + "const handoff = (x) => x;\n"
+        self.assertEqual(self.hand_offs('const toOne = handoff(one);\nnew Agent({ name: "lead", handoffs: [toOne] });\n', head), set())
+
+
 class NotAgents(Fixture):
     def agents_with(self, name_source: str, extra: str = "") -> set[str]:
         code = f'import {{ Agent }} from "@openai/agents";\n{extra}\nexport const a = new Agent({{ name: {name_source} }});\n'
