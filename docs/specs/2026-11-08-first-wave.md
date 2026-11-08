@@ -1,7 +1,7 @@
 ---
 title: First wave - CI, dist check, host tests, unread languages, backend errors, unreadable saved files
 estimate: 285m
-status: approved
+status: done
 ---
 # First wave: CI, dist check, host tests, three gaps
 
