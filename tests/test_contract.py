@@ -175,6 +175,24 @@ class StoreListing(unittest.TestCase):
             with self.subTest(target=target):
                 self.assertTrue((ROOT / target).exists())
 
+    def test_the_readmes_jump_links_land_on_a_heading(self):
+        text = (ROOT / "README.md").read_text()
+        # GitHub's heading anchors: lower case, punctuation dropped, each space a hyphen.
+        slugs = {re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-") for heading in re.findall(r"^#+ (.+)$", text, re.M)}
+        anchors = re.findall(r"\]\(#([^)]+)\)", text)
+        self.assertGreaterEqual(len(anchors), 4)
+        for anchor in anchors:
+            with self.subTest(anchor=anchor):
+                self.assertIn(anchor, slugs)
+
+    def test_the_readmes_live_badges_read_fields_the_manifest_has(self):
+        text = (ROOT / "README.md").read_text()
+        fields = re.findall(r"query=%24\.(\w+)", text)
+        self.assertEqual(sorted(fields), ["minKiroCrewVersion", "version"])
+        for field in fields:
+            with self.subTest(field=field):
+                self.assertIn(field, MANIFEST)
+
     def test_the_ui_bundle_is_committed(self):
         try:
             subprocess.run(
