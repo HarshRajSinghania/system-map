@@ -1,11 +1,19 @@
 # System Map
 
+[![CI](https://github.com/mj-hahn/system-map/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mj-hahn/system-map/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmj-hahn%2Fsystem-map%2Fmain%2Fapp.json&query=%24.version&label=version&color=007ec6)](CHANGELOG.md)
+[![Kiro Crew](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmj-hahn%2Fsystem-map%2Fmain%2Fapp.json&query=%24.minKiroCrewVersion&label=Kiro%20Crew&prefix=%E2%89%A5%20&color=8a2be2)](https://github.com/kirodotdev/KiroCrew)
+[![License](https://img.shields.io/github/license/mj-hahn/system-map)](LICENSE)
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.png">
   <img src="assets/hero-light.png" alt="System Map: a system's layers drawn as blocks on a blueprint grid, beside the name and the line Your system, read from your repo">
 </picture>
 
 **A live map of your system: its parts, its data, its plans and its agents, read from your repo.**
+
+[Install](#install) · [First run](#first-run) · [How to use it](#how-to-use-it) ·
+[FAQ](#troubleshooting--faq) · [Changelog](CHANGELOG.md)
 
 System Map is an app for [Kiro Crew](https://github.com/kirodotdev/KiroCrew), the open-source
 personal AI agent.
