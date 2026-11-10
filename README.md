@@ -3,7 +3,7 @@
 [![CI](https://github.com/mj-hahn/system-map/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mj-hahn/system-map/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmj-hahn%2Fsystem-map%2Fmain%2Fapp.json&query=%24.version&label=version&color=007ec6)](CHANGELOG.md)
 [![Kiro Crew](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmj-hahn%2Fsystem-map%2Fmain%2Fapp.json&query=%24.minKiroCrewVersion&label=Kiro%20Crew&prefix=%E2%89%A5%20&color=8a2be2)](https://github.com/kirodotdev/KiroCrew)
-[![License](https://img.shields.io/github/license/mj-hahn/system-map)](LICENSE)
+[![License](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmj-hahn%2Fsystem-map%2Fmain%2Fapp.json&query=%24.license&label=license&color=007ec6)](LICENSE)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/hero-dark.png">
