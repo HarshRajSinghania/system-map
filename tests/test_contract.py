@@ -189,7 +189,7 @@ class StoreListing(unittest.TestCase):
     def test_the_readmes_live_badges_read_fields_the_manifest_has(self):
         text = (ROOT / "README.md").read_text()
         fields = re.findall(r"query=%24\.(\w+)", text)
-        self.assertEqual(sorted(fields), ["minKiroCrewVersion", "version"])
+        self.assertEqual(sorted(fields), ["license", "minKiroCrewVersion", "version"])
         for field in fields:
             with self.subTest(field=field):
                 self.assertIn(field, MANIFEST)
