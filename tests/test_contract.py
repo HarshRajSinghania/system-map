@@ -15,6 +15,7 @@ import sys
 import unittest
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -193,6 +194,20 @@ class StoreListing(unittest.TestCase):
             with self.subTest(field=field):
                 self.assertIn(field, MANIFEST)
 
+    def test_the_store_links_follow_the_hosts_rules(self):
+        # Kiro Crew drops any link past the sixth, and any that breaks a rule, with only a log line.
+        links = MANIFEST["links"]
+        self.assertLessEqual(len(links), 6)
+        for link in links:
+            with self.subTest(link=link.get("label")):
+                self.assertEqual(set(link), {"label", "url"})
+                self.assertTrue(1 <= len(link["label"]) <= 40)
+                self.assertLessEqual(len(link["url"]), 2048)
+                parts = urlparse(link["url"])
+                self.assertEqual(parts.scheme, "https")
+                self.assertIsNone(parts.username)
+                self.assertIn(parts.port, (None, 443))
+
     def test_the_ui_bundle_is_committed(self):
         try:
             subprocess.run(
@@ -238,7 +253,11 @@ class Versions(unittest.TestCase):
         tags = git("tag", "--list", "v*").split()
         if not tags:
             self.skipTest("this checkout has no release tags")
-        self.assertEqual(sorted(tags), sorted(f"v{version}" for version in released()))
+        # The release being made now is the one version allowed to have no tag yet: the tag goes on
+        # its commit once that commit is on main.
+        expected = {f"v{version}" for version in released()}
+        self.assertLessEqual(set(tags), expected)
+        self.assertLessEqual(expected - set(tags), {f"v{MANIFEST['version']}"})
         for tag in tags:
             with self.subTest(tag=tag):
                 self.assertEqual(json.loads(git("show", f"{tag}:app.json"))["version"], tag[1:])
