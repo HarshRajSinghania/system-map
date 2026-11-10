@@ -4,11 +4,11 @@ What's left, written so another agent can pick it up cold. Nothing here is start
 
 ## Before you start
 
-- Work from `main`, on version 0.12.1. Each change goes on its own branch, with a PR into
-  `main`. The remote, `origin`, is a private GitHub repo. The older slice branches are kept, and
-  `main` holds all of them.
-- Run the checks in the README's Checks section. All pass on `main`: 987 Python tests and
-  116 UI tests.
+- Work from `main`, on version 0.12.2. Each change goes on its own branch, with a PR into
+  `main`. The remote, `origin`, is the public GitHub repo `mj-hahn/system-map`. `main` only
+  merges once CI's `checks` job passes.
+- Run the checks in [development.md](development.md#checks). All pass on `main`: 1056 Python tests
+  and 119 UI tests, with none skipped.
 - Agents can't log in to the dashboard. `ui/dev` stands in for the host, so a person has to
   press Sync and look. Say what has and hasn't been seen for real.
 - Look at screenshots before you commit UI. Checks have passed while pictures showed faults.

@@ -7,6 +7,11 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+### Changed
+- The developer guide (code layout, checks, running the page without Kiro Crew, and proving each
+  reader against the real tool) moved from the README to `docs/development.md`. The README keeps a
+  short pointer and the two check commands.
+
 ## [0.12.2] - 2026-11-09
 
 ### Security

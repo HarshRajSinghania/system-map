@@ -178,13 +178,21 @@ class StoreListing(unittest.TestCase):
 
     def test_the_readmes_jump_links_land_on_a_heading(self):
         text = (ROOT / "README.md").read_text()
-        # GitHub's heading anchors: lower case, punctuation dropped, each space a hyphen.
-        slugs = {re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-") for heading in re.findall(r"^#+ (.+)$", text, re.M)}
         anchors = re.findall(r"\]\(#([^)]+)\)", text)
         self.assertGreaterEqual(len(anchors), 4)
         for anchor in anchors:
             with self.subTest(anchor=anchor):
-                self.assertIn(anchor, slugs)
+                self.assertIn(anchor, heading_anchors(text))
+
+    def test_links_between_the_docs_land_on_a_file_and_a_heading(self):
+        for doc in ("README.md", "docs/development.md", "docs/backlog.md"):
+            text = (ROOT / doc).read_text()
+            for target, anchor in re.findall(r"\]\(([^)#\s:]*)(?:#([^)\s]+))?\)", text):
+                path = (ROOT / doc).parent / target if target else ROOT / doc
+                with self.subTest(doc=doc, target=target, anchor=anchor):
+                    self.assertTrue(path.exists())
+                    if anchor:
+                        self.assertIn(anchor, heading_anchors(path.read_text()))
 
     def test_the_readmes_live_badges_read_fields_the_manifest_has(self):
         text = (ROOT / "README.md").read_text()
@@ -219,6 +227,11 @@ class StoreListing(unittest.TestCase):
             if not (ROOT / ".git").exists():
                 self.skipTest("not a git checkout")
             self.fail(f"ui/dist is not committed: {error}")
+
+
+def heading_anchors(text: str) -> set[str]:
+    """GitHub's anchor for each heading: lower case, punctuation dropped, each space a hyphen."""
+    return {re.sub(r"[^\w\- ]", "", heading.strip().lower()).replace(" ", "-") for heading in re.findall(r"^#+ (.+)$", text, re.M)}
 
 
 def released() -> list[str]:
