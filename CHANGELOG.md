@@ -7,6 +7,8 @@ commit that set the version in `app.json`. The format follows
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-09
+
 ### Security
 - Actions only a person should take now need Kiro Crew's signed principal claim to say a person in
   the dashboard sent them (`backend.signedPrincipal`), not an agent or tool calling through the
@@ -27,8 +29,12 @@ commit that set the version in `app.json`. The format follows
   `ui/dist` is not the committed build.
 - Tests that sign requests with Kiro Crew's own signing code and check System Map's test signatures
   with Kiro Crew's own checks, so the two can't drift apart.
+- The store page links to the source code, the issue tracker and this changelog (`links`).
+- The README shows CI, version, Kiro Crew and license badges, and links to its main sections.
 
 ### Changed
+- The author is now `mj-hahn`, and the source lives at
+  [github.com/mj-hahn/system-map](https://github.com/mj-hahn/system-map).
 - The app now says it needs Kiro Crew 0.12.0 or newer (`minKiroCrewVersion`). 0.12.0 is the first
   release with `backend.signedPrincipal`; 0.11.2 has the v2 proxy signature and panel tabs but not
   that.
